@@ -1,0 +1,23 @@
+FROM  rhel7:7-released
+LABEL maintainer="OpenShift Development <dev@lists.openshift.redhat.com>" \
+      com.redhat.component="golang-github-prometheus-prometheus-docker" \
+      name="openshift3/prometheus" \
+      version="v2.3.1" \
+      architecture=x86_64
+
+RUN yum-config-manager --enable rhel-7-server-ose-3.8-rpms && \
+    yum install -y prometheus && \
+    yum clean all
+RUN ln -s /usr/share/prometheus/console_libraries /usr/share/prometheus/consoles/ /etc/prometheus/
+RUN mkdir -p /prometheus && \
+    chown -R nobody:nobody etc/prometheus /prometheus
+
+USER       nobody
+EXPOSE     9090
+VOLUME     [ "/prometheus" ]
+WORKDIR    /prometheus
+ENTRYPOINT [ "/bin/prometheus" ]
+CMD        [ "--config.file=/etc/prometheus/prometheus.yml", \
+             "--storage.tsdb.path=/prometheus", \
+             "--web.console.libraries=/usr/share/prometheus/console_libraries", \
+             "--web.console.templates=/usr/share/prometheus/consoles" ]

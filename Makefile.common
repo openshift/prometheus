@@ -28,7 +28,11 @@ unexport GOBIN
 GO           ?= go
 GOFMT        ?= $(GO)fmt
 FIRST_GOPATH := $(firstword $(subst :, ,$(shell $(GO) env GOPATH)))
-PROMU        := $(FIRST_GOPATH)/bin/promu
+ifeq ($(BUILD_PROMU),false)
+       PROMU        := promu
+else
+       PROMU        := $(FIRST_GOPATH)/bin/promu
+endif
 STATICCHECK  := $(FIRST_GOPATH)/bin/staticcheck
 GOVENDOR     := $(FIRST_GOPATH)/bin/govendor
 pkgs          = ./...
@@ -89,7 +93,11 @@ docker:
 	docker build -t "$(DOCKER_IMAGE_NAME):$(DOCKER_IMAGE_TAG)" .
 
 promu:
+ifeq ($(BUILD_PROMU),false)
+	@echo "using installed promu $(shell which promu)"
+else
 	GOOS= GOARCH= $(GO) get -u github.com/prometheus/promu
+endif
 
 $(FIRST_GOPATH)/bin/staticcheck:
 	GOOS= GOARCH= $(GO) get -u honnef.co/go/tools/cmd/staticcheck

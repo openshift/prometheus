@@ -1,0 +1,12 @@
+# This is a systemd environment file which provides arguments to the systemd
+# prometheus service.
+# For more info see: https://www.freedesktop.org/software/systemd/man/systemd.exec.html#EnvironmentFile=
+
+# The location of the configuration file.
+CONFIG_FILE="--config.file=/etc/prometheus/prometheus.yml"
+
+# The path for storing data.
+STORAGE_PATH="--storage.tsdb.path=/var/lib/prometheus"
+
+# Other arguments.
+OTHER_ARGS="--web.console.libraries=/usr/share/prometheus/consoles_libraries --web.console.templates=/usr/share/prometheus/consoles"

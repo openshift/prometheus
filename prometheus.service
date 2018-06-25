@@ -1,0 +1,13 @@
+[Unit]
+Description=The Prometheus monitoring system and time series database
+Documentation=https://github.com/prometheus/prometheus
+
+[Service]
+Type=simple
+EnvironmentFile=-/etc/sysconfig/prometheus
+ExecStart=/usr/bin/prometheus $CONFIG_FILE $STORAGE_PATH $OTHER_ARGS
+ExecReload=/bin/kill -SIGHUP $MAINPID
+ExecStop=/bin/kill -SIGKILL $MAINPID
+
+[Install]
+WantedBy=multi-user.target
