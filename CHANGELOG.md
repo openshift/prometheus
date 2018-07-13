@@ -1,3 +1,48 @@
+## 2.3.1 / 2018-06-19
+
+* [BUGFIX] Avoid infinite loop on duplicate NaN values. #4275
+* [BUGFIX] Fix nil pointer deference when using various API endpoints #4282
+* [BUGFIX] config: set target group source index during unmarshalling #4245
+* [BUGFIX] discovery/file: fix logging #4178
+* [BUGFIX] kubernetes_sd: fix namespace filtering #4285
+* [BUGFIX] web: restore old path prefix behavior #4273
+* [BUGFIX] web: remove security headers added in 2.3.0 #4259
+
+## 2.3.0 / 2018-06-05
+
+* [CHANGE] `marathon_sd`: use `auth_token` and `auth_token_file` for token-based authentication instead of `bearer_token` and `bearer_token_file` respectively.
+* [CHANGE] Metric names for HTTP server metrics changed
+* [FEATURE] Add query commands to promtool
+* [FEATURE] Add security headers to HTTP server responses
+* [FEATURE] Pass query hints via remote read API
+* [FEATURE] Basic auth passwords can now be configured via file across all configuration
+* [ENHANCEMENT] Optimise PromQL and API serialization for memory usage and allocations
+* [ENHANCEMENT] Limit number of dropped targets in web UI
+* [ENHANCEMENT] Consul and EC2 service discovery allow using server-side filtering for performance improvement
+* [ENHANCEMENT] Add advanced filtering configuration to EC2 service discovery
+* [ENHANCEMENT] `marathon_sd`: adds support for basic and bearer authentication, plus all other common HTTP client options (TLS config, proxy URL, etc.)
+* [ENHANCEMENT] Provide machine type metadata and labels in GCE service discovery
+* [ENHANCEMENT] Add pod controller kind and name to Kubernetes service discovery data
+* [ENHANCEMENT] Move TSDB to flock-based log file that works with Docker containers
+* [BUGFIX] Properly propagate storage errors in PromQL
+* [BUGFIX] Fix path prefix for web pages
+* [BUGFIX] Fix goroutine leak in Consul service discovery
+* [BUGFIX] Fix races in scrape manager
+* [BUGFIX] Fix OOM for very large k in PromQL topk() queries
+* [BUGFIX] Make remote write more resilient to unavailable receivers
+* [BUGFIX] Make remote write shutdown cleanly
+* [BUGFIX] Don't leak files on errors in TSDB's tombstone cleanup
+* [BUGFIX] Unary minus expressions now removes the metric name from results
+* [BUGFIX] Fix bug that lead to wrong amount of samples considered for time range expressions
+
+## 2.2.1 / 2018-03-13
+
+* [BUGFIX] Fix data loss in TSDB on compaction
+* [BUGFIX] Correctly stop timer in remote-write path
+* [BUGFIX] Fix deadlock triggerd by loading targets page
+* [BUGFIX] Fix incorrect buffering of samples on range selection queries
+* [BUGFIX] Handle large index files on windows properly
+
 ## 2.2.0 / 2018-03-08
 
 * [CHANGE] Rename file SD mtime metric.
@@ -62,7 +107,7 @@ https://prometheus.io/docs/prometheus/2.0/migration/
 * [CHANGE] Removed `count_scalar`, `drop_common_labels` functions and `keep_common` modifier from PromQL.
 * [CHANGE] Rewritten exposition format parser with much higher performance. The Protobuf exposition format is no longer supported.
 * [CHANGE] Example console templates updated for new storage and metrics names. Examples other than node exporter and Prometheus removed.
-* [CHANGE] Admin and lifecycle APIs now disabled by default, can be reenabled via flags
+* [CHANGE] Admin and lifecycle APIs now disabled by default, can be re-enabled via flags
 * [CHANGE] Flags switched to using Kingpin, all flags are now --flagname rather than -flagname.
 * [FEATURE/CHANGE] Remote read can be configured to not read data which is available locally. This is enabled by default.
 * [FEATURE] Rules can be grouped now. Rules within a rule group are executed sequentially.
@@ -917,9 +962,9 @@ All changes:
 * [BUGFIX] Fixed special value handling in division and modulo of the query
   language.
 * [BUGFIX] Fix embed-static.sh.
-* [CLEANUP] Added intial HTTP API tests.
+* [CLEANUP] Added initial HTTP API tests.
 * [CLEANUP] Misc. other code cleanups.
-* [MAINTENANCE] Updated vendored dependcies to their newest versions.
+* [MAINTENANCE] Updated vendored dependencies to their newest versions.
 
 ## 0.12.0 / 2015-03-04
 * [CHANGE] Use client_golang v0.3.1. THIS CHANGES FINGERPRINTING AND INVALIDATES

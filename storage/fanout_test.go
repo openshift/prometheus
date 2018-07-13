@@ -15,6 +15,7 @@ package storage
 
 import (
 	"fmt"
+	"math"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -97,6 +98,16 @@ func TestMergeSeriesSet(t *testing.T) {
 				newMockSeries(labels.FromStrings("foo", "bar"), []sample{{0, 0}, {1, 1}, {2, 2}, {3, 3}}),
 			),
 		},
+		{
+			input: []SeriesSet{newMockSeriesSet(
+				newMockSeries(labels.FromStrings("foo", "bar"), []sample{{0, math.NaN()}}),
+			), newMockSeriesSet(
+				newMockSeries(labels.FromStrings("foo", "bar"), []sample{{0, math.NaN()}}),
+			)},
+			expected: newMockSeriesSet(
+				newMockSeries(labels.FromStrings("foo", "bar"), []sample{{0, math.NaN()}}),
+			),
+		},
 	} {
 		merged := NewMergeSeriesSet(tc.input)
 		for merged.Next() {
@@ -135,6 +146,14 @@ func TestMergeIterator(t *testing.T) {
 				newListSeriesIterator([]sample{{2, 2}, {5, 5}}),
 			},
 			expected: []sample{{0, 0}, {1, 1}, {2, 2}, {3, 3}, {4, 4}, {5, 5}},
+		},
+		{
+			input: []SeriesIterator{
+				newListSeriesIterator([]sample{{0, 0}, {1, 1}}),
+				newListSeriesIterator([]sample{{0, 0}, {2, 2}}),
+				newListSeriesIterator([]sample{{2, 2}, {3, 3}}),
+			},
+			expected: []sample{{0, 0}, {1, 1}, {2, 2}, {3, 3}},
 		},
 	} {
 		merged := newMergeIterator(tc.input)
@@ -189,6 +208,10 @@ func drainSamples(iter SeriesIterator) []sample {
 	result := []sample{}
 	for iter.Next() {
 		t, v := iter.At()
+		// NaNs can't be compared normally, so substitute for another value.
+		if math.IsNaN(v) {
+			v = -42
+		}
 		result = append(result, sample{t, v})
 	}
 	return result

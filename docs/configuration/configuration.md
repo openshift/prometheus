@@ -144,9 +144,11 @@ params:
 
 # Sets the `Authorization` header on every scrape request with the
 # configured username and password.
+# password and password_file are mutually exclusive.
 basic_auth:
   [ username: <string> ]
   [ password: <secret> ]
+  [ password_file: <string> ]
 
 # Sets the `Authorization` header on every scrape request with
 # the configured bearer token. It is mutually exclusive with `bearer_token_file`.
@@ -295,7 +297,7 @@ The following meta labels are available on targets during [relabeling](#relabel_
 
 * `__meta_consul_address`: the address of the target
 * `__meta_consul_dc`: the datacenter name for the target
-* `__meta_consul_metadata_<key>`: each metadata key value of the target
+* `__meta_consul_metadata_<key>`: each node metadata key value of the target
 * `__meta_consul_node`: the node name defined for the target
 * `__meta_consul_service_address`: the service address of the target
 * `__meta_consul_service_id`: the service ID of the target
@@ -321,8 +323,25 @@ tls_config:
 services:
   [ - <string> ]
 
+# See https://www.consul.io/api/catalog.html#list-nodes-for-service to know more
+# about the possible filters that can be used.
+
+# An optional tag used to filter nodes for a given service.
+[ tag: <string> ]
+
+# Node metadata used to filter nodes for a given service.
+[ node_meta:
+  [ <name>: <value> ... ] ]
+
 # The string by which Consul tags are joined into the tag label.
 [ tag_separator: <string> | default = , ]
+
+# Allow stale Consul results (see https://www.consul.io/api/index.html#consistency-modes). Will reduce load on Consul.
+[ allow_stale: <bool> ]
+
+# The time after which the provided names are refreshed.
+# On large setup it might be a good idea to increase this value because the catalog will change all the time.
+[ refresh_interval: <duration> | default = 30s ]
 ```
 
 Note that the IP number and port used to scrape the targets is assembled as
@@ -330,6 +349,12 @@ Note that the IP number and port used to scrape the targets is assembled as
 Consul setups, the relevant address is in `__meta_consul_service_address`.
 In those cases, you can use the [relabel](#relabel_config)
 feature to replace the special `__address__` label.
+
+The [relabeling phase](#relabel_config) is the preferred and more powerful
+way to filter services or nodes for a service based on arbitrary labels. For
+users with thousands of services it can be more efficient to use the Consul API
+directly which has basic support for filtering nodes (currently by node
+metadata and a single tag).
 
 ### `<dns_sd_config>`
 
@@ -406,22 +431,40 @@ region: <string>
 # The port to scrape metrics from. If using the public IP address, this must
 # instead be specified in the relabeling rule.
 [ port: <int> | default = 80 ]
+
+# Filters can be used optionally to filter the instance list by other criteria.
+# Available filter criteria can be found here:
+# https://docs.aws.amazon.com/AWSEC2/latest/APIReference/API_DescribeInstances.html
+# Filter API documentation: https://docs.aws.amazon.com/AWSEC2/latest/APIReference/API_Filter.html
+filters:
+  [ - name: <string>
+      values: <string>, [...] ]
 ```
+
+The [relabeling phase](#relabel_config) is the preferred and more powerful
+way to filter targets based on arbitrary labels. For users with thousands of
+instances it can be more efficient to use the EC2 API directly which has
+support for filtering instances.
 
 ### `<openstack_sd_config>`
 
 OpenStack SD configurations allow retrieving scrape targets from OpenStack Nova
 instances.
 
+One of the following `<openstack_role>` types can be configured to discover targets:
+
+#### `hypervisor`
+
+The `hypervisor` role discovers one target per Nova hypervisor node. The target
+address defaults to the `host_ip` attribute of the hypervisor.
+
 The following meta labels are available on targets during [relabeling](#relabel_config):
 
-* `__meta_openstack_instance_id`: the OpenStack instance ID.
-* `__meta_openstack_instance_name`: the OpenStack instance name.
-* `__meta_openstack_instance_status`: the status of the OpenStack instance.
-* `__meta_openstack_instance_flavor`: the flavor of the OpenStack instance.
-* `__meta_openstack_public_ip`: the public IP of the OpenStack instance.
-* `__meta_openstack_private_ip`: the private IP of the OpenStack instance.
-* `__meta_openstack_tag_<tagkey>`: each tag value of the instance.
+* `__meta_openstack_hypervisor_host_ip`: the hypervisor node's IP address.
+* `__meta_openstack_hypervisor_name`: the hypervisor node's name.
+* `__meta_openstack_hypervisor_state`: the hypervisor node's state.
+* `__meta_openstack_hypervisor_status`: the hypervisor node's status.
+* `__meta_openstack_hypervisor_type`: the hypervisor node's type.
 
 #### `instance`
 
@@ -444,7 +487,7 @@ See below for the configuration options for OpenStack discovery:
 # The information to access the OpenStack API.
 
 # The OpenStack role of entities that should be discovered.
-role: <role>
+role: <openstack_role>
 
 # The OpenStack Region.
 region: <string>
@@ -541,6 +584,8 @@ address with relabeling.
 The following meta labels are available on targets during [relabeling](#relabel_config):
 
 * `__meta_gce_instance_name`: the name of the instance
+* `__meta_gce_label_<name>`: each GCE label of the instance
+* `__meta_gce_machine_type`: full or partial URL of the machine type of the instance
 * `__meta_gce_metadata_<name>`: each metadata item of the instance
 * `__meta_gce_network`: the network URL of the instance
 * `__meta_gce_private_ip`: the private IP address of the instance
@@ -654,6 +699,8 @@ Available meta labels:
 * `__meta_kubernetes_pod_node_name`: The name of the node the pod is scheduled onto.
 * `__meta_kubernetes_pod_host_ip`: The current host IP of the pod object.
 * `__meta_kubernetes_pod_uid`: The UID of the pod object.
+* `__meta_kubernetes_pod_controller_kind`: Object kind of the pod controller.
+* `__meta_kubernetes_pod_controller_name`: Name of the pod controller.
 
 #### `endpoints`
 
@@ -670,6 +717,8 @@ Available meta labels:
   * `__meta_kubernetes_endpoint_ready`: Set to `true` or `false` for the endpoint's ready state.
   * `__meta_kubernetes_endpoint_port_name`: Name of the endpoint port.
   * `__meta_kubernetes_endpoint_port_protocol`: Protocol of the endpoint port.
+  * `__meta_kubernetes_endpoint_address_target_kind`: Kind of the endpoint address target.
+  * `__meta_kubernetes_endpoint_address_target_name`: Name of the endpoint address target.
 * If the endpoints belong to a service, all labels of the `role: service` discovery are attached.
 * For all targets backed by a pod, all labels of the `role: pod` discovery are attached.
 
@@ -705,11 +754,13 @@ role: <role>
 # Optional authentication information used to authenticate to the API server.
 # Note that `basic_auth`, `bearer_token` and `bearer_token_file` options are
 # mutually exclusive.
+# password and password_file are mutually exclusive.
 
 # Optional HTTP basic authentication information.
 basic_auth:
   [ username: <string> ]
   [ password: <secret> ]
+  [ password_file: <string> ]
 
 # Optional bearer token authentication information.
 [ bearer_token: <secret> ]
@@ -761,16 +812,44 @@ See below for the configuration options for Marathon discovery:
 servers:
   - <string>
 
-# Optional bearer token authentication information.
-# It is mutually exclusive with `bearer_token_file`.
-[ bearer_token: <secret> ]
-
-# Optional bearer token file authentication information.
-# It is mutually exclusive with `bearer_token`.
-[ bearer_token_file: <filename> ]
-
 # Polling interval
 [ refresh_interval: <duration> | default = 30s ]
+
+# Optional authentication information for token-based authentication
+# https://docs.mesosphere.com/1.11/security/ent/iam-api/#passing-an-authentication-token
+# It is mutually exclusive with `auth_token_file` and other authentication mechanisms.
+[ auth_token: <secret> ]
+
+# Optional authentication information for token-based authentication
+# https://docs.mesosphere.com/1.11/security/ent/iam-api/#passing-an-authentication-token
+# It is mutually exclusive with `auth_token` and other authentication mechanisms.
+[ auth_token_file: <filename> ]
+
+# Sets the `Authorization` header on every request with the
+# configured username and password.
+# This is mutually exclusive with other authentication mechanisms.
+# password and password_file are mutually exclusive.
+basic_auth:
+  [ username: <string> ]
+  [ password: <string> ]
+  [ password_file: <string> ]
+
+# Sets the `Authorization` header on every request with
+# the configured bearer token. It is mutually exclusive with `bearer_token_file` and other authentication mechanisms.
+# NOTE: The current version of DC/OS marathon (v1.11.0) does not support standard Bearer token authentication. Use `auth_token` instead.
+[ bearer_token: <string> ]
+
+# Sets the `Authorization` header on every request with the bearer token
+# read from the configured file. It is mutually exclusive with `bearer_token` and other authentication mechanisms.
+# NOTE: The current version of DC/OS marathon (v1.11.0) does not support standard Bearer token authentication. Use `auth_token_file` instead.
+[ bearer_token_file: /path/to/bearer/token/file ]
+
+# TLS configuration for connecting to marathon servers
+tls_config:
+  [ <tls_config> ]
+
+# Optional proxy URL.
+[ proxy_url: <string> ]
 ```
 
 By default every app listed in Marathon will be scraped by Prometheus. If not all
@@ -1006,9 +1085,11 @@ through the `__alerts_path__` label.
 
 # Sets the `Authorization` header on every request with the
 # configured username and password.
+# password and password_file are mutually exclusive.
 basic_auth:
   [ username: <string> ]
   [ password: <string> ]
+  [ password_file: <string> ]
 
 # Sets the `Authorization` header on every request with
 # the configured bearer token. It is mutually exclusive with `bearer_token_file`.
@@ -1100,9 +1181,11 @@ write_relabel_configs:
 
 # Sets the `Authorization` header on every remote write request with the
 # configured username and password.
+# password and password_file are mutually exclusive.
 basic_auth:
   [ username: <string> ]
   [ password: <string> ]
+  [ password_file: <string> ]
 
 # Sets the `Authorization` header on every remote write request with
 # the configured bearer token. It is mutually exclusive with `bearer_token_file`.
@@ -1118,6 +1201,24 @@ tls_config:
 
 # Optional proxy URL.
 [ proxy_url: <string> ]
+
+# Configures the queue used to write to remote storage.
+queue_config:
+  # Number of samples to buffer per shard before we start dropping them.
+  [ capacity: <int> | default = 100000 ]
+  # Maximum number of shards, i.e. amount of concurrency.
+  [ max_shards: <int> | default = 1000 ]
+  # Maximum number of samples per send.
+  [ max_samples_per_send: <int> | default = 100]
+  # Maximum time a sample will wait in buffer.
+  [ batch_send_deadline: <duration> | default = 5s ]
+  # Maximum number of times to retry a batch on recoverable errors.
+  [ max_retries: <int> | default = 10 ]
+  # Initial retry delay. Gets doubled for every retry.
+  [ min_backoff: <duration> | default = 30ms ]
+  # Maximum retry delay.
+  [ max_backoff: <duration> | default = 100ms ]
+
 ```
 
 There is a list of
@@ -1144,9 +1245,11 @@ required_matchers:
 
 # Sets the `Authorization` header on every remote read request with the
 # configured username and password.
+# password and password_file are mutually exclusive.
 basic_auth:
   [ username: <string> ]
   [ password: <string> ]
+  [ password_file: <string> ]
 
 # Sets the `Authorization` header on every remote read request with
 # the configured bearer token. It is mutually exclusive with `bearer_token_file`.

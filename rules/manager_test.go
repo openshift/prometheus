@@ -15,7 +15,6 @@ package rules
 
 import (
 	"context"
-	"fmt"
 	"math"
 	"sort"
 	"testing"
@@ -163,14 +162,6 @@ func TestAlertingRule(t *testing.T) {
 	}
 }
 
-func annotateWithTime(lines []string, ts time.Time) []string {
-	annotatedLines := []string{}
-	for _, line := range lines {
-		annotatedLines = append(annotatedLines, fmt.Sprintf(line, timestamp.FromTime(ts)))
-	}
-	return annotatedLines
-}
-
 func TestStaleness(t *testing.T) {
 	storage := testutil.NewStorage(t)
 	defer storage.Close()
@@ -296,6 +287,7 @@ func TestCopyState(t *testing.T) {
 }
 
 func TestUpdate(t *testing.T) {
+	files := []string{"fixtures/rules.yaml"}
 	expected := map[string]labels.Labels{
 		"test": labels.FromStrings("name", "value"),
 	}
@@ -305,15 +297,16 @@ func TestUpdate(t *testing.T) {
 	})
 	ruleManager.Run()
 
-	err := ruleManager.Update(0, nil)
+	err := ruleManager.Update(10*time.Second, files)
 	testutil.Ok(t, err)
+	testutil.Assert(t, len(ruleManager.groups) > 0, "expected non-empty rule groups")
 	for _, g := range ruleManager.groups {
 		g.seriesInPreviousEval = []map[string]labels.Labels{
 			expected,
 		}
 	}
 
-	err = ruleManager.Update(0, nil)
+	err = ruleManager.Update(10*time.Second, files)
 	testutil.Ok(t, err)
 	for _, g := range ruleManager.groups {
 		for _, actual := range g.seriesInPreviousEval {

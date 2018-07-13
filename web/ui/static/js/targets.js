@@ -8,6 +8,16 @@ function toggleJobTable(button, shouldExpand){
   }
 
   button.parents(".table-container").find("table").toggle(shouldExpand);
+  button.parents(".table-container").find(".collapsed-element").toggle(shouldExpand);
+}
+
+function showAll(_, container) {
+  $(container).show();
+}
+
+function showUnhealthy(_, container) {
+  const isHealthy = $(container).find("h2").attr("class").indexOf("danger") < 0;
+  if (isHealthy) { $(container).hide(); }
 }
 
 function init() {
@@ -30,33 +40,15 @@ function init() {
     }
   });
 
-  $(".filters button.unhealthy-targets").click(function(e) {
-    const button = $(e.target);
-    const icon = $(e.target).children("i");
+  $("#showTargets :input").change(function() {
+    const target = $(this).attr("id");
 
-    if (icon.hasClass("glyphicon-unchecked")) {
-      icon.removeClass("glyphicon-unchecked")
-          .addClass("glyphicon-check btn-primary");
-      button.addClass("is-checked");
-
-      $(".table-container").each(showUnhealthy);
-    } else if (icon.hasClass("glyphicon-check")) {
-      icon.removeClass("glyphicon-check btn-primary")
-          .addClass("glyphicon-unchecked");
-      button.removeClass("is-checked");
-
+    if (target === "all-targets") {
       $(".table-container").each(showAll);
+    } else if (target === "unhealthy-targets") {
+      $(".table-container").each(showUnhealthy);
     }
   });
-}
-
-function showAll(_, container) {
-  $(container).show();
-}
-
-function showUnhealthy(_, container) {
-  const isHealthy = $(container).find("h2").attr("class").indexOf("danger") < 0;
-  if (isHealthy) { $(container).hide(); }
 }
 
 $(init);

@@ -14,6 +14,7 @@
 package remote
 
 import (
+	"context"
 	"fmt"
 	"reflect"
 	"sync"
@@ -25,6 +26,8 @@ import (
 	"github.com/prometheus/prometheus/config"
 	"github.com/prometheus/prometheus/prompb"
 )
+
+const defaultFlushDeadline = 1 * time.Minute
 
 type TestStorageClient struct {
 	receivedSamples map[string][]*prompb.Sample
@@ -43,6 +46,9 @@ func NewTestStorageClient() *TestStorageClient {
 func (c *TestStorageClient) expectSamples(ss model.Samples) {
 	c.mtx.Lock()
 	defer c.mtx.Unlock()
+
+	c.expectedSamples = map[string][]*prompb.Sample{}
+	c.receivedSamples = map[string][]*prompb.Sample{}
 
 	for _, s := range ss {
 		ts := labelProtosToLabels(MetricToLabelProtos(s.Metric)).String()
@@ -66,7 +72,7 @@ func (c *TestStorageClient) waitForExpectedSamples(t *testing.T) {
 	}
 }
 
-func (c *TestStorageClient) Store(req *prompb.WriteRequest) error {
+func (c *TestStorageClient) Store(_ context.Context, req *prompb.WriteRequest) error {
 	c.mtx.Lock()
 	defer c.mtx.Unlock()
 	count := 0
@@ -106,7 +112,7 @@ func TestSampleDelivery(t *testing.T) {
 
 	cfg := config.DefaultQueueConfig
 	cfg.MaxShards = 1
-	m := NewQueueManager(nil, cfg, nil, nil, c)
+	m := NewQueueManager(nil, cfg, nil, nil, c, defaultFlushDeadline)
 
 	// These should be received by the client.
 	for _, s := range samples[:len(samples)/2] {
@@ -119,6 +125,44 @@ func TestSampleDelivery(t *testing.T) {
 	m.Start()
 	defer m.Stop()
 
+	c.waitForExpectedSamples(t)
+}
+
+func TestSampleDeliveryTimeout(t *testing.T) {
+	// Let's send one less sample than batch size, and wait the timeout duration
+	n := config.DefaultQueueConfig.Capacity - 1
+
+	samples := make(model.Samples, 0, n)
+	for i := 0; i < n; i++ {
+		name := model.LabelValue(fmt.Sprintf("test_metric_%d", i))
+		samples = append(samples, &model.Sample{
+			Metric: model.Metric{
+				model.MetricNameLabel: name,
+			},
+			Value: model.SampleValue(i),
+		})
+	}
+
+	c := NewTestStorageClient()
+
+	cfg := config.DefaultQueueConfig
+	cfg.MaxShards = 1
+	cfg.BatchSendDeadline = 100 * time.Millisecond
+	m := NewQueueManager(nil, cfg, nil, nil, c, defaultFlushDeadline)
+	m.Start()
+	defer m.Stop()
+
+	// Send the samples twice, waiting for the samples in the meantime.
+	c.expectSamples(samples)
+	for _, s := range samples {
+		m.Append(s)
+	}
+	c.waitForExpectedSamples(t)
+
+	c.expectSamples(samples)
+	for _, s := range samples {
+		m.Append(s)
+	}
 	c.waitForExpectedSamples(t)
 }
 
@@ -140,7 +184,7 @@ func TestSampleDeliveryOrder(t *testing.T) {
 
 	c := NewTestStorageClient()
 	c.expectSamples(samples)
-	m := NewQueueManager(nil, config.DefaultQueueConfig, nil, nil, c)
+	m := NewQueueManager(nil, config.DefaultQueueConfig, nil, nil, c, defaultFlushDeadline)
 
 	// These should be received by the client.
 	for _, s := range samples {
@@ -168,9 +212,12 @@ func NewTestBlockedStorageClient() *TestBlockingStorageClient {
 	}
 }
 
-func (c *TestBlockingStorageClient) Store(_ *prompb.WriteRequest) error {
+func (c *TestBlockingStorageClient) Store(ctx context.Context, _ *prompb.WriteRequest) error {
 	atomic.AddUint64(&c.numCalls, 1)
-	<-c.block
+	select {
+	case <-c.block:
+	case <-ctx.Done():
+	}
 	return nil
 }
 
@@ -218,7 +265,7 @@ func TestSpawnNotMoreThanMaxConcurrentSendsGoroutines(t *testing.T) {
 	cfg := config.DefaultQueueConfig
 	cfg.MaxShards = 1
 	cfg.Capacity = n
-	m := NewQueueManager(nil, cfg, nil, nil, c)
+	m := NewQueueManager(nil, cfg, nil, nil, c, defaultFlushDeadline)
 
 	m.Start()
 
@@ -256,5 +303,28 @@ func TestSpawnNotMoreThanMaxConcurrentSendsGoroutines(t *testing.T) {
 	numCalls := c.NumCalls()
 	if numCalls != uint64(1) {
 		t.Errorf("Saw %d concurrent sends, expected 1", numCalls)
+	}
+}
+
+func TestShutdown(t *testing.T) {
+	deadline := 10 * time.Second
+	c := NewTestBlockedStorageClient()
+	m := NewQueueManager(nil, config.DefaultQueueConfig, nil, nil, c, deadline)
+	for i := 0; i < config.DefaultQueueConfig.MaxSamplesPerSend; i++ {
+		m.Append(&model.Sample{
+			Metric: model.Metric{
+				model.MetricNameLabel: model.LabelValue(fmt.Sprintf("test_metric_%d", i)),
+			},
+			Value:     model.SampleValue(i),
+			Timestamp: model.Time(i),
+		})
+	}
+	m.Start()
+
+	start := time.Now()
+	m.Stop()
+	duration := time.Now().Sub(start)
+	if duration > deadline+(deadline/10) {
+		t.Errorf("Took too long to shutdown: %s > %s", duration, deadline)
 	}
 }

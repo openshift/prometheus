@@ -11,13 +11,15 @@ Prometheus uses GitHub to manage reviews of pull requests.
 * If you plan to do something more involved, first discuss your ideas
   on our [mailing list](https://groups.google.com/forum/?fromgroups#!forum/prometheus-developers).
   This will avoid unnecessary work and surely give you and us a good deal
-  of inspiration.
+  of inspiration. Also please see our [non-goals issue](https://github.com/prometheus/docs/issues/149) on areas that the Prometheus community doesn't plan to work on.
 
 * Relevant coding style guidelines are the [Go Code Review
   Comments](https://code.google.com/p/go-wiki/wiki/CodeReviewComments)
   and the _Formatting and style_ section of Peter Bourgon's [Go: Best
   Practices for Production
   Environments](http://peter.bourgon.org/go-in-production/#formatting-and-style).
+
+* Be sure to sign off on the [DCO](https://github.com/probot/dco#how-it-works)
 
 
 ## Steps to Contribute

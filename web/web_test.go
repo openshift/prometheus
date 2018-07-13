@@ -105,7 +105,6 @@ func TestReadyAndHealthy(t *testing.T) {
 		RuleManager:    nil,
 		Notifier:       nil,
 		RoutePrefix:    "/",
-		MetricsPath:    "/metrics/",
 		EnableAdminAPI: true,
 		TSDB:           func() *libtsdb.DB { return db },
 	}
@@ -201,7 +200,6 @@ func TestRoutePrefix(t *testing.T) {
 		RuleManager:    nil,
 		Notifier:       nil,
 		RoutePrefix:    "/prometheus",
-		MetricsPath:    "/prometheus/metrics",
 		EnableAdminAPI: true,
 		TSDB:           func() *libtsdb.DB { return db },
 	}
@@ -273,7 +271,6 @@ func TestRoutePrefix(t *testing.T) {
 	testutil.Ok(t, err)
 	testutil.Equals(t, http.StatusOK, resp.StatusCode)
 }
-
 func TestDebugHandler(t *testing.T) {
 	for _, tc := range []struct {
 		prefix, url string
@@ -290,7 +287,6 @@ func TestDebugHandler(t *testing.T) {
 	} {
 		opts := &Options{
 			RoutePrefix: tc.prefix,
-			MetricsPath: "/metrics",
 		}
 		handler := New(nil, opts)
 		handler.Ready()

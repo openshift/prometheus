@@ -736,7 +736,7 @@ scrape_configs:
    - targets: ["foo:9090"]
    - targets: ["bar:9090"]
 `
-	if err := yaml.Unmarshal([]byte(sOne), cfg); err != nil {
+	if err := yaml.UnmarshalStrict([]byte(sOne), cfg); err != nil {
 		t.Fatalf("Unable to load YAML config sOne: %s", err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -760,7 +760,7 @@ scrape_configs:
    static_configs:
    - targets: ["foo:9090"]
 `
-	if err := yaml.Unmarshal([]byte(sTwo), cfg); err != nil {
+	if err := yaml.UnmarshalStrict([]byte(sTwo), cfg); err != nil {
 		t.Fatalf("Unable to load YAML config sOne: %s", err)
 	}
 	c = make(map[string]sd_config.ServiceDiscoveryConfig)
@@ -772,6 +772,45 @@ scrape_configs:
 	<-discoveryManager.SyncCh()
 	verifyPresence(discoveryManager.targets, poolKey{setName: "prometheus", provider: "static/0"}, "{__address__=\"foo:9090\"}", true)
 	verifyPresence(discoveryManager.targets, poolKey{setName: "prometheus", provider: "static/0"}, "{__address__=\"bar:9090\"}", false)
+}
+
+func TestApplyConfigDoesNotModifyStaticProviderTargets(t *testing.T) {
+	cfgText := `
+scrape_configs:
+ - job_name: 'prometheus'
+   static_configs:
+   - targets: ["foo:9090"]
+   - targets: ["bar:9090"]
+   - targets: ["baz:9090"]
+`
+	originalConfig := &config.Config{}
+	if err := yaml.UnmarshalStrict([]byte(cfgText), originalConfig); err != nil {
+		t.Fatalf("Unable to load YAML config cfgYaml: %s", err)
+	}
+	origScrpCfg := originalConfig.ScrapeConfigs[0]
+
+	processedConfig := &config.Config{}
+	if err := yaml.UnmarshalStrict([]byte(cfgText), processedConfig); err != nil {
+		t.Fatalf("Unable to load YAML config cfgYaml: %s", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	discoveryManager := NewManager(ctx, nil)
+	go discoveryManager.Run()
+
+	c := make(map[string]sd_config.ServiceDiscoveryConfig)
+	for _, v := range processedConfig.ScrapeConfigs {
+		c[v.JobName] = v.ServiceDiscoveryConfig
+	}
+	discoveryManager.ApplyConfig(c)
+	<-discoveryManager.SyncCh()
+
+	for _, sdcfg := range c {
+		if !reflect.DeepEqual(origScrpCfg.ServiceDiscoveryConfig.StaticConfigs, sdcfg.StaticConfigs) {
+			t.Fatalf("discovery manager modified static config \n  expected: %v\n  got: %v\n",
+				origScrpCfg.ServiceDiscoveryConfig.StaticConfigs, sdcfg.StaticConfigs)
+		}
+	}
 }
 
 type update struct {

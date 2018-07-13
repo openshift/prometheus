@@ -15,14 +15,14 @@ package scrape
 
 import (
 	"fmt"
-	"reflect"
 	"testing"
-	"time"
 
 	"github.com/prometheus/common/model"
 	"github.com/prometheus/prometheus/config"
-	"github.com/prometheus/prometheus/discovery/targetgroup"
 	"github.com/prometheus/prometheus/pkg/labels"
+	"github.com/prometheus/prometheus/util/testutil"
+
+	yaml "gopkg.in/yaml.v2"
 )
 
 func mustNewRegexp(s string) config.Regexp {
@@ -214,22 +214,14 @@ func TestPopulateLabels(t *testing.T) {
 			err:     fmt.Errorf("invalid label value for \"custom\": \"\\xbd\""),
 		},
 	}
-	for i, c := range cases {
+	for _, c := range cases {
 		in := c.in.Copy()
 
 		res, orig, err := populateLabels(c.in, c.cfg)
-		if !reflect.DeepEqual(err, c.err) {
-			t.Fatalf("case %d: wanted %v error, got %v", i, c.err, err)
-		}
-		if !reflect.DeepEqual(c.in, in) {
-			t.Errorf("case %d: input lset was changed was\n\t%+v\n now\n\t%+v", i, in, c.in)
-		}
-		if !reflect.DeepEqual(res, c.res) {
-			t.Errorf("case %d: expected res\n\t%+v\n got\n\t%+v", i, c.res, res)
-		}
-		if !reflect.DeepEqual(orig, c.resOrig) {
-			t.Errorf("case %d: expected resOrig\n\t%+v\n got\n\t%+v", i, c.resOrig, orig)
-		}
+		testutil.Equals(t, c.err, err)
+		testutil.Equals(t, c.in, in)
+		testutil.Equals(t, c.res, res)
+		testutil.Equals(t, c.resOrig, orig)
 	}
 }
 
@@ -237,39 +229,41 @@ func TestPopulateLabels(t *testing.T) {
 func TestManagerReloadNoChange(t *testing.T) {
 	tsetName := "test"
 
-	reloadCfg := &config.Config{
-		ScrapeConfigs: []*config.ScrapeConfig{
-			&config.ScrapeConfig{
-				ScrapeInterval: model.Duration(3 * time.Second),
-				ScrapeTimeout:  model.Duration(2 * time.Second),
-			},
-		},
+	cfgText := `
+scrape_configs:
+ - job_name: '` + tsetName + `'
+   static_configs:
+   - targets: ["foo:9090"]
+   - targets: ["bar:9090"]
+`
+	cfg := &config.Config{}
+	if err := yaml.UnmarshalStrict([]byte(cfgText), cfg); err != nil {
+		t.Fatalf("Unable to load YAML config cfgYaml: %s", err)
 	}
 
 	scrapeManager := NewManager(nil, nil)
-	scrapeManager.scrapeConfigs[tsetName] = reloadCfg.ScrapeConfigs[0]
+	// Load the current config.
+	scrapeManager.ApplyConfig(cfg)
+
 	// As reload never happens, new loop should never be called.
-	newLoop := func(_ *Target, s scraper) loop {
+	newLoop := func(_ *Target, s scraper, _ int, _ bool, _ []*config.RelabelConfig) loop {
 		t.Fatal("reload happened")
 		return nil
 	}
+
 	sp := &scrapePool{
 		appendable: &nopAppendable{},
 		targets:    map[uint64]*Target{},
 		loops: map[uint64]loop{
-			1: &scrapeLoop{},
+			1: &testLoop{},
 		},
 		newLoop: newLoop,
 		logger:  nil,
-		config:  reloadCfg.ScrapeConfigs[0],
+		config:  cfg.ScrapeConfigs[0],
 	}
 	scrapeManager.scrapePools = map[string]*scrapePool{
 		tsetName: sp,
 	}
 
-	targets := map[string][]*targetgroup.Group{
-		tsetName: []*targetgroup.Group{},
-	}
-
-	scrapeManager.reload(targets)
+	scrapeManager.ApplyConfig(cfg)
 }

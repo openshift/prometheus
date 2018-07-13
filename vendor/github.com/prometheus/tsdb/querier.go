@@ -117,7 +117,7 @@ func (q *querier) Close() error {
 	return merr.Err()
 }
 
-// NewBlockQuerier returns a queries against the readers.
+// NewBlockQuerier returns a querier against the reader.
 func NewBlockQuerier(b BlockReader, mint, maxt int64) (Querier, error) {
 	indexr, err := b.Index()
 	if err != nil {
@@ -478,7 +478,7 @@ type baseChunkSeries struct {
 // over them. It drops chunks based on tombstones in the given reader.
 func LookupChunkSeries(ir IndexReader, tr TombstoneReader, ms ...labels.Matcher) (ChunkSeriesSet, error) {
 	if tr == nil {
-		tr = EmptyTombstoneReader()
+		tr = NewMemTombstones()
 	}
 	p, err := PostingsForMatchers(ir, ms...)
 	if err != nil {
