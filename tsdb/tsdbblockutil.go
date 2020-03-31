@@ -16,10 +16,11 @@ package tsdb
 import (
 	"context"
 	"fmt"
-	"github.com/go-kit/kit/log"
-	"github.com/prometheus/prometheus/pkg/labels"
 	"os"
 	"path/filepath"
+
+	"github.com/go-kit/kit/log"
+	"github.com/prometheus/prometheus/pkg/labels"
 )
 
 var InvalidTimesError = fmt.Errorf("max time is lesser than min time")
@@ -32,7 +33,7 @@ type MetricSample struct {
 
 // CreateHead creates a TSDB writer head to write the sample data to.
 func CreateHead(samples []*MetricSample, chunkRange int64, logger log.Logger) (*Head, error) {
-	head, err := NewHead(nil, logger, nil, chunkRange)
+	head, err := NewHead(nil, logger, nil, chunkRange, DefaultStripeSize)
 	if err != nil {
 		return nil, err
 	}
@@ -64,7 +65,7 @@ func CreateBlock(samples []*MetricSample, dir string, mint, maxt int64, logger l
 		return "", err
 	}
 
-	compactor, err := NewLeveledCompactor(context.Background(), nil, logger, DefaultOptions.BlockRanges, nil)
+	compactor, err := NewLeveledCompactor(context.Background(), nil, logger, ExponentialBlockRanges(DefaultBlockDuration, 3, 5), nil)
 	if err != nil {
 		return "", err
 	}

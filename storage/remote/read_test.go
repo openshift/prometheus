@@ -22,7 +22,6 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/prometheus/client_golang/prometheus"
 	config_util "github.com/prometheus/common/config"
 	"github.com/prometheus/prometheus/config"
 	"github.com/prometheus/prometheus/pkg/labels"
@@ -93,7 +92,7 @@ func TestNoDuplicateReadConfigs(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		s := NewStorage(nil, prometheus.DefaultRegisterer, nil, dir, defaultFlushDeadline)
+		s := NewStorage(nil, nil, nil, dir, defaultFlushDeadline)
 		conf := &config.Config{
 			GlobalConfig:      config.DefaultGlobalConfig,
 			RemoteReadConfigs: tc.cfgs,
@@ -118,7 +117,7 @@ func TestExternalLabelsQuerierSelect(t *testing.T) {
 		},
 	}
 	want := newSeriesSetFilter(mockSeriesSet{}, q.externalLabels)
-	have, _, err := q.Select(nil, matchers...)
+	have, _, err := q.Select(false, nil, matchers...)
 	if err != nil {
 		t.Error(err)
 	}
@@ -220,7 +219,7 @@ func TestSeriesSetFilter(t *testing.T) {
 	}
 
 	for i, tc := range tests {
-		filtered := newSeriesSetFilter(FromQueryResult(tc.in), tc.toRemove)
+		filtered := newSeriesSetFilter(FromQueryResult(true, tc.in), tc.toRemove)
 		have, err := ToQueryResult(filtered, 1e6)
 		if err != nil {
 			t.Fatal(err)
@@ -243,7 +242,7 @@ type mockSeriesSet struct {
 	storage.SeriesSet
 }
 
-func (mockQuerier) Select(*storage.SelectParams, ...*labels.Matcher) (storage.SeriesSet, storage.Warnings, error) {
+func (mockQuerier) Select(bool, *storage.SelectHints, ...*labels.Matcher) (storage.SeriesSet, storage.Warnings, error) {
 	return mockSeriesSet{}, nil, nil
 }
 
@@ -290,7 +289,7 @@ func TestPreferLocalStorageFilter(t *testing.T) {
 		}
 
 		if test.querier != q {
-			t.Errorf("%d. expected quierer %+v, got %+v", i, test.querier, q)
+			t.Errorf("%d. expected querier %+v, got %+v", i, test.querier, q)
 		}
 	}
 }
@@ -315,7 +314,7 @@ func TestRequiredMatchersFilter(t *testing.T) {
 	}
 
 	if !reflect.DeepEqual(want, have) {
-		t.Errorf("expected quierer %+v, got %+v", want, have)
+		t.Errorf("expected querier %+v, got %+v", want, have)
 	}
 }
 
@@ -399,7 +398,7 @@ func TestRequiredLabelsQuerierSelect(t *testing.T) {
 			requiredMatchers: test.requiredMatchers,
 		}
 
-		have, _, err := q.Select(nil, test.matchers...)
+		have, _, err := q.Select(false, nil, test.matchers...)
 		if err != nil {
 			t.Error(err)
 		}

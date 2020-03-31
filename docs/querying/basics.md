@@ -74,8 +74,8 @@ name:
 
     http_requests_total
 
-It is possible to filter these time series further by appending a set of labels
-to match in curly braces (`{}`).
+It is possible to filter these time series further by appending a comma separated list of label
+matchers in curly braces (`{}`).
 
 This example selects only those time series with the `http_requests_total`
 metric name that also have the `job` label set to `prometheus` and their
@@ -117,6 +117,14 @@ Label matchers can also be applied to metric names by matching against the inter
 The following expression selects all metrics that have a name starting with `job:`:
 
     {__name__=~"job:.*"}
+
+The metric name must not be one of the keywords `bool`, `on`, `ignoring`, `group_left` and `group_right`. The following expression is illegal:
+
+    on{} # Bad!
+
+A workaround for this restriction is to use the `__name__` label:
+
+    {__name__="on"} # Good!
 
 All regular expressions in Prometheus use [RE2
 syntax](https://github.com/google/re2/wiki/Syntax).

@@ -187,9 +187,10 @@ type walMetrics struct {
 	truncateFail    prometheus.Counter
 	truncateTotal   prometheus.Counter
 	currentSegment  prometheus.Gauge
+	writesFailed    prometheus.Counter
 }
 
-func newWALMetrics(w *WAL, r prometheus.Registerer) *walMetrics {
+func newWALMetrics(r prometheus.Registerer) *walMetrics {
 	m := &walMetrics{}
 
 	m.fsyncDuration = prometheus.NewSummary(prometheus.SummaryOpts{
@@ -217,6 +218,10 @@ func newWALMetrics(w *WAL, r prometheus.Registerer) *walMetrics {
 		Name: "prometheus_tsdb_wal_segment_current",
 		Help: "WAL segment index that TSDB is currently writing to.",
 	})
+	m.writesFailed = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "prometheus_tsdb_wal_writes_failed_total",
+		Help: "Total number of WAL writes that failed.",
+	})
 
 	if r != nil {
 		r.MustRegister(
@@ -226,6 +231,7 @@ func newWALMetrics(w *WAL, r prometheus.Registerer) *walMetrics {
 			m.truncateFail,
 			m.truncateTotal,
 			m.currentSegment,
+			m.writesFailed,
 		)
 	}
 
@@ -258,7 +264,7 @@ func NewSize(logger log.Logger, reg prometheus.Registerer, dir string, segmentSi
 		stopc:       make(chan chan struct{}),
 		compress:    compress,
 	}
-	w.metrics = newWALMetrics(w, reg)
+	w.metrics = newWALMetrics(reg)
 
 	_, last, err := w.Segments()
 	if err != nil {
@@ -287,7 +293,7 @@ func NewSize(logger log.Logger, reg prometheus.Registerer, dir string, segmentSi
 }
 
 // Open an existing WAL.
-func Open(logger log.Logger, reg prometheus.Registerer, dir string) (*WAL, error) {
+func Open(logger log.Logger, dir string) (*WAL, error) {
 	if logger == nil {
 		logger = log.NewNopLogger()
 	}
@@ -575,6 +581,7 @@ func (w *WAL) Log(recs ...[]byte) error {
 	// a bit of extra logic here frees them from that overhead.
 	for i, r := range recs {
 		if err := w.log(r, i == len(recs)-1); err != nil {
+			w.metrics.writesFailed.Inc()
 			return err
 		}
 	}

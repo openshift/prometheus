@@ -19,6 +19,7 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/prometheus/common/model"
 	"github.com/prometheus/prometheus/config"
@@ -45,13 +46,13 @@ var scenarios = map[string]struct {
 	"invalid params from the beginning": {
 		params: "match[]=-not-a-valid-metric-name",
 		code:   400,
-		body: `1:1: parse error: vector selector must contain label matchers or metric name
+		body: `1:1: parse error: unexpected <op:->
 `,
 	},
 	"invalid params somewhere in the middle": {
 		params: "match[]=not-a-valid-metric-name",
 		code:   400,
-		body: `1:4: parse error: could not parse remaining input "-a-valid-metric"...
+		body: `1:4: parse error: unexpected <op:->
 `,
 	},
 	"test_metric1": {
@@ -198,9 +199,10 @@ func TestFederation(t *testing.T) {
 	}
 
 	h := &Handler{
-		storage:     suite.Storage(),
-		queryEngine: suite.QueryEngine(),
-		now:         func() model.Time { return 101 * 60 * 1000 }, // 101min after epoch.
+		storage:       suite.Storage(),
+		queryEngine:   suite.QueryEngine(),
+		lookbackDelta: 5 * time.Minute,
+		now:           func() model.Time { return 101 * 60 * 1000 }, // 101min after epoch.
 		config: &config.Config{
 			GlobalConfig: config.GlobalConfig{},
 		},

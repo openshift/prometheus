@@ -1,3 +1,67 @@
+=======
+## 2.17.1 / 2020-03-26
+
+* [BUGFIX] TSDB: Fix query performance regression that increased memory and CPU usage #7051
+
+## 2.17.0 / 2020-03-24
+
+This release implements isolation in TSDB. API queries and recording rules are
+guaranteed to only see full scrapes and full recording rules. This comes with a
+certain overhead in resource usage. Depending on the situation, there might be
+some increase in memory usage, CPU usage, or query latency.
+
+* [FEATURE] TSDB: Support isolation #6841
+* [ENHANCEMENT] PromQL: Allow more keywords as metric names #6933
+* [ENHANCEMENT] React UI: Add normalization of localhost URLs in targets page #6794
+* [ENHANCEMENT] Remote read: Read from remote storage concurrently #6770
+* [ENHANCEMENT] Rules: Mark deleted rule series as stale after a reload #6745
+* [ENHANCEMENT] Scrape: Log scrape append failures as debug rather than warn #6852
+* [ENHANCEMENT] TSDB: Improve query performance for queries that partially hit the head #6676
+* [ENHANCEMENT] Consul SD: Expose service health as meta label #5313
+* [ENHANCEMENT] EC2 SD: Expose EC2 instance lifecycle as meta label #6914
+* [ENHANCEMENT] Kubernetes SD: Expose service type as meta label for K8s service role #6684
+* [ENHANCEMENT] Kubernetes SD: Expose label_selector and field_selector #6807
+* [ENHANCEMENT] Openstack SD: Expose hypervisor id as meta label #6962
+* [BUGFIX] PromQL: Do not escape HTML-like chars in query log #6834 #6795
+* [BUGFIX] React UI: Fix data table matrix values #6896
+* [BUGFIX] React UI: Fix new targets page not loading when using non-ASCII characters #6892
+* [BUGFIX] Remote read: Fix duplication of metrics read from remote storage with external labels #6967 #7018
+* [BUGFIX] Remote write: Register WAL watcher and live reader metrics for all remotes, not just the first one #6998
+* [BUGFIX] Scrape: Prevent removal of metric names upon relabeling #6891
+* [BUGFIX] Scrape: Fix 'superfluous response.WriteHeader call' errors when scrape fails under some circonstances #6986
+* [BUGFIX] Scrape: Fix crash when reloads are separated by two scrape intervals #7011
+
+## 2.16.0 / 2020-02-13
+
+* [FEATURE] React UI: Support local timezone on /graph #6692
+* [FEATURE] PromQL: add absent_over_time query function #6490
+* [FEATURE] Adding optional logging of queries to their own file #6520
+* [ENHANCEMENT] React UI: Add support for rules page and "Xs ago" duration displays #6503
+* [ENHANCEMENT] React UI: alerts page, replace filtering togglers tabs with checkboxes #6543
+* [ENHANCEMENT] TSDB: Export metric for WAL write errors #6647
+* [ENHANCEMENT] TSDB: Improve query performance for queries that only touch the most recent 2h of data. #6651
+* [ENHANCEMENT] PromQL: Refactoring in parser errors to improve error messages #6634
+* [ENHANCEMENT] PromQL: Support trailing commas in grouping opts #6480
+* [ENHANCEMENT] Scrape: Reduce memory usage on reloads by reusing scrape cache #6670
+* [ENHANCEMENT] Scrape: Add metrics to track bytes and entries in the metadata cache #6675
+* [ENHANCEMENT] promtool: Add support for line-column numbers for invalid rules output #6533
+* [ENHANCEMENT] Avoid restarting rule groups when it is unnecessary #6450
+* [BUGFIX] React UI: Send cookies on fetch() on older browsers #6553
+* [BUGFIX] React UI: adopt grafana flot fix for stacked graphs #6603
+* [BUFGIX] React UI: broken graph page browser history so that back button works as expected #6659
+* [BUGFIX] TSDB: ensure compactionsSkipped metric is registered, and log proper error if one is returned from head.Init #6616
+* [BUGFIX] TSDB: return an error on ingesting series with duplicate labels #6664
+* [BUGFIX] PromQL: Fix unary operator precedence #6579
+* [BUGFIX] PromQL: Respect query.timeout even when we reach query.max-concurrency #6712
+* [BUGFIX] PromQL: Fix string and parentheses handling in engine, which affected React UI #6612
+* [BUGFIX] PromQL: Remove output labels returned by absent() if they are produced by multiple identical label matchers #6493
+* [BUGFIX] Scrape: Validate that OpenMetrics input ends with `# EOF` #6505
+* [BUGFIX] Remote read: return the correct error if configs can't be marshal'd to JSON #6622
+* [BUGFIX] Remote write: Make remote client `Store` use passed context, which can affect shutdown timing #6673
+* [BUGFIX] Remote write: Improve sharding calculation in cases where we would always be consistently behind by tracking pendingSamples #6511
+* [BUGFIX] Ensure prometheus_rule_group metrics are deleted when a rule group is removed #6693
+
+>>>>>>> upstream/release-2.17
 ## 2.15.2 / 2020-01-06
 
 * [BUGFIX] TSDB: Fixed support for TSDB blocks built with Prometheus before 2.1.0. #6564
@@ -19,7 +83,7 @@
 * [ENHANCEMENT] Remote read: Added query grouping and range hints to the remote read request #6401
 * [ENHANCEMENT] Remote write: Added `prometheus_remote_storage_sent_bytes_total` counter per queue. #6344
 * [ENHANCEMENT] promql: Improved PromQL parser performance. #6356
-* [ENHANCEMENT] React UI: Implemented missing pages like `/targets` #6276, TSDB status page #6267 and many other fixes and performance improvements.
+* [ENHANCEMENT] React UI: Implemented missing pages like `/targets` #6276, TSDB status page #6281 #6267 and many other fixes and performance improvements.
 * [ENHANCEMENT] promql: Prometheus now accepts spaces between time range and square bracket. e.g `[ 5m]` #6065
 * [BUGFIX] Config: Fixed alertmanager configuration to not miss targets when configurations are similar. #6455
 * [BUGFIX] Remote write: Value of `prometheus_remote_storage_shards_desired` gauge shows raw value of desired shards and it's updated correctly. #6378
@@ -477,7 +541,7 @@ This release includes multiple bugfixes and features. Further, the WAL implement
 
 * [FEATURE] New Service Discovery UI showing labels before and after relabelling.
 * [FEATURE] New Admin APIs added to v1 to delete, snapshot and remove tombstones.
-* [ENHANCEMENT] The graph UI autcomplete now includes your previous queries.
+* [ENHANCEMENT] The graph UI autocomplete now includes your previous queries.
 * [ENHANCEMENT] Federation is now much faster for large numbers of series.
 * [ENHANCEMENT] Added new metrics to measure rule timings.
 * [ENHANCEMENT] Rule evaluation times added to the rules UI.
@@ -596,7 +660,7 @@ https://prometheus.io/docs/prometheus/2.0/migration/
 
 ## 1.6.3 / 2017-05-18
 
-* [BUGFIX] Fix disappearing Alertmanger targets in Alertmanager discovery.
+* [BUGFIX] Fix disappearing Alertmanager targets in Alertmanager discovery.
 * [BUGFIX] Fix panic with remote_write on ARMv7.
 * [BUGFIX] Fix stacked graphs to adapt min/max values.
 
@@ -772,7 +836,7 @@ This is a breaking change to the Kubernetes service discovery.
 ## 1.2.1 / 2016-10-10
 
 * [BUGFIX] Count chunk evictions properly so that the server doesn't
-  assume it runs out of memory and subsequencly throttles ingestion.
+  assume it runs out of memory and subsequently throttles ingestion.
 * [BUGFIX] Use Go1.7.1 for prebuilt binaries to fix issues on MacOS Sierra.
 
 ## 1.2.0 / 2016-10-07

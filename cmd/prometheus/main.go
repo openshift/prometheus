@@ -17,6 +17,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"math"
 	"net"
 	"net/http"
 	_ "net/http/pprof" // Comment this line to disable pprof endpoint.
@@ -31,6 +32,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/alecthomas/units"
 	"github.com/go-kit/kit/log"
 	"github.com/go-kit/kit/log/level"
 	conntrack "github.com/mwitkow/go-conntrack"
@@ -48,6 +50,8 @@ import (
 	"github.com/prometheus/prometheus/discovery"
 	sd_config "github.com/prometheus/prometheus/discovery/config"
 	"github.com/prometheus/prometheus/notifier"
+	"github.com/prometheus/prometheus/pkg/labels"
+	"github.com/prometheus/prometheus/pkg/logging"
 	"github.com/prometheus/prometheus/pkg/relabel"
 	prom_runtime "github.com/prometheus/prometheus/pkg/runtime"
 	"github.com/prometheus/prometheus/promql"
@@ -55,7 +59,7 @@ import (
 	"github.com/prometheus/prometheus/scrape"
 	"github.com/prometheus/prometheus/storage"
 	"github.com/prometheus/prometheus/storage/remote"
-	"github.com/prometheus/prometheus/storage/tsdb"
+	"github.com/prometheus/prometheus/tsdb"
 	"github.com/prometheus/prometheus/util/strutil"
 	"github.com/prometheus/prometheus/web"
 )
@@ -105,7 +109,7 @@ func main() {
 		outageTolerance     model.Duration
 		resendDelay         model.Duration
 		web                 web.Options
-		tsdb                tsdb.Options
+		tsdb                tsdbOptions
 		lookbackDelta       model.Duration
 		webTimeout          model.Duration
 		queryTimeout        model.Duration
@@ -235,7 +239,7 @@ func main() {
 	a.Flag("alertmanager.timeout", "Timeout for sending alerts to Alertmanager.").
 		Default("10s").SetValue(&cfg.notifierTimeout)
 
-	a.Flag("query.lookback-delta", "The maximum lookback duration for retrieving metrics during expression evaluations.").
+	a.Flag("query.lookback-delta", "The maximum lookback duration for retrieving metrics during expression evaluations and federation.").
 		Default("5m").SetValue(&cfg.lookbackDelta)
 
 	a.Flag("query.timeout", "Maximum time a query may take before being aborted.").
@@ -320,7 +324,6 @@ func main() {
 		}
 	}
 
-	promql.LookbackDelta = time.Duration(cfg.lookbackDelta)
 	promql.SetDefaultEvaluationInterval(time.Duration(config.DefaultGlobalConfig.EvaluationInterval))
 
 	// Above level 6, the k8s client would log bearer tokens in clear-text.
@@ -334,7 +337,7 @@ func main() {
 	level.Info(logger).Log("vm_limits", prom_runtime.VmLimits())
 
 	var (
-		localStorage  = &tsdb.ReadyStorage{}
+		localStorage  = &readyStorage{}
 		remoteStorage = remote.NewStorage(log.With(logger, "component", "remote"), prometheus.DefaultRegisterer, localStorage.StartTime, cfg.localStoragePath, time.Duration(cfg.RemoteFlushDeadline))
 		fanoutStorage = storage.NewFanout(logger, localStorage, remoteStorage)
 	)
@@ -356,10 +359,10 @@ func main() {
 		opts = promql.EngineOpts{
 			Logger:             log.With(logger, "component", "query engine"),
 			Reg:                prometheus.DefaultRegisterer,
-			MaxConcurrent:      cfg.queryConcurrency,
 			MaxSamples:         cfg.queryMaxSamples,
 			Timeout:            time.Duration(cfg.queryTimeout),
 			ActiveQueryTracker: promql.NewActiveQueryTracker(cfg.localStoragePath, cfg.queryConcurrency, log.With(logger, "component", "activeQueryTracker")),
+			LookbackDelta:      time.Duration(cfg.lookbackDelta),
 		}
 
 		queryEngine = promql.NewEngine(opts)
@@ -381,12 +384,14 @@ func main() {
 
 	cfg.web.Context = ctxWeb
 	cfg.web.TSDB = localStorage.Get
+	cfg.web.TSDBRetentionDuration = cfg.tsdb.RetentionDuration
+	cfg.web.TSDBMaxBytes = cfg.tsdb.MaxBytes
 	cfg.web.Storage = fanoutStorage
 	cfg.web.QueryEngine = queryEngine
 	cfg.web.ScrapeManager = scrapeManager
 	cfg.web.RuleManager = ruleManager
 	cfg.web.Notifier = notifierManager
-	cfg.web.TSDBCfg = cfg.tsdb
+	cfg.web.LookbackDelta = time.Duration(cfg.lookbackDelta)
 
 	cfg.web.Version = &web.PrometheusVersion{
 		Version:   version.Version,
@@ -420,6 +425,19 @@ func main() {
 	reloaders := []func(cfg *config.Config) error{
 		remoteStorage.ApplyConfig,
 		webHandler.ApplyConfig,
+		func(cfg *config.Config) error {
+			if cfg.GlobalConfig.QueryLogFile == "" {
+				queryEngine.SetQueryLogger(nil)
+				return nil
+			}
+
+			l, err := logging.NewJSONFileLogger(cfg.GlobalConfig.QueryLogFile)
+			if err != nil {
+				return err
+			}
+			queryEngine.SetQueryLogger(l)
+			return nil
+		},
 		// The Scrape and notifier managers need to reload before the Discovery manager as
 		// they need to read the most updated config when receiving the new targets list.
 		scrapeManager.ApplyConfig,
@@ -642,6 +660,7 @@ func main() {
 	}
 	{
 		// TSDB.
+		opts := cfg.tsdb.ToTSDBOptions()
 		cancel := make(chan struct{})
 		g.Add(
 			func() error {
@@ -651,15 +670,16 @@ func main() {
 						return errors.New("flag 'storage.tsdb.wal-segment-size' must be set between 10MB and 256MB")
 					}
 				}
-				db, err := tsdb.Open(
+				db, err := openDBWithMetrics(
 					cfg.localStoragePath,
-					log.With(logger, "component", "tsdb"),
+					logger,
 					prometheus.DefaultRegisterer,
-					&cfg.tsdb,
+					&opts,
 				)
 				if err != nil {
 					return errors.Wrapf(err, "opening storage failed")
 				}
+
 				level.Info(logger).Log("fs_type", prom_runtime.Statfs(cfg.localStoragePath))
 				level.Info(logger).Log("msg", "TSDB started")
 				level.Debug(logger).Log("msg", "TSDB options",
@@ -728,6 +748,40 @@ func main() {
 		os.Exit(1)
 	}
 	level.Info(logger).Log("msg", "See you next time!")
+}
+
+func openDBWithMetrics(dir string, logger log.Logger, reg prometheus.Registerer, opts *tsdb.Options) (*tsdb.DB, error) {
+	db, err := tsdb.Open(
+		dir,
+		log.With(logger, "component", "tsdb"),
+		reg,
+		opts,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	reg.MustRegister(
+		prometheus.NewGaugeFunc(prometheus.GaugeOpts{
+			Name: "prometheus_tsdb_lowest_timestamp_seconds",
+			Help: "Lowest timestamp value stored in the database.",
+		}, func() float64 {
+			bb := db.Blocks()
+			if len(bb) == 0 {
+				return float64(db.Head().MinTime() / 1000)
+			}
+			return float64(db.Blocks()[0].Meta().MinTime / 1000)
+		}), prometheus.NewGaugeFunc(prometheus.GaugeOpts{
+			Name: "prometheus_tsdb_head_min_time_seconds",
+			Help: "Minimum time bound of the head block.",
+		}, func() float64 { return float64(db.Head().MinTime() / 1000) }),
+		prometheus.NewGaugeFunc(prometheus.GaugeOpts{
+			Name: "prometheus_tsdb_head_max_time_seconds",
+			Help: "Maximum timestamp of the head block.",
+		}, func() float64 { return float64(db.Head().MaxTime() / 1000) }),
+	)
+
+	return db, nil
 }
 
 func reloadConfig(filename string, logger log.Logger, rls ...func(*config.Config) error) (err error) {
@@ -837,5 +891,118 @@ func sendAlerts(s sender, externalURL string) rules.NotifyFunc {
 		if len(alerts) > 0 {
 			s.Send(res...)
 		}
+	}
+}
+
+// readyStorage implements the Storage interface while allowing to set the actual
+// storage at a later point in time.
+type readyStorage struct {
+	mtx             sync.RWMutex
+	db              *tsdb.DB
+	startTimeMargin int64
+}
+
+// Set the storage.
+func (s *readyStorage) Set(db *tsdb.DB, startTimeMargin int64) {
+	s.mtx.Lock()
+	defer s.mtx.Unlock()
+
+	s.db = db
+	s.startTimeMargin = startTimeMargin
+}
+
+// Get the storage.
+func (s *readyStorage) Get() *tsdb.DB {
+	if x := s.get(); x != nil {
+		return x
+	}
+	return nil
+}
+
+func (s *readyStorage) get() *tsdb.DB {
+	s.mtx.RLock()
+	x := s.db
+	s.mtx.RUnlock()
+	return x
+}
+
+// StartTime implements the Storage interface.
+func (s *readyStorage) StartTime() (int64, error) {
+	if x := s.get(); x != nil {
+		var startTime int64
+
+		if len(x.Blocks()) > 0 {
+			startTime = x.Blocks()[0].Meta().MinTime
+		} else {
+			startTime = time.Now().Unix() * 1000
+		}
+		// Add a safety margin as it may take a few minutes for everything to spin up.
+		return startTime + s.startTimeMargin, nil
+	}
+
+	return math.MaxInt64, tsdb.ErrNotReady
+}
+
+// Querier implements the Storage interface.
+func (s *readyStorage) Querier(ctx context.Context, mint, maxt int64) (storage.Querier, error) {
+	if x := s.get(); x != nil {
+		return x.Querier(ctx, mint, maxt)
+	}
+	return nil, tsdb.ErrNotReady
+}
+
+// Appender implements the Storage interface.
+func (s *readyStorage) Appender() storage.Appender {
+	if x := s.get(); x != nil {
+		return x.Appender()
+	}
+	return notReadyAppender{}
+}
+
+type notReadyAppender struct{}
+
+func (n notReadyAppender) Add(l labels.Labels, t int64, v float64) (uint64, error) {
+	return 0, tsdb.ErrNotReady
+}
+
+func (n notReadyAppender) AddFast(ref uint64, t int64, v float64) error { return tsdb.ErrNotReady }
+
+func (n notReadyAppender) Commit() error { return tsdb.ErrNotReady }
+
+func (n notReadyAppender) Rollback() error { return tsdb.ErrNotReady }
+
+// Close implements the Storage interface.
+func (s *readyStorage) Close() error {
+	if x := s.Get(); x != nil {
+		return x.Close()
+	}
+	return nil
+}
+
+// tsdbOptions is tsdb.Option version with defined units.
+// This is required as tsdb.Option fields are unit agnostic (time).
+type tsdbOptions struct {
+	WALSegmentSize         units.Base2Bytes
+	RetentionDuration      model.Duration
+	MaxBytes               units.Base2Bytes
+	NoLockfile             bool
+	AllowOverlappingBlocks bool
+	WALCompression         bool
+	StripeSize             int
+	MinBlockDuration       model.Duration
+	MaxBlockDuration       model.Duration
+}
+
+func (opts tsdbOptions) ToTSDBOptions() tsdb.Options {
+	return tsdb.Options{
+		WALSegmentSize:         int(opts.WALSegmentSize),
+		RetentionDuration:      int64(time.Duration(opts.RetentionDuration) / time.Millisecond),
+		MaxBytes:               int64(opts.MaxBytes),
+		NoLockfile:             opts.NoLockfile,
+		AllowOverlappingBlocks: opts.AllowOverlappingBlocks,
+		WALCompression:         opts.WALCompression,
+		StripeSize:             opts.StripeSize,
+		MinBlockDuration:       int64(time.Duration(opts.MinBlockDuration) / time.Millisecond),
+		MaxBlockDuration:       int64(time.Duration(opts.MaxBlockDuration) / time.Millisecond),
 	}
 }
