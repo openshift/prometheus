@@ -19,7 +19,6 @@ LABEL io.k8s.display-name="OpenShift Prometheus" \
 ARG FROM_DIRECTORY=/go/src/github.com/prometheus/prometheus
 COPY --from=builder ${FROM_DIRECTORY}/prometheus                            /bin/prometheus
 COPY --from=builder ${FROM_DIRECTORY}/promtool                              /bin/promtool
-COPY --from=builder ${FROM_DIRECTORY}/tsdbtool                              /bin/tsdb
 COPY --from=builder ${FROM_DIRECTORY}/documentation/examples/prometheus.yml /etc/prometheus/prometheus.yml
 COPY --from=builder ${FROM_DIRECTORY}/console_libraries/                    /usr/share/prometheus/console_libraries/
 COPY --from=builder ${FROM_DIRECTORY}/consoles/                             /usr/share/prometheus/consoles/
