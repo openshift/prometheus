@@ -26,7 +26,7 @@ require (
 	github.com/go-openapi/strfmt v0.19.11
 	github.com/go-openapi/validate v0.19.14 // indirect
 	github.com/gogo/protobuf v1.3.1
-	github.com/golang/snappy v0.0.2
+	github.com/golang/snappy v0.0.3
 	github.com/google/pprof v0.0.0-20201218002935-b9804c9f04c2
 	github.com/gophercloud/gophercloud v0.15.0
 	github.com/grpc-ecosystem/grpc-gateway v1.16.0
