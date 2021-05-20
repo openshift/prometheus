@@ -28,6 +28,8 @@ RUN mkdir -p /prometheus && \
     chgrp -R 0 /etc/prometheus /prometheus && \
     chmod -R g=u /etc/prometheus /prometheus
 
+ENV GODEBUG=x509ignoreCN=0,madvdontneed=1
+
 USER       nobody
 EXPOSE     9090
 WORKDIR    /prometheus
