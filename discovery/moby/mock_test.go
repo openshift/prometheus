@@ -11,7 +11,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package dockerswarm
+package moby
 
 import (
 	"crypto/sha1"
@@ -72,7 +72,7 @@ func (m *SDMock) SetupHandlers() {
 		prefix += "v" + v + "/"
 	}
 
-	for _, path := range []string{"_ping", "networks/", "services/", "nodes/", "nodes", "services", "tasks"} {
+	for _, path := range []string{"_ping", "networks/", "services/", "nodes/", "nodes", "services", "tasks", "containers/"} {
 		p := path
 		handler := prefix + p
 		if p == "_ping" {

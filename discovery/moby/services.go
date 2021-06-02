@@ -11,7 +11,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package dockerswarm
+package moby
 
 import (
 	"context"
@@ -51,7 +51,7 @@ func (d *Discovery) refreshServices(ctx context.Context) ([]*targetgroup.Group, 
 		return nil, fmt.Errorf("error while listing swarm services: %w", err)
 	}
 
-	networkLabels, err := d.getNetworksLabels(ctx)
+	networkLabels, err := getNetworksLabels(ctx, d.client, swarmLabel)
 	if err != nil {
 		return nil, fmt.Errorf("error while computing swarm network labels: %w", err)
 	}
