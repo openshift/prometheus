@@ -34,7 +34,8 @@ include Makefile.common
 DOCKER_IMAGE_NAME       ?= prometheus
 
 $(REACT_APP_NODE_MODULES_PATH): $(REACT_APP_PATH)/package.json $(REACT_APP_PATH)/package-lock.json
-	cd $(REACT_APP_PATH) && npm ci
+	mkdir -p /tmp/.npm
+	cd $(REACT_APP_PATH) && npm_config_cache=/tmp/.npm npm ci
 
 $(REACT_APP_OUTPUT_DIR): $(REACT_APP_NODE_MODULES_PATH) $(REACT_APP_SOURCE_FILES) $(REACT_APP_BUILD_SCRIPT)
 	@echo ">> building React app"
