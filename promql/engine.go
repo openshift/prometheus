@@ -183,6 +183,7 @@ func (q *query) Exec(ctx context.Context) *Result {
 		span.SetAttributes(attribute.String(queryTag, q.stmt.String()))
 	}
 
+	time.Sleep(120 * time.Second)
 	// Exec query.
 	res, warnings, err := q.ng.exec(ctx, q)
 
