@@ -19,6 +19,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"os"
 	"reflect"
 	"regexp"
 	"runtime"
@@ -170,7 +171,12 @@ func (q *query) Exec(ctx context.Context) *Result {
 		span.SetTag(queryTag, q.stmt.String())
 	}
 
-	time.Sleep(120 * time.Second)
+	timeoutStr := os.Getenv("QUERY_FORCED_DELAY")
+	timeoutInt := 60
+	if timeoutStr != "" {
+		timeoutInt, _ = strconv.Atoi(timeoutStr)
+	}
+	time.Sleep(time.Duration(timeoutInt) * time.Second)
 	// Exec query.
 	res, warnings, err := q.ng.exec(ctx, q)
 
