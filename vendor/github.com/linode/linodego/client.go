@@ -114,6 +114,8 @@ type Client struct {
 	Volumes                  *Resource
 }
 
+type Request = resty.Request
+
 func init() {
 	// Wether or not we will enable Resty debugging output
 	if apiDebug, ok := os.LookupEnv("LINODE_DEBUG"); ok {
@@ -149,6 +151,13 @@ func (c *Client) SetDebug(debug bool) *Client {
 	c.resty.SetDebug(debug)
 
 	return c
+}
+
+// OnBeforeRequest adds a handler to the request body to run before the request is sent
+func (c *Client) OnBeforeRequest(m func(request *Request) error) {
+	c.resty.OnBeforeRequest(func(client *resty.Client, req *resty.Request) error {
+		return m(req)
+	})
 }
 
 // SetBaseURL sets the base URL of the Linode v4 API (https://api.linode.com/v4)
@@ -214,6 +223,12 @@ func (c *Client) SetRetries() *Client {
 		addRetryConditional(requestTimeoutRetryCondition).
 		SetRetryMaxWaitTime(APIRetryMaxWaitTime)
 	configureRetries(c)
+	return c
+}
+
+// AddRetryCondition adds a RetryConditional function to the Client
+func (c *Client) AddRetryCondition(retryCondition RetryConditional) *Client {
+	c.resty.AddRetryCondition(resty.RetryConditionFunc(retryCondition))
 	return c
 }
 
