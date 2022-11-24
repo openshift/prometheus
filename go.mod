@@ -187,6 +187,18 @@ replace (
 	k8s.io/klog/v2 => github.com/simonpasquier/klog-gokit/v3 v3.0.0
 )
 
+// Use a patched version of github.com/prometheus/common v0.37.0 to have proper
+// reloading of the TLS certificates on disk.
+//
+// Bug link: https://issues.redhat.com/browse/OCPBUGS-2873
+//
+// Upstream pull request: https://github.com/prometheus/common/pull/345
+//
+// This directive (as well as the patches/ directory) can be removed once
+// upstream Prometheus depends on a version of github.com/prometheus/common
+// including the aforementioned fix.
+replace github.com/prometheus/common => ./patches/github.com/prometheus/common
+
 // Exclude linodego v1.0.0 as it is no longer published on github.
 exclude github.com/linode/linodego v1.0.0
 
