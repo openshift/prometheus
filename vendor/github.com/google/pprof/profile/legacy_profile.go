@@ -865,6 +865,7 @@ func parseThread(b []byte) (*Profile, error) {
 	// Recognize each thread and populate profile samples.
 	for !isMemoryMapSentinel(line) {
 		if strings.HasPrefix(line, "---- no stack trace for") {
+			line = ""
 			break
 		}
 		if t := threadStartRE.FindStringSubmatch(line); len(t) != 4 {

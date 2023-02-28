@@ -149,15 +149,11 @@ func (dec *decoder) decodeValue(val reflect.Value) error {
 				fieldVal := val.FieldByName(field.Name)
 
 				if fieldVal.CanSet() {
-					name := field.Tag.Get("xmlrpc")
-					name = strings.TrimSuffix(name, ",omitempty")
-					if name == "-" {
-						continue
+					if fn := field.Tag.Get("xmlrpc"); fn != "" {
+						fields[fn] = fieldVal
+					} else {
+						fields[field.Name] = fieldVal
 					}
-					if name == "" {
-						name = field.Name
-					}
-					fields[name] = fieldVal
 				}
 			}
 		} else {

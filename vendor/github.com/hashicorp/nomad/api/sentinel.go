@@ -1,8 +1,6 @@
 package api
 
-import (
-	"errors"
-)
+import "fmt"
 
 // SentinelPolicies is used to query the Sentinel Policy endpoints.
 type SentinelPolicies struct {
@@ -27,7 +25,7 @@ func (a *SentinelPolicies) List(q *QueryOptions) ([]*SentinelPolicyListStub, *Qu
 // Upsert is used to create or update a policy
 func (a *SentinelPolicies) Upsert(policy *SentinelPolicy, q *WriteOptions) (*WriteMeta, error) {
 	if policy == nil || policy.Name == "" {
-		return nil, errors.New("missing policy name")
+		return nil, fmt.Errorf("missing policy name")
 	}
 	wm, err := a.client.write("/v1/sentinel/policy/"+policy.Name, policy, nil, q)
 	if err != nil {
@@ -39,9 +37,9 @@ func (a *SentinelPolicies) Upsert(policy *SentinelPolicy, q *WriteOptions) (*Wri
 // Delete is used to delete a policy
 func (a *SentinelPolicies) Delete(policyName string, q *WriteOptions) (*WriteMeta, error) {
 	if policyName == "" {
-		return nil, errors.New("missing policy name")
+		return nil, fmt.Errorf("missing policy name")
 	}
-	wm, err := a.client.delete("/v1/sentinel/policy/"+policyName, nil, nil, q)
+	wm, err := a.client.delete("/v1/sentinel/policy/"+policyName, nil, q)
 	if err != nil {
 		return nil, err
 	}
@@ -51,7 +49,7 @@ func (a *SentinelPolicies) Delete(policyName string, q *WriteOptions) (*WriteMet
 // Info is used to query a specific policy
 func (a *SentinelPolicies) Info(policyName string, q *QueryOptions) (*SentinelPolicy, *QueryMeta, error) {
 	if policyName == "" {
-		return nil, nil, errors.New("missing policy name")
+		return nil, nil, fmt.Errorf("missing policy name")
 	}
 	var resp SentinelPolicy
 	wm, err := a.client.query("/v1/sentinel/policy/"+policyName, &resp, q)

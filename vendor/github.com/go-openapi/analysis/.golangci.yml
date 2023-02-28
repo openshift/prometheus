@@ -51,6 +51,3 @@ linters:
     - forbidigo
     - cyclop
     - varnamelen
-    - exhaustruct
-    - nonamedreturns
-    - nosnakecase

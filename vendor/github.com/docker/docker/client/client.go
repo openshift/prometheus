@@ -135,6 +135,9 @@ func NewClientWithOpts(ops ...Opt) (*Client, error) {
 		}
 	}
 
+	if _, ok := c.client.Transport.(http.RoundTripper); !ok {
+		return nil, fmt.Errorf("unable to verify TLS configuration, invalid transport %v", c.client.Transport)
+	}
 	if c.scheme == "" {
 		c.scheme = "http"
 

@@ -90,6 +90,12 @@ type PrimaryIPUpdateOpts struct {
 	Name       string             `json:"name,omitempty"`
 }
 
+// PrimaryIPUpdateResult defines the response
+// when updating a Primary IP.
+type PrimaryIPUpdateResult struct {
+	PrimaryIP PrimaryIP `json:"primary_ip"`
+}
+
 // PrimaryIPAssignOpts defines the request to
 // assign a Primary IP to an assignee (usually a server).
 type PrimaryIPAssignOpts struct {
@@ -234,12 +240,10 @@ func (c *PrimaryIPClient) List(ctx context.Context, opts PrimaryIPListOpts) ([]*
 
 // All returns all Primary IPs.
 func (c *PrimaryIPClient) All(ctx context.Context) ([]*PrimaryIP, error) {
-	return c.AllWithOpts(ctx, PrimaryIPListOpts{ListOpts: ListOpts{PerPage: 50}})
-}
+	allPrimaryIPs := []*PrimaryIP{}
 
-// AllWithOpts returns all Primary IPs for the given options.
-func (c *PrimaryIPClient) AllWithOpts(ctx context.Context, opts PrimaryIPListOpts) ([]*PrimaryIP, error) {
-	var allPrimaryIPs []*PrimaryIP
+	opts := PrimaryIPListOpts{}
+	opts.PerPage = 50
 
 	err := c.client.all(func(page int) (*Response, error) {
 		opts.Page = page
@@ -307,12 +311,12 @@ func (c *PrimaryIPClient) Update(ctx context.Context, primaryIP *PrimaryIP, reqB
 		return nil, nil, err
 	}
 
-	var respBody schema.PrimaryIPUpdateResult
+	respBody := PrimaryIPUpdateResult{}
 	resp, err := c.client.Do(req, &respBody)
 	if err != nil {
 		return nil, resp, err
 	}
-	return PrimaryIPFromSchema(respBody.PrimaryIP), resp, nil
+	return &respBody.PrimaryIP, resp, nil
 }
 
 // Assign a Primary IP to a resource

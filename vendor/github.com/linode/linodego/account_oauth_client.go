@@ -4,8 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-
-	"github.com/go-resty/resty/v2"
 )
 
 // OAuthClientStatus constants start with OAuthClient and include Linode API Instance Status values
@@ -91,18 +89,18 @@ type OAuthClientsPagedResponse struct {
 }
 
 // endpoint gets the endpoint URL for OAuthClient
-func (OAuthClientsPagedResponse) endpoint(_ ...any) string {
-	return "account/oauth-clients"
+func (OAuthClientsPagedResponse) endpoint(c *Client) string {
+	endpoint, err := c.OAuthClients.Endpoint()
+	if err != nil {
+		panic(err)
+	}
+
+	return endpoint
 }
 
-func (resp *OAuthClientsPagedResponse) castResult(r *resty.Request, e string) (int, int, error) {
-	res, err := coupleAPIErrors(r.SetResult(OAuthClientsPagedResponse{}).Get(e))
-	if err != nil {
-		return 0, 0, err
-	}
-	castedRes := res.Result().(*OAuthClientsPagedResponse)
-	resp.Data = append(resp.Data, castedRes.Data...)
-	return castedRes.Pages, castedRes.Results, nil
+// appendData appends OAuthClients when processing paginated OAuthClient responses
+func (resp *OAuthClientsPagedResponse) appendData(r *OAuthClientsPagedResponse) {
+	resp.Data = append(resp.Data, r.Data...)
 }
 
 // ListOAuthClients lists OAuthClients
@@ -117,10 +115,14 @@ func (c *Client) ListOAuthClients(ctx context.Context, opts *ListOptions) ([]OAu
 }
 
 // GetOAuthClient gets the OAuthClient with the provided ID
-func (c *Client) GetOAuthClient(ctx context.Context, clientID string) (*OAuthClient, error) {
-	req := c.R(ctx).SetResult(&OAuthClient{})
-	e := fmt.Sprintf("account/oauth-clients/%s", clientID)
-	r, err := coupleAPIErrors(req.Get(e))
+func (c *Client) GetOAuthClient(ctx context.Context, id string) (*OAuthClient, error) {
+	e, err := c.OAuthClients.Endpoint()
+	if err != nil {
+		return nil, err
+	}
+
+	e = fmt.Sprintf("%s/%s", e, id)
+	r, err := coupleAPIErrors(c.R(ctx).SetResult(&OAuthClient{}).Get(e))
 	if err != nil {
 		return nil, err
 	}
@@ -129,15 +131,25 @@ func (c *Client) GetOAuthClient(ctx context.Context, clientID string) (*OAuthCli
 }
 
 // CreateOAuthClient creates an OAuthClient
-func (c *Client) CreateOAuthClient(ctx context.Context, opts OAuthClientCreateOptions) (*OAuthClient, error) {
-	body, err := json.Marshal(opts)
+func (c *Client) CreateOAuthClient(ctx context.Context, createOpts OAuthClientCreateOptions) (*OAuthClient, error) {
+	var body string
+
+	e, err := c.OAuthClients.Endpoint()
 	if err != nil {
 		return nil, err
 	}
 
-	req := c.R(ctx).SetResult(&OAuthClient{}).SetBody(string(body))
-	e := "account/oauth-clients"
-	r, err := coupleAPIErrors(req.Post(e))
+	req := c.R(ctx).SetResult(&OAuthClient{})
+
+	if bodyData, err := json.Marshal(createOpts); err == nil {
+		body = string(bodyData)
+	} else {
+		return nil, NewError(err)
+	}
+
+	r, err := coupleAPIErrors(req.
+		SetBody(body).
+		Post(e))
 	if err != nil {
 		return nil, err
 	}
@@ -146,15 +158,27 @@ func (c *Client) CreateOAuthClient(ctx context.Context, opts OAuthClientCreateOp
 }
 
 // UpdateOAuthClient updates the OAuthClient with the specified id
-func (c *Client) UpdateOAuthClient(ctx context.Context, clientID string, opts OAuthClientUpdateOptions) (*OAuthClient, error) {
-	body, err := json.Marshal(opts)
+func (c *Client) UpdateOAuthClient(ctx context.Context, id string, updateOpts OAuthClientUpdateOptions) (*OAuthClient, error) {
+	var body string
+
+	e, err := c.OAuthClients.Endpoint()
 	if err != nil {
 		return nil, err
 	}
 
-	req := c.R(ctx).SetResult(&OAuthClient{}).SetBody(string(body))
-	e := fmt.Sprintf("account/oauth-clients/%s", clientID)
-	r, err := coupleAPIErrors(req.Put(e))
+	e = fmt.Sprintf("%s/%s", e, id)
+
+	req := c.R(ctx).SetResult(&OAuthClient{})
+
+	if bodyData, err := json.Marshal(updateOpts); err == nil {
+		body = string(bodyData)
+	} else {
+		return nil, NewError(err)
+	}
+
+	r, err := coupleAPIErrors(req.
+		SetBody(body).
+		Put(e))
 	if err != nil {
 		return nil, err
 	}
@@ -163,8 +187,15 @@ func (c *Client) UpdateOAuthClient(ctx context.Context, clientID string, opts OA
 }
 
 // DeleteOAuthClient deletes the OAuthClient with the specified id
-func (c *Client) DeleteOAuthClient(ctx context.Context, clientID string) error {
-	e := fmt.Sprintf("account/oauth-clients/%s", clientID)
-	_, err := coupleAPIErrors(c.R(ctx).Delete(e))
+func (c *Client) DeleteOAuthClient(ctx context.Context, id string) error {
+	e, err := c.OAuthClients.Endpoint()
+	if err != nil {
+		return err
+	}
+
+	e = fmt.Sprintf("%s/%s", e, id)
+
+	_, err = coupleAPIErrors(c.R(ctx).Delete(e))
+
 	return err
 }

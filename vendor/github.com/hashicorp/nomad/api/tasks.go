@@ -64,24 +64,6 @@ type AllocResourceUsage struct {
 	Timestamp     int64
 }
 
-// AllocCheckStatus contains the current status of a nomad service discovery check.
-type AllocCheckStatus struct {
-	ID         string
-	Check      string
-	Group      string
-	Mode       string
-	Output     string
-	Service    string
-	Task       string
-	Status     string
-	StatusCode int
-	Timestamp  int64
-}
-
-// AllocCheckStatuses holds the set of nomad service discovery checks within
-// the allocation (including group and task level service checks).
-type AllocCheckStatuses map[string]AllocCheckStatus
-
 // RestartPolicy defines how the Nomad client restarts
 // tasks in a taskgroup when they fail
 type RestartPolicy struct {
@@ -188,13 +170,13 @@ func NewAffinity(lTarget string, operand string, rTarget string, weight int8) *A
 		LTarget: lTarget,
 		RTarget: rTarget,
 		Operand: operand,
-		Weight:  pointerOf(int8(weight)),
+		Weight:  int8ToPtr(weight),
 	}
 }
 
 func (a *Affinity) Canonicalize() {
 	if a.Weight == nil {
-		a.Weight = pointerOf(int8(50))
+		a.Weight = int8ToPtr(50)
 	}
 }
 
@@ -205,35 +187,35 @@ func NewDefaultReschedulePolicy(jobType string) *ReschedulePolicy {
 		// This needs to be in sync with DefaultServiceJobReschedulePolicy
 		// in nomad/structs/structs.go
 		dp = &ReschedulePolicy{
-			Delay:         pointerOf(30 * time.Second),
-			DelayFunction: pointerOf("exponential"),
-			MaxDelay:      pointerOf(1 * time.Hour),
-			Unlimited:     pointerOf(true),
+			Delay:         timeToPtr(30 * time.Second),
+			DelayFunction: stringToPtr("exponential"),
+			MaxDelay:      timeToPtr(1 * time.Hour),
+			Unlimited:     boolToPtr(true),
 
-			Attempts: pointerOf(0),
-			Interval: pointerOf(time.Duration(0)),
+			Attempts: intToPtr(0),
+			Interval: timeToPtr(0),
 		}
 	case "batch":
 		// This needs to be in sync with DefaultBatchJobReschedulePolicy
 		// in nomad/structs/structs.go
 		dp = &ReschedulePolicy{
-			Attempts:      pointerOf(1),
-			Interval:      pointerOf(24 * time.Hour),
-			Delay:         pointerOf(5 * time.Second),
-			DelayFunction: pointerOf("constant"),
+			Attempts:      intToPtr(1),
+			Interval:      timeToPtr(24 * time.Hour),
+			Delay:         timeToPtr(5 * time.Second),
+			DelayFunction: stringToPtr("constant"),
 
-			MaxDelay:  pointerOf(time.Duration(0)),
-			Unlimited: pointerOf(false),
+			MaxDelay:  timeToPtr(0),
+			Unlimited: boolToPtr(false),
 		}
 
 	case "system":
 		dp = &ReschedulePolicy{
-			Attempts:      pointerOf(0),
-			Interval:      pointerOf(time.Duration(0)),
-			Delay:         pointerOf(time.Duration(0)),
-			DelayFunction: pointerOf(""),
-			MaxDelay:      pointerOf(time.Duration(0)),
-			Unlimited:     pointerOf(false),
+			Attempts:      intToPtr(0),
+			Interval:      timeToPtr(0),
+			Delay:         timeToPtr(0),
+			DelayFunction: stringToPtr(""),
+			MaxDelay:      timeToPtr(0),
+			Unlimited:     boolToPtr(false),
 		}
 
 	default:
@@ -241,12 +223,12 @@ func NewDefaultReschedulePolicy(jobType string) *ReschedulePolicy {
 		// function and we need to ensure a non-nil object is returned so that
 		// the canonicalization runs without panicking.
 		dp = &ReschedulePolicy{
-			Attempts:      pointerOf(0),
-			Interval:      pointerOf(time.Duration(0)),
-			Delay:         pointerOf(time.Duration(0)),
-			DelayFunction: pointerOf(""),
-			MaxDelay:      pointerOf(time.Duration(0)),
-			Unlimited:     pointerOf(false),
+			Attempts:      intToPtr(0),
+			Interval:      timeToPtr(0),
+			Delay:         timeToPtr(0),
+			DelayFunction: stringToPtr(""),
+			MaxDelay:      timeToPtr(0),
+			Unlimited:     boolToPtr(false),
 		}
 	}
 	return dp
@@ -294,14 +276,14 @@ func NewSpreadTarget(value string, percent uint8) *SpreadTarget {
 func NewSpread(attribute string, weight int8, spreadTargets []*SpreadTarget) *Spread {
 	return &Spread{
 		Attribute:    attribute,
-		Weight:       pointerOf(int8(weight)),
+		Weight:       int8ToPtr(weight),
 		SpreadTarget: spreadTargets,
 	}
 }
 
 func (s *Spread) Canonicalize() {
 	if s.Weight == nil {
-		s.Weight = pointerOf(int8(50))
+		s.Weight = int8ToPtr(50)
 	}
 }
 
@@ -314,21 +296,21 @@ type EphemeralDisk struct {
 
 func DefaultEphemeralDisk() *EphemeralDisk {
 	return &EphemeralDisk{
-		Sticky:  pointerOf(false),
-		Migrate: pointerOf(false),
-		SizeMB:  pointerOf(300),
+		Sticky:  boolToPtr(false),
+		Migrate: boolToPtr(false),
+		SizeMB:  intToPtr(300),
 	}
 }
 
 func (e *EphemeralDisk) Canonicalize() {
 	if e.Sticky == nil {
-		e.Sticky = pointerOf(false)
+		e.Sticky = boolToPtr(false)
 	}
 	if e.Migrate == nil {
-		e.Migrate = pointerOf(false)
+		e.Migrate = boolToPtr(false)
 	}
 	if e.SizeMB == nil {
-		e.SizeMB = pointerOf(300)
+		e.SizeMB = intToPtr(300)
 	}
 }
 
@@ -343,10 +325,10 @@ type MigrateStrategy struct {
 
 func DefaultMigrateStrategy() *MigrateStrategy {
 	return &MigrateStrategy{
-		MaxParallel:     pointerOf(1),
-		HealthCheck:     pointerOf("checks"),
-		MinHealthyTime:  pointerOf(10 * time.Second),
-		HealthyDeadline: pointerOf(5 * time.Minute),
+		MaxParallel:     intToPtr(1),
+		HealthCheck:     stringToPtr("checks"),
+		MinHealthyTime:  timeToPtr(10 * time.Second),
+		HealthyDeadline: timeToPtr(5 * time.Minute),
 	}
 }
 
@@ -423,10 +405,10 @@ type VolumeMount struct {
 
 func (vm *VolumeMount) Canonicalize() {
 	if vm.PropagationMode == nil {
-		vm.PropagationMode = pointerOf(VolumeMountPropagationPrivate)
+		vm.PropagationMode = stringToPtr(VolumeMountPropagationPrivate)
 	}
 	if vm.ReadOnly == nil {
-		vm.ReadOnly = pointerOf(false)
+		vm.ReadOnly = boolToPtr(false)
 	}
 }
 
@@ -457,22 +439,22 @@ type TaskGroup struct {
 // NewTaskGroup creates a new TaskGroup.
 func NewTaskGroup(name string, count int) *TaskGroup {
 	return &TaskGroup{
-		Name:  pointerOf(name),
-		Count: pointerOf(count),
+		Name:  stringToPtr(name),
+		Count: intToPtr(count),
 	}
 }
 
 // Canonicalize sets defaults and merges settings that should be inherited from the job
 func (g *TaskGroup) Canonicalize(job *Job) {
 	if g.Name == nil {
-		g.Name = pointerOf("")
+		g.Name = stringToPtr("")
 	}
 
 	if g.Count == nil {
 		if g.Scaling != nil && g.Scaling.Min != nil {
-			g.Count = pointerOf(int(*g.Scaling.Min))
+			g.Count = intToPtr(int(*g.Scaling.Min))
 		} else {
-			g.Count = pointerOf(1)
+			g.Count = intToPtr(1)
 		}
 	}
 	if g.Scaling != nil {
@@ -576,10 +558,10 @@ func (g *TaskGroup) Canonicalize(job *Job) {
 // in nomad/structs/structs.go
 func defaultServiceJobRestartPolicy() *RestartPolicy {
 	return &RestartPolicy{
-		Delay:    pointerOf(15 * time.Second),
-		Attempts: pointerOf(2),
-		Interval: pointerOf(30 * time.Minute),
-		Mode:     pointerOf(RestartPolicyModeFail),
+		Delay:    timeToPtr(15 * time.Second),
+		Attempts: intToPtr(2),
+		Interval: timeToPtr(30 * time.Minute),
+		Mode:     stringToPtr(RestartPolicyModeFail),
 	}
 }
 
@@ -587,10 +569,10 @@ func defaultServiceJobRestartPolicy() *RestartPolicy {
 // in nomad/structs/structs.go
 func defaultBatchJobRestartPolicy() *RestartPolicy {
 	return &RestartPolicy{
-		Delay:    pointerOf(15 * time.Second),
-		Attempts: pointerOf(3),
-		Interval: pointerOf(24 * time.Hour),
-		Mode:     pointerOf(RestartPolicyModeFail),
+		Delay:    timeToPtr(15 * time.Second),
+		Attempts: intToPtr(3),
+		Interval: timeToPtr(24 * time.Hour),
+		Mode:     stringToPtr(RestartPolicyModeFail),
 	}
 }
 
@@ -641,17 +623,17 @@ type LogConfig struct {
 
 func DefaultLogConfig() *LogConfig {
 	return &LogConfig{
-		MaxFiles:      pointerOf(10),
-		MaxFileSizeMB: pointerOf(10),
+		MaxFiles:      intToPtr(10),
+		MaxFileSizeMB: intToPtr(10),
 	}
 }
 
 func (l *LogConfig) Canonicalize() {
 	if l.MaxFiles == nil {
-		l.MaxFiles = pointerOf(10)
+		l.MaxFiles = intToPtr(10)
 	}
 	if l.MaxFileSizeMB == nil {
-		l.MaxFileSizeMB = pointerOf(10)
+		l.MaxFileSizeMB = intToPtr(10)
 	}
 }
 
@@ -712,7 +694,7 @@ func (t *Task) Canonicalize(tg *TaskGroup, job *Job) {
 	t.Resources.Canonicalize()
 
 	if t.KillTimeout == nil {
-		t.KillTimeout = pointerOf(5 * time.Second)
+		t.KillTimeout = timeToPtr(5 * time.Second)
 	}
 	if t.LogConfig == nil {
 		t.LogConfig = DefaultLogConfig()
@@ -764,11 +746,11 @@ type TaskArtifact struct {
 
 func (a *TaskArtifact) Canonicalize() {
 	if a.GetterMode == nil {
-		a.GetterMode = pointerOf("any")
+		a.GetterMode = stringToPtr("any")
 	}
 	if a.GetterSource == nil {
 		// Shouldn't be possible, but we don't want to panic
-		a.GetterSource = pointerOf("")
+		a.GetterSource = stringToPtr("")
 	}
 	if len(a.GetterOptions) == 0 {
 		a.GetterOptions = nil
@@ -786,7 +768,7 @@ func (a *TaskArtifact) Canonicalize() {
 			a.RelativeDest = &dest
 		default:
 			// Default to a directory
-			a.RelativeDest = pointerOf("local/")
+			a.RelativeDest = stringToPtr("local/")
 		}
 	}
 }
@@ -809,94 +791,63 @@ func (wc *WaitConfig) Copy() *WaitConfig {
 	return nwc
 }
 
-type ChangeScript struct {
-	Command     *string        `mapstructure:"command" hcl:"command"`
-	Args        []string       `mapstructure:"args" hcl:"args,optional"`
-	Timeout     *time.Duration `mapstructure:"timeout" hcl:"timeout,optional"`
-	FailOnError *bool          `mapstructure:"fail_on_error" hcl:"fail_on_error"`
-}
-
-func (ch *ChangeScript) Canonicalize() {
-	if ch.Command == nil {
-		ch.Command = pointerOf("")
-	}
-	if ch.Args == nil {
-		ch.Args = []string{}
-	}
-	if ch.Timeout == nil {
-		ch.Timeout = pointerOf(5 * time.Second)
-	}
-	if ch.FailOnError == nil {
-		ch.FailOnError = pointerOf(false)
-	}
-}
-
 type Template struct {
-	SourcePath    *string        `mapstructure:"source" hcl:"source,optional"`
-	DestPath      *string        `mapstructure:"destination" hcl:"destination,optional"`
-	EmbeddedTmpl  *string        `mapstructure:"data" hcl:"data,optional"`
-	ChangeMode    *string        `mapstructure:"change_mode" hcl:"change_mode,optional"`
-	ChangeScript  *ChangeScript  `mapstructure:"change_script" hcl:"change_script,block"`
-	ChangeSignal  *string        `mapstructure:"change_signal" hcl:"change_signal,optional"`
-	Splay         *time.Duration `mapstructure:"splay" hcl:"splay,optional"`
-	Perms         *string        `mapstructure:"perms" hcl:"perms,optional"`
-	Uid           *int           `mapstructure:"uid" hcl:"uid,optional"`
-	Gid           *int           `mapstructure:"gid" hcl:"gid,optional"`
-	LeftDelim     *string        `mapstructure:"left_delimiter" hcl:"left_delimiter,optional"`
-	RightDelim    *string        `mapstructure:"right_delimiter" hcl:"right_delimiter,optional"`
-	Envvars       *bool          `mapstructure:"env" hcl:"env,optional"`
-	VaultGrace    *time.Duration `mapstructure:"vault_grace" hcl:"vault_grace,optional"`
-	Wait          *WaitConfig    `mapstructure:"wait" hcl:"wait,block"`
-	ErrMissingKey *bool          `mapstructure:"error_on_missing_key" hcl:"error_on_missing_key,optional"`
+	SourcePath   *string        `mapstructure:"source" hcl:"source,optional"`
+	DestPath     *string        `mapstructure:"destination" hcl:"destination,optional"`
+	EmbeddedTmpl *string        `mapstructure:"data" hcl:"data,optional"`
+	ChangeMode   *string        `mapstructure:"change_mode" hcl:"change_mode,optional"`
+	ChangeSignal *string        `mapstructure:"change_signal" hcl:"change_signal,optional"`
+	Splay        *time.Duration `mapstructure:"splay" hcl:"splay,optional"`
+	Perms        *string        `mapstructure:"perms" hcl:"perms,optional"`
+	LeftDelim    *string        `mapstructure:"left_delimiter" hcl:"left_delimiter,optional"`
+	RightDelim   *string        `mapstructure:"right_delimiter" hcl:"right_delimiter,optional"`
+	Envvars      *bool          `mapstructure:"env" hcl:"env,optional"`
+	VaultGrace   *time.Duration `mapstructure:"vault_grace" hcl:"vault_grace,optional"`
+	Wait         *WaitConfig    `mapstructure:"wait" hcl:"wait,block"`
 }
 
 func (tmpl *Template) Canonicalize() {
 	if tmpl.SourcePath == nil {
-		tmpl.SourcePath = pointerOf("")
+		tmpl.SourcePath = stringToPtr("")
 	}
 	if tmpl.DestPath == nil {
-		tmpl.DestPath = pointerOf("")
+		tmpl.DestPath = stringToPtr("")
 	}
 	if tmpl.EmbeddedTmpl == nil {
-		tmpl.EmbeddedTmpl = pointerOf("")
+		tmpl.EmbeddedTmpl = stringToPtr("")
 	}
 	if tmpl.ChangeMode == nil {
-		tmpl.ChangeMode = pointerOf("restart")
+		tmpl.ChangeMode = stringToPtr("restart")
 	}
 	if tmpl.ChangeSignal == nil {
 		if *tmpl.ChangeMode == "signal" {
-			tmpl.ChangeSignal = pointerOf("SIGHUP")
+			tmpl.ChangeSignal = stringToPtr("SIGHUP")
 		} else {
-			tmpl.ChangeSignal = pointerOf("")
+			tmpl.ChangeSignal = stringToPtr("")
 		}
 	} else {
 		sig := *tmpl.ChangeSignal
-		tmpl.ChangeSignal = pointerOf(strings.ToUpper(sig))
-	}
-	if tmpl.ChangeScript != nil {
-		tmpl.ChangeScript.Canonicalize()
+		tmpl.ChangeSignal = stringToPtr(strings.ToUpper(sig))
 	}
 	if tmpl.Splay == nil {
-		tmpl.Splay = pointerOf(5 * time.Second)
+		tmpl.Splay = timeToPtr(5 * time.Second)
 	}
 	if tmpl.Perms == nil {
-		tmpl.Perms = pointerOf("0644")
+		tmpl.Perms = stringToPtr("0644")
 	}
 	if tmpl.LeftDelim == nil {
-		tmpl.LeftDelim = pointerOf("{{")
+		tmpl.LeftDelim = stringToPtr("{{")
 	}
 	if tmpl.RightDelim == nil {
-		tmpl.RightDelim = pointerOf("}}")
+		tmpl.RightDelim = stringToPtr("}}")
 	}
 	if tmpl.Envvars == nil {
-		tmpl.Envvars = pointerOf(false)
+		tmpl.Envvars = boolToPtr(false)
 	}
-	if tmpl.ErrMissingKey == nil {
-		tmpl.ErrMissingKey = pointerOf(false)
-	}
+
 	//COMPAT(0.12) VaultGrace is deprecated and unused as of Vault 0.5
 	if tmpl.VaultGrace == nil {
-		tmpl.VaultGrace = pointerOf(time.Duration(0))
+		tmpl.VaultGrace = timeToPtr(0)
 	}
 }
 
@@ -910,16 +861,16 @@ type Vault struct {
 
 func (v *Vault) Canonicalize() {
 	if v.Env == nil {
-		v.Env = pointerOf(true)
+		v.Env = boolToPtr(true)
 	}
 	if v.Namespace == nil {
-		v.Namespace = pointerOf("")
+		v.Namespace = stringToPtr("")
 	}
 	if v.ChangeMode == nil {
-		v.ChangeMode = pointerOf("restart")
+		v.ChangeMode = stringToPtr("restart")
 	}
 	if v.ChangeSignal == nil {
-		v.ChangeSignal = pointerOf("SIGHUP")
+		v.ChangeSignal = stringToPtr("SIGHUP")
 	}
 }
 
@@ -1081,16 +1032,13 @@ type TaskCSIPluginConfig struct {
 	// CSIPluginType instructs Nomad on how to handle processing a plugin
 	Type CSIPluginType `mapstructure:"type" hcl:"type,optional"`
 
-	// MountDir is the directory (within its container) in which the plugin creates a
-	// socket (called CSISocketName) for communication with Nomad. Default is /csi.
+	// MountDir is the destination that nomad should mount in its CSI
+	// directory for the plugin. It will then expect a file called CSISocketName
+	// to be created by the plugin, and will provide references into
+	// "MountDir/CSIIntermediaryDirname/VolumeName/AllocID for mounts.
+	//
+	// Default is /csi.
 	MountDir string `mapstructure:"mount_dir" hcl:"mount_dir,optional"`
-
-	// StagePublishBaseDir is the base directory (within its container) in which the plugin
-	// mounts volumes being staged and bind mounts volumes being published.
-	// e.g. staging_target_path = {StagePublishBaseDir}/staging/{volume-id}/{usage-mode}
-	// e.g. target_path = {StagePublishBaseDir}/per-alloc/{alloc-id}/{volume-id}/{usage-mode}
-	// Default is /local/csi.
-	StagePublishBaseDir string `mapstructure:"stage_publish_base_dir" hcl:"stage_publish_base_dir,optional"`
 
 	// HealthTimeout is the time after which the CSI plugin tasks will be killed
 	// if the CSI Plugin is not healthy.
@@ -1100,10 +1048,6 @@ type TaskCSIPluginConfig struct {
 func (t *TaskCSIPluginConfig) Canonicalize() {
 	if t.MountDir == "" {
 		t.MountDir = "/csi"
-	}
-
-	if t.StagePublishBaseDir == "" {
-		t.StagePublishBaseDir = filepath.Join("/local", "csi")
 	}
 
 	if t.HealthTimeout == 0 {

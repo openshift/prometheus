@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/go-resty/resty/v2"
 	"github.com/linode/linodego/internal/parseabletime"
 )
 
@@ -114,18 +113,16 @@ type PostgresDatabasesPagedResponse struct {
 	Data []PostgresDatabase `json:"data"`
 }
 
-func (PostgresDatabasesPagedResponse) endpoint(_ ...any) string {
-	return "databases/postgresql/instances"
+func (PostgresDatabasesPagedResponse) endpoint(c *Client) string {
+	endpoint, err := c.DatabasePostgresInstances.Endpoint()
+	if err != nil {
+		panic(err)
+	}
+	return endpoint
 }
 
-func (resp *PostgresDatabasesPagedResponse) castResult(r *resty.Request, e string) (int, int, error) {
-	res, err := coupleAPIErrors(r.SetResult(PostgresDatabasesPagedResponse{}).Get(e))
-	if err != nil {
-		return 0, 0, err
-	}
-	castedRes := res.Result().(*PostgresDatabasesPagedResponse)
-	resp.Data = append(resp.Data, castedRes.Data...)
-	return castedRes.Pages, castedRes.Results, nil
+func (resp *PostgresDatabasesPagedResponse) appendData(r *PostgresDatabasesPagedResponse) {
+	resp.Data = append(resp.Data, r.Data...)
 }
 
 // ListPostgresDatabases lists all Postgres Databases associated with the account
@@ -177,26 +174,23 @@ type PostgresDatabaseBackupsPagedResponse struct {
 	Data []PostgresDatabaseBackup `json:"data"`
 }
 
-func (PostgresDatabaseBackupsPagedResponse) endpoint(ids ...any) string {
-	id := ids[0].(int)
-	return fmt.Sprintf("databases/postgresql/instances/%d/backups", id)
+func (PostgresDatabaseBackupsPagedResponse) endpointWithID(c *Client, id int) string {
+	endpoint, err := c.DatabasePostgresInstances.Endpoint()
+	if err != nil {
+		panic(err)
+	}
+	return fmt.Sprintf("%s/%d/backups", endpoint, id)
 }
 
-func (resp *PostgresDatabaseBackupsPagedResponse) castResult(r *resty.Request, e string) (int, int, error) {
-	res, err := coupleAPIErrors(r.SetResult(PostgresDatabaseBackupsPagedResponse{}).Get(e))
-	if err != nil {
-		return 0, 0, err
-	}
-	castedRes := res.Result().(*PostgresDatabaseBackupsPagedResponse)
-	resp.Data = append(resp.Data, castedRes.Data...)
-	return castedRes.Pages, castedRes.Results, nil
+func (resp *PostgresDatabaseBackupsPagedResponse) appendData(r *PostgresDatabaseBackupsPagedResponse) {
+	resp.Data = append(resp.Data, r.Data...)
 }
 
 // ListPostgresDatabaseBackups lists all Postgres Database Backups associated with the given Postgres Database
 func (c *Client) ListPostgresDatabaseBackups(ctx context.Context, databaseID int, opts *ListOptions) ([]PostgresDatabaseBackup, error) {
 	response := PostgresDatabaseBackupsPagedResponse{}
 
-	err := c.listHelper(ctx, &response, opts, databaseID)
+	err := c.listHelperWithID(ctx, &response, databaseID, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -205,10 +199,16 @@ func (c *Client) ListPostgresDatabaseBackups(ctx context.Context, databaseID int
 }
 
 // GetPostgresDatabase returns a single Postgres Database matching the id
-func (c *Client) GetPostgresDatabase(ctx context.Context, databaseID int) (*PostgresDatabase, error) {
-	e := fmt.Sprintf("databases/postgresql/instances/%d", databaseID)
-	req := c.R(ctx).SetResult(&PostgresDatabase{})
-	r, err := coupleAPIErrors(req.Get(e))
+func (c *Client) GetPostgresDatabase(ctx context.Context, id int) (*PostgresDatabase, error) {
+	e, err := c.DatabasePostgresInstances.Endpoint()
+	if err != nil {
+		return nil, err
+	}
+
+	req := c.R(ctx)
+
+	e = fmt.Sprintf("%s/%d", e, id)
+	r, err := coupleAPIErrors(req.SetResult(&PostgresDatabase{}).Get(e))
 	if err != nil {
 		return nil, err
 	}
@@ -217,15 +217,24 @@ func (c *Client) GetPostgresDatabase(ctx context.Context, databaseID int) (*Post
 }
 
 // CreatePostgresDatabase creates a new Postgres Database using the createOpts as configuration, returns the new Postgres Database
-func (c *Client) CreatePostgresDatabase(ctx context.Context, opts PostgresCreateOptions) (*PostgresDatabase, error) {
-	body, err := json.Marshal(opts)
+func (c *Client) CreatePostgresDatabase(ctx context.Context, createOpts PostgresCreateOptions) (*PostgresDatabase, error) {
+	var body string
+	e, err := c.DatabasePostgresInstances.Endpoint()
 	if err != nil {
 		return nil, err
 	}
 
-	e := "databases/postgresql/instances"
-	req := c.R(ctx).SetResult(&PostgresDatabase{}).SetBody(string(body))
-	r, err := coupleAPIErrors(req.Post(e))
+	req := c.R(ctx).SetResult(&PostgresDatabase{})
+
+	if bodyData, err := json.Marshal(createOpts); err == nil {
+		body = string(bodyData)
+	} else {
+		return nil, NewError(err)
+	}
+
+	r, err := coupleAPIErrors(req.
+		SetBody(body).
+		Post(e))
 	if err != nil {
 		return nil, err
 	}
@@ -233,22 +242,36 @@ func (c *Client) CreatePostgresDatabase(ctx context.Context, opts PostgresCreate
 }
 
 // DeletePostgresDatabase deletes an existing Postgres Database with the given id
-func (c *Client) DeletePostgresDatabase(ctx context.Context, databaseID int) error {
-	e := fmt.Sprintf("databases/postgresql/instances/%d", databaseID)
-	_, err := coupleAPIErrors(c.R(ctx).Delete(e))
+func (c *Client) DeletePostgresDatabase(ctx context.Context, id int) error {
+	e, err := c.DatabasePostgresInstances.Endpoint()
+	if err != nil {
+		return err
+	}
+
+	req := c.R(ctx)
+
+	e = fmt.Sprintf("%s/%d", e, id)
+	_, err = coupleAPIErrors(req.Delete(e))
 	return err
 }
 
 // UpdatePostgresDatabase updates the given Postgres Database with the provided opts, returns the PostgresDatabase with the new settings
-func (c *Client) UpdatePostgresDatabase(ctx context.Context, databaseID int, opts PostgresUpdateOptions) (*PostgresDatabase, error) {
-	body, err := json.Marshal(opts)
+func (c *Client) UpdatePostgresDatabase(ctx context.Context, id int, opts PostgresUpdateOptions) (*PostgresDatabase, error) {
+	e, err := c.DatabasePostgresInstances.Endpoint()
+	if err != nil {
+		return nil, err
+	}
+	req := c.R(ctx).SetResult(&PostgresDatabase{})
+
+	bodyData, err := json.Marshal(opts)
 	if err != nil {
 		return nil, NewError(err)
 	}
 
-	e := fmt.Sprintf("databases/postgresql/instances/%d", databaseID)
-	req := c.R(ctx).SetResult(&PostgresDatabase{}).SetBody(string(body))
-	r, err := coupleAPIErrors(req.Put(e))
+	body := string(bodyData)
+
+	e = fmt.Sprintf("%s/%d", e, id)
+	r, err := coupleAPIErrors(req.SetBody(body).Put(e))
 	if err != nil {
 		return nil, err
 	}
@@ -258,16 +281,33 @@ func (c *Client) UpdatePostgresDatabase(ctx context.Context, databaseID int, opt
 
 // PatchPostgresDatabase applies security patches and updates to the underlying operating system of the Managed Postgres Database
 func (c *Client) PatchPostgresDatabase(ctx context.Context, databaseID int) error {
-	e := fmt.Sprintf("databases/postgresql/instances/%d/patch", databaseID)
-	_, err := coupleAPIErrors(c.R(ctx).Post(e))
-	return err
+	e, err := c.DatabasePostgresInstances.Endpoint()
+	if err != nil {
+		return err
+	}
+
+	req := c.R(ctx)
+
+	e = fmt.Sprintf("%s/%d/patch", e, databaseID)
+	_, err = coupleAPIErrors(req.Post(e))
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // GetPostgresDatabaseCredentials returns the Root Credentials for the given Postgres Database
-func (c *Client) GetPostgresDatabaseCredentials(ctx context.Context, databaseID int) (*PostgresDatabaseCredential, error) {
-	e := fmt.Sprintf("databases/postgresql/instances/%d/credentials", databaseID)
-	req := c.R(ctx).SetResult(&PostgresDatabaseCredential{})
-	r, err := coupleAPIErrors(req.Get(e))
+func (c *Client) GetPostgresDatabaseCredentials(ctx context.Context, id int) (*PostgresDatabaseCredential, error) {
+	e, err := c.DatabasePostgresInstances.Endpoint()
+	if err != nil {
+		return nil, err
+	}
+
+	req := c.R(ctx)
+
+	e = fmt.Sprintf("%s/%d/credentials", e, id)
+	r, err := coupleAPIErrors(req.SetResult(&PostgresDatabaseCredential{}).Get(e))
 	if err != nil {
 		return nil, err
 	}
@@ -276,17 +316,34 @@ func (c *Client) GetPostgresDatabaseCredentials(ctx context.Context, databaseID 
 }
 
 // ResetPostgresDatabaseCredentials returns the Root Credentials for the given Postgres Database (may take a few seconds to work)
-func (c *Client) ResetPostgresDatabaseCredentials(ctx context.Context, databaseID int) error {
-	e := fmt.Sprintf("databases/postgresql/instances/%d/credentials/reset", databaseID)
-	_, err := coupleAPIErrors(c.R(ctx).Post(e))
-	return err
+func (c *Client) ResetPostgresDatabaseCredentials(ctx context.Context, id int) error {
+	e, err := c.DatabasePostgresInstances.Endpoint()
+	if err != nil {
+		return err
+	}
+
+	req := c.R(ctx)
+
+	e = fmt.Sprintf("%s/%d/credentials/reset", e, id)
+	_, err = coupleAPIErrors(req.Post(e))
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // GetPostgresDatabaseSSL returns the SSL Certificate for the given Postgres Database
-func (c *Client) GetPostgresDatabaseSSL(ctx context.Context, databaseID int) (*PostgresDatabaseSSL, error) {
-	e := fmt.Sprintf("databases/postgresql/instances/%d/ssl", databaseID)
-	req := c.R(ctx).SetResult(&PostgresDatabaseSSL{})
-	r, err := coupleAPIErrors(req.Get(e))
+func (c *Client) GetPostgresDatabaseSSL(ctx context.Context, id int) (*PostgresDatabaseSSL, error) {
+	e, err := c.DatabasePostgresInstances.Endpoint()
+	if err != nil {
+		return nil, err
+	}
+
+	req := c.R(ctx)
+
+	e = fmt.Sprintf("%s/%d/ssl", e, id)
+	r, err := coupleAPIErrors(req.SetResult(&PostgresDatabaseSSL{}).Get(e))
 	if err != nil {
 		return nil, err
 	}
@@ -296,9 +353,15 @@ func (c *Client) GetPostgresDatabaseSSL(ctx context.Context, databaseID int) (*P
 
 // GetPostgresDatabaseBackup returns a specific Postgres Database Backup with the given ids
 func (c *Client) GetPostgresDatabaseBackup(ctx context.Context, databaseID int, backupID int) (*PostgresDatabaseBackup, error) {
-	e := fmt.Sprintf("databases/postgresql/instances/%d/backups/%d", databaseID, backupID)
-	req := c.R(ctx).SetResult(&PostgresDatabaseBackup{})
-	r, err := coupleAPIErrors(req.Get(e))
+	e, err := c.DatabasePostgresInstances.Endpoint()
+	if err != nil {
+		return nil, err
+	}
+
+	req := c.R(ctx)
+
+	e = fmt.Sprintf("%s/%d/backups/%d", e, databaseID, backupID)
+	r, err := coupleAPIErrors(req.SetResult(&PostgresDatabaseBackup{}).Get(e))
 	if err != nil {
 		return nil, err
 	}
@@ -308,19 +371,42 @@ func (c *Client) GetPostgresDatabaseBackup(ctx context.Context, databaseID int, 
 
 // RestorePostgresDatabaseBackup returns the given Postgres Database with the given Backup
 func (c *Client) RestorePostgresDatabaseBackup(ctx context.Context, databaseID int, backupID int) error {
-	e := fmt.Sprintf("databases/postgresql/instances/%d/backups/%d/restore", databaseID, backupID)
-	_, err := coupleAPIErrors(c.R(ctx).Post(e))
-	return err
-}
-
-// CreatePostgresDatabaseBackup creates a snapshot for the given Postgres database
-func (c *Client) CreatePostgresDatabaseBackup(ctx context.Context, databaseID int, opts PostgresBackupCreateOptions) error {
-	body, err := json.Marshal(opts)
+	e, err := c.DatabasePostgresInstances.Endpoint()
 	if err != nil {
 		return err
 	}
 
-	e := fmt.Sprintf("databases/postgresql/instances/%d/backups", databaseID)
-	_, err = coupleAPIErrors(c.R(ctx).SetBody(string(body)).Post(e))
-	return err
+	req := c.R(ctx)
+
+	e = fmt.Sprintf("%s/%d/backups/%d/restore", e, databaseID, backupID)
+	_, err = coupleAPIErrors(req.Post(e))
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+// CreatePostgresDatabaseBackup creates a snapshot for the given Postgres database
+func (c *Client) CreatePostgresDatabaseBackup(ctx context.Context, databaseID int, options PostgresBackupCreateOptions) error {
+	e, err := c.DatabasePostgresInstances.Endpoint()
+	if err != nil {
+		return err
+	}
+
+	req := c.R(ctx)
+
+	bodyData, err := json.Marshal(options)
+	if err != nil {
+		return NewError(err)
+	}
+
+	body := string(bodyData)
+
+	e = fmt.Sprintf("%s/%d/backups", e, databaseID)
+	_, err = coupleAPIErrors(req.SetBody(body).Post(e))
+	if err != nil {
+		return err
+	}
+
+	return nil
 }

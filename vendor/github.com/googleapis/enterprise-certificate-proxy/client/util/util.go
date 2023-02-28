@@ -11,7 +11,7 @@ import (
 	"runtime"
 )
 
-const configFileName = "certificate_config.json"
+const configFileName = "enterprise_certificate_config.json"
 
 // EnterpriseCertificateConfig contains parameters for initializing signer.
 type EnterpriseCertificateConfig struct {
@@ -20,7 +20,7 @@ type EnterpriseCertificateConfig struct {
 
 // Libs specifies the locations of helper libraries.
 type Libs struct {
-	ECP string `json:"ecp"`
+	SignerBinary string `json:"signer_binary"`
 }
 
 // LoadSignerBinaryPath retrieves the path of the signer binary from the config file.
@@ -39,9 +39,9 @@ func LoadSignerBinaryPath(configFilePath string) (path string, err error) {
 	if err != nil {
 		return "", err
 	}
-	signerBinaryPath := config.Libs.ECP
+	signerBinaryPath := config.Libs.SignerBinary
 	if signerBinaryPath == "" {
-		return "", errors.New("signer binary path is missing")
+		return "", errors.New("Signer binary path is missing.")
 	}
 	return signerBinaryPath, nil
 }
@@ -61,8 +61,9 @@ func guessHomeDir() string {
 func getDefaultConfigFileDirectory() (directory string) {
 	if runtime.GOOS == "windows" {
 		return filepath.Join(os.Getenv("APPDATA"), "gcloud")
+	} else {
+		return filepath.Join(guessHomeDir(), ".config/gcloud")
 	}
-	return filepath.Join(guessHomeDir(), ".config/gcloud")
 }
 
 // GetDefaultConfigFilePath returns the default path of the enterprise certificate config file created by gCloud.

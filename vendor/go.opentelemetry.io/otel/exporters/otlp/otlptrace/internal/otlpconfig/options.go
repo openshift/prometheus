@@ -97,7 +97,6 @@ func NewGRPCConfig(opts ...GRPCOption) Config {
 			Timeout:     DefaultTimeout,
 		},
 		RetryConfig: retry.DefaultConfig,
-		DialOptions: []grpc.DialOption{grpc.WithUserAgent(internal.GetUserAgentHeader())},
 	}
 	cfg = ApplyGRPCEnvConfigs(cfg)
 	for _, opt := range opts {

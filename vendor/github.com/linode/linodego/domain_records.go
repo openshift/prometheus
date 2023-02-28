@@ -4,8 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-
-	"github.com/go-resty/resty/v2"
 )
 
 // DomainRecord represents a DomainRecord object
@@ -90,52 +88,68 @@ type DomainRecordsPagedResponse struct {
 }
 
 // endpoint gets the endpoint URL for InstanceConfig
-func (DomainRecordsPagedResponse) endpoint(ids ...any) string {
-	id, _ := ids[0].(int)
-	return fmt.Sprintf("domains/%d/records", id)
+func (DomainRecordsPagedResponse) endpointWithID(c *Client, id int) string {
+	endpoint, err := c.DomainRecords.endpointWithParams(id)
+	if err != nil {
+		panic(err)
+	}
+
+	return endpoint
 }
 
-func (resp *DomainRecordsPagedResponse) castResult(r *resty.Request, e string) (int, int, error) {
-	res, err := coupleAPIErrors(r.SetResult(DomainRecordsPagedResponse{}).Get(e))
-	if err != nil {
-		return 0, 0, err
-	}
-	castedRes := res.Result().(*DomainRecordsPagedResponse)
-	resp.Data = append(resp.Data, castedRes.Data...)
-	return castedRes.Pages, castedRes.Results, nil
+// appendData appends DomainRecords when processing paginated DomainRecord responses
+func (resp *DomainRecordsPagedResponse) appendData(r *DomainRecordsPagedResponse) {
+	resp.Data = append(resp.Data, r.Data...)
 }
 
 // ListDomainRecords lists DomainRecords
 func (c *Client) ListDomainRecords(ctx context.Context, domainID int, opts *ListOptions) ([]DomainRecord, error) {
 	response := DomainRecordsPagedResponse{}
-	err := c.listHelper(ctx, &response, opts, domainID)
+	err := c.listHelperWithID(ctx, &response, domainID, opts)
 	if err != nil {
 		return nil, err
 	}
+
 	return response.Data, nil
 }
 
 // GetDomainRecord gets the domainrecord with the provided ID
-func (c *Client) GetDomainRecord(ctx context.Context, domainID int, recordID int) (*DomainRecord, error) {
-	req := c.R(ctx).SetResult(&DomainRecord{})
-	e := fmt.Sprintf("domains/%d/records/%d", domainID, recordID)
-	r, err := coupleAPIErrors(req.Get(e))
+func (c *Client) GetDomainRecord(ctx context.Context, domainID int, id int) (*DomainRecord, error) {
+	e, err := c.DomainRecords.endpointWithParams(domainID)
 	if err != nil {
 		return nil, err
 	}
+
+	e = fmt.Sprintf("%s/%d", e, id)
+	r, err := coupleAPIErrors(c.R(ctx).SetResult(&DomainRecord{}).Get(e))
+	if err != nil {
+		return nil, err
+	}
+
 	return r.Result().(*DomainRecord), nil
 }
 
 // CreateDomainRecord creates a DomainRecord
-func (c *Client) CreateDomainRecord(ctx context.Context, domainID int, opts DomainRecordCreateOptions) (*DomainRecord, error) {
-	body, err := json.Marshal(opts)
+func (c *Client) CreateDomainRecord(ctx context.Context, domainID int, domainrecord DomainRecordCreateOptions) (*DomainRecord, error) {
+	var body string
+
+	e, err := c.DomainRecords.endpointWithParams(domainID)
 	if err != nil {
 		return nil, err
 	}
 
-	e := fmt.Sprintf("domains/%d/records", domainID)
-	req := c.R(ctx).SetResult(&DomainRecord{}).SetBody(string(body))
-	r, err := coupleAPIErrors(req.Post(e))
+	req := c.R(ctx).SetResult(&DomainRecord{})
+
+	bodyData, err := json.Marshal(domainrecord)
+	if err != nil {
+		return nil, NewError(err)
+	}
+
+	body = string(bodyData)
+
+	r, err := coupleAPIErrors(req.
+		SetBody(body).
+		Post(e))
 	if err != nil {
 		return nil, err
 	}
@@ -144,15 +158,27 @@ func (c *Client) CreateDomainRecord(ctx context.Context, domainID int, opts Doma
 }
 
 // UpdateDomainRecord updates the DomainRecord with the specified id
-func (c *Client) UpdateDomainRecord(ctx context.Context, domainID int, recordID int, opts DomainRecordUpdateOptions) (*DomainRecord, error) {
-	body, err := json.Marshal(opts)
+func (c *Client) UpdateDomainRecord(ctx context.Context, domainID int, id int, domainrecord DomainRecordUpdateOptions) (*DomainRecord, error) {
+	var body string
+
+	e, err := c.DomainRecords.endpointWithParams(domainID)
 	if err != nil {
 		return nil, err
 	}
 
-	e := fmt.Sprintf("domains/%d/records/%d", domainID, recordID)
-	req := c.R(ctx).SetResult(&DomainRecord{}).SetBody(string(body))
-	r, err := coupleAPIErrors(req.Put(e))
+	e = fmt.Sprintf("%s/%d", e, id)
+
+	req := c.R(ctx).SetResult(&DomainRecord{})
+
+	if bodyData, err := json.Marshal(domainrecord); err == nil {
+		body = string(bodyData)
+	} else {
+		return nil, NewError(err)
+	}
+
+	r, err := coupleAPIErrors(req.
+		SetBody(body).
+		Put(e))
 	if err != nil {
 		return nil, err
 	}
@@ -161,8 +187,15 @@ func (c *Client) UpdateDomainRecord(ctx context.Context, domainID int, recordID 
 }
 
 // DeleteDomainRecord deletes the DomainRecord with the specified id
-func (c *Client) DeleteDomainRecord(ctx context.Context, domainID int, recordID int) error {
-	e := fmt.Sprintf("domains/%d/records/%d", domainID, recordID)
-	_, err := coupleAPIErrors(c.R(ctx).Delete(e))
+func (c *Client) DeleteDomainRecord(ctx context.Context, domainID int, id int) error {
+	e, err := c.DomainRecords.endpointWithParams(domainID)
+	if err != nil {
+		return err
+	}
+
+	e = fmt.Sprintf("%s/%d", e, id)
+
+	_, err = coupleAPIErrors(c.R(ctx).Delete(e))
+
 	return err
 }

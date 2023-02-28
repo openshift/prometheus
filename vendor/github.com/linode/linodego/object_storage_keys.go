@@ -4,8 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-
-	"github.com/go-resty/resty/v2"
 )
 
 // ObjectStorageKey represents a linode object storage key object
@@ -43,18 +41,17 @@ type ObjectStorageKeysPagedResponse struct {
 }
 
 // endpoint gets the endpoint URL for Object Storage keys
-func (ObjectStorageKeysPagedResponse) endpoint(_ ...any) string {
-	return "object-storage/keys"
+func (ObjectStorageKeysPagedResponse) endpoint(c *Client) string {
+	endpoint, err := c.ObjectStorageKeys.Endpoint()
+	if err != nil {
+		panic(err)
+	}
+	return endpoint
 }
 
-func (resp *ObjectStorageKeysPagedResponse) castResult(r *resty.Request, e string) (int, int, error) {
-	res, err := coupleAPIErrors(r.SetResult(ObjectStorageKeysPagedResponse{}).Get(e))
-	if err != nil {
-		return 0, 0, err
-	}
-	castedRes := res.Result().(*ObjectStorageKeysPagedResponse)
-	resp.Data = append(resp.Data, castedRes.Data...)
-	return castedRes.Pages, castedRes.Results, nil
+// appendData appends ObjectStorageKeys when processing paginated Objkey responses
+func (resp *ObjectStorageKeysPagedResponse) appendData(r *ObjectStorageKeysPagedResponse) {
+	resp.Data = append(resp.Data, r.Data...)
 }
 
 // ListObjectStorageKeys lists ObjectStorageKeys
@@ -68,15 +65,24 @@ func (c *Client) ListObjectStorageKeys(ctx context.Context, opts *ListOptions) (
 }
 
 // CreateObjectStorageKey creates a ObjectStorageKey
-func (c *Client) CreateObjectStorageKey(ctx context.Context, opts ObjectStorageKeyCreateOptions) (*ObjectStorageKey, error) {
-	body, err := json.Marshal(opts)
+func (c *Client) CreateObjectStorageKey(ctx context.Context, createOpts ObjectStorageKeyCreateOptions) (*ObjectStorageKey, error) {
+	var body string
+	e, err := c.ObjectStorageKeys.Endpoint()
 	if err != nil {
+		return nil, err
+	}
+
+	req := c.R(ctx).SetResult(&ObjectStorageKey{})
+
+	if bodyData, err := json.Marshal(createOpts); err == nil {
+		body = string(bodyData)
+	} else {
 		return nil, NewError(err)
 	}
 
-	e := "object-storage/keys"
-	req := c.R(ctx).SetResult(&ObjectStorageKey{}).SetBody(string(body))
-	r, err := coupleAPIErrors(req.Post(e))
+	r, err := coupleAPIErrors(req.
+		SetBody(body).
+		Post(e))
 	if err != nil {
 		return nil, err
 	}
@@ -84,10 +90,13 @@ func (c *Client) CreateObjectStorageKey(ctx context.Context, opts ObjectStorageK
 }
 
 // GetObjectStorageKey gets the object storage key with the provided ID
-func (c *Client) GetObjectStorageKey(ctx context.Context, keyID int) (*ObjectStorageKey, error) {
-	e := fmt.Sprintf("object-storage/keys/%d", keyID)
-	req := c.R(ctx).SetResult(&ObjectStorageKey{})
-	r, err := coupleAPIErrors(req.Get(e))
+func (c *Client) GetObjectStorageKey(ctx context.Context, id int) (*ObjectStorageKey, error) {
+	e, err := c.ObjectStorageKeys.Endpoint()
+	if err != nil {
+		return nil, err
+	}
+	e = fmt.Sprintf("%s/%d", e, id)
+	r, err := coupleAPIErrors(c.R(ctx).SetResult(&ObjectStorageKey{}).Get(e))
 	if err != nil {
 		return nil, err
 	}
@@ -95,15 +104,25 @@ func (c *Client) GetObjectStorageKey(ctx context.Context, keyID int) (*ObjectSto
 }
 
 // UpdateObjectStorageKey updates the object storage key with the specified id
-func (c *Client) UpdateObjectStorageKey(ctx context.Context, keyID int, opts ObjectStorageKeyUpdateOptions) (*ObjectStorageKey, error) {
-	body, err := json.Marshal(opts)
+func (c *Client) UpdateObjectStorageKey(ctx context.Context, id int, updateOpts ObjectStorageKeyUpdateOptions) (*ObjectStorageKey, error) {
+	var body string
+	e, err := c.ObjectStorageKeys.Endpoint()
 	if err != nil {
 		return nil, err
 	}
+	e = fmt.Sprintf("%s/%d", e, id)
 
-	e := fmt.Sprintf("object-storage/keys/%d", keyID)
-	req := c.R(ctx).SetResult(&ObjectStorageKey{}).SetBody(string(body))
-	r, err := coupleAPIErrors(req.Put(e))
+	req := c.R(ctx).SetResult(&ObjectStorageKey{})
+
+	if bodyData, err := json.Marshal(updateOpts); err == nil {
+		body = string(bodyData)
+	} else {
+		return nil, NewError(err)
+	}
+
+	r, err := coupleAPIErrors(req.
+		SetBody(body).
+		Put(e))
 	if err != nil {
 		return nil, err
 	}
@@ -111,8 +130,13 @@ func (c *Client) UpdateObjectStorageKey(ctx context.Context, keyID int, opts Obj
 }
 
 // DeleteObjectStorageKey deletes the ObjectStorageKey with the specified id
-func (c *Client) DeleteObjectStorageKey(ctx context.Context, keyID int) error {
-	e := fmt.Sprintf("object-storage/keys/%d", keyID)
-	_, err := coupleAPIErrors(c.R(ctx).Delete(e))
+func (c *Client) DeleteObjectStorageKey(ctx context.Context, id int) error {
+	e, err := c.ObjectStorageKeys.Endpoint()
+	if err != nil {
+		return err
+	}
+	e = fmt.Sprintf("%s/%d", e, id)
+
+	_, err = coupleAPIErrors(c.R(ctx).Delete(e))
 	return err
 }

@@ -17,13 +17,11 @@ package resource // import "go.opentelemetry.io/otel/sdk/resource"
 import (
 	"context"
 	"fmt"
-	"net/url"
 	"os"
 	"strings"
 
-	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
-	semconv "go.opentelemetry.io/otel/semconv/v1.12.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.10.0"
 )
 
 const (
@@ -90,14 +88,7 @@ func constructOTResources(s string) (*Resource, error) {
 			invalid = append(invalid, p)
 			continue
 		}
-		k := strings.TrimSpace(field[0])
-		v, err := url.QueryUnescape(strings.TrimSpace(field[1]))
-		if err != nil {
-			// Retain original value if decoding fails, otherwise it will be
-			// an empty string.
-			v = field[1]
-			otel.Handle(err)
-		}
+		k, v := strings.TrimSpace(field[0]), strings.TrimSpace(field[1])
 		attrs = append(attrs, attribute.String(k, v))
 	}
 	var err error

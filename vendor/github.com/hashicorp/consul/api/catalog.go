@@ -20,7 +20,6 @@ type Node struct {
 	CreateIndex     uint64
 	ModifyIndex     uint64
 	Partition       string `json:",omitempty"`
-	PeerName        string `json:",omitempty"`
 }
 
 type ServiceAddress struct {

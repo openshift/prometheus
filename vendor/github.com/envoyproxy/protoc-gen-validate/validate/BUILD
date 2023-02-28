@@ -53,14 +53,9 @@ java_proto_library(
     deps = [":validate_proto"],
 )
 
-filegroup(
-    name = "validate_src",
-    srcs = ["validate.proto"],
-)
-
 alias(
     name = "go_default_library",
-    actual = ":validate",
+    actual = ":validate_go",
     deprecation = "Use :validate instead of :go_default_library.  Details about the new naming convention: https://github.com/bazelbuild/bazel-gazelle/pull/863",
     visibility = ["//visibility:public"],
 )

@@ -1,5 +1,13 @@
 package linodego
 
+/*
+ - copy profile_test.go and do the same
+ - When updating Profile structs,
+   - use pointers where ever null'able would have a different meaning if the wrapper
+	 supplied "" or 0 instead
+ - Add "NameOfResource" to client.go, resources.go, pagination.go
+*/
+
 import (
 	"context"
 	"encoding/json"
@@ -70,9 +78,12 @@ func (i Profile) GetUpdateOptions() (o ProfileUpdateOptions) {
 
 // GetProfile returns the Profile of the authenticated user
 func (c *Client) GetProfile(ctx context.Context) (*Profile, error) {
-	e := "profile"
-	req := c.R(ctx).SetResult(&Profile{})
-	r, err := coupleAPIErrors(req.Get(e))
+	e, err := c.Profile.Endpoint()
+	if err != nil {
+		return nil, err
+	}
+
+	r, err := coupleAPIErrors(c.R(ctx).SetResult(&Profile{}).Get(e))
 	if err != nil {
 		return nil, err
 	}
@@ -80,15 +91,24 @@ func (c *Client) GetProfile(ctx context.Context) (*Profile, error) {
 }
 
 // UpdateProfile updates the Profile with the specified id
-func (c *Client) UpdateProfile(ctx context.Context, opts ProfileUpdateOptions) (*Profile, error) {
-	body, err := json.Marshal(opts)
+func (c *Client) UpdateProfile(ctx context.Context, updateOpts ProfileUpdateOptions) (*Profile, error) {
+	var body string
+	e, err := c.Profile.Endpoint()
 	if err != nil {
 		return nil, err
 	}
 
-	e := "profile"
-	req := c.R(ctx).SetResult(&Profile{}).SetBody(string(body))
-	r, err := coupleAPIErrors(req.Put(e))
+	req := c.R(ctx).SetResult(&Profile{})
+
+	if bodyData, err := json.Marshal(updateOpts); err == nil {
+		body = string(bodyData)
+	} else {
+		return nil, NewError(err)
+	}
+
+	r, err := coupleAPIErrors(req.
+		SetBody(body).
+		Put(e))
 	if err != nil {
 		return nil, err
 	}

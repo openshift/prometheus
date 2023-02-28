@@ -3,7 +3,6 @@ package linodego
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 )
 
 // NetworkProtocol enum type
@@ -11,10 +10,9 @@ type NetworkProtocol string
 
 // NetworkProtocol enum values
 const (
-	TCP     NetworkProtocol = "TCP"
-	UDP     NetworkProtocol = "UDP"
-	ICMP    NetworkProtocol = "ICMP"
-	IPENCAP NetworkProtocol = "IPENCAP"
+	TCP  NetworkProtocol = "TCP"
+	UDP  NetworkProtocol = "UDP"
+	ICMP NetworkProtocol = "ICMP"
 )
 
 // NetworkAddresses are arrays of ipv4 and v6 addresses
@@ -43,9 +41,12 @@ type FirewallRuleSet struct {
 
 // GetFirewallRules gets the FirewallRuleSet for the given Firewall.
 func (c *Client) GetFirewallRules(ctx context.Context, firewallID int) (*FirewallRuleSet, error) {
-	e := fmt.Sprintf("networking/firewalls/%d/rules", firewallID)
-	req := c.R(ctx).SetResult(&FirewallRuleSet{})
-	r, err := coupleAPIErrors(req.Get(e))
+	e, err := c.FirewallRules.endpointWithParams(firewallID)
+	if err != nil {
+		return nil, err
+	}
+
+	r, err := coupleAPIErrors(c.R(ctx).SetResult(&FirewallRuleSet{}).Get(e))
 	if err != nil {
 		return nil, err
 	}
@@ -54,14 +55,20 @@ func (c *Client) GetFirewallRules(ctx context.Context, firewallID int) (*Firewal
 
 // UpdateFirewallRules updates the FirewallRuleSet for the given Firewall
 func (c *Client) UpdateFirewallRules(ctx context.Context, firewallID int, rules FirewallRuleSet) (*FirewallRuleSet, error) {
-	body, err := json.Marshal(rules)
+	e, err := c.FirewallRules.endpointWithParams(firewallID)
 	if err != nil {
 		return nil, err
 	}
 
-	e := fmt.Sprintf("networking/firewalls/%d/rules", firewallID)
-	req := c.R(ctx).SetResult(&FirewallRuleSet{}).SetBody(string(body))
-	r, err := coupleAPIErrors(req.Put(e))
+	var body string
+	req := c.R(ctx).SetResult(&FirewallRuleSet{})
+	if bodyData, err := json.Marshal(rules); err == nil {
+		body = string(bodyData)
+	} else {
+		return nil, NewError(err)
+	}
+
+	r, err := coupleAPIErrors(req.SetBody(body).Put(e))
 	if err != nil {
 		return nil, err
 	}

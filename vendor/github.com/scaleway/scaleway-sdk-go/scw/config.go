@@ -2,18 +2,15 @@ package scw
 
 import (
 	"bytes"
-	goerrors "errors"
 	"io/ioutil"
 	"os"
 	"path/filepath"
-	"strings"
 	"text/template"
-
-	"gopkg.in/yaml.v2"
 
 	"github.com/scaleway/scaleway-sdk-go/internal/auth"
 	"github.com/scaleway/scaleway-sdk-go/internal/errors"
 	"github.com/scaleway/scaleway-sdk-go/logger"
+	"gopkg.in/yaml.v2"
 )
 
 const (
@@ -188,24 +185,7 @@ func MustLoadConfig() *Config {
 
 // LoadConfig read the config from the default path.
 func LoadConfig() (*Config, error) {
-	configPath := GetConfigPath()
-	cfg, err := LoadConfigFromPath(configPath)
-
-	// Special case if using default config path
-	// if config.yaml does not exist, we should try to read config.yml
-	if os.Getenv(ScwConfigPathEnv) == "" {
-		var configNotFoundError *ConfigFileNotFoundError
-		if err != nil && goerrors.As(err, &configNotFoundError) && strings.HasSuffix(configPath, ".yaml") {
-			configPath = strings.TrimSuffix(configPath, ".yaml") + ".yml"
-			cfgYml, errYml := LoadConfigFromPath(configPath)
-			// If .yml config is not found, return first error when reading .yaml
-			if errYml == nil || (errYml != nil && !goerrors.As(errYml, &configNotFoundError)) {
-				return cfgYml, errYml
-			}
-		}
-	}
-
-	return cfg, err
+	return LoadConfigFromPath(GetConfigPath())
 }
 
 // LoadConfigFromPath read the config from the given path.
@@ -221,6 +201,12 @@ func LoadConfigFromPath(path string) (*Config, error) {
 	file, err := ioutil.ReadFile(path)
 	if err != nil {
 		return nil, errors.Wrap(err, "cannot read config file")
+	}
+
+	_, err = unmarshalConfV1(file)
+	if err == nil {
+		// reject V1 config
+		return nil, errors.New("found legacy config in %s: legacy config is not allowed, please switch to the new config file format: %s", path, documentationLink)
 	}
 
 	confV2, err := unmarshalConfV2(file)

@@ -150,8 +150,10 @@ func (cli *Client) doRequest(ctx context.Context, req *http.Request) (serverResp
 			if err.Timeout() {
 				return serverResp, ErrorConnectionFailed(cli.host)
 			}
-			if strings.Contains(err.Error(), "connection refused") || strings.Contains(err.Error(), "dial unix") {
-				return serverResp, ErrorConnectionFailed(cli.host)
+			if !err.Temporary() {
+				if strings.Contains(err.Error(), "connection refused") || strings.Contains(err.Error(), "dial unix") {
+					return serverResp, ErrorConnectionFailed(cli.host)
+				}
 			}
 		}
 
@@ -240,8 +242,10 @@ func (cli *Client) addHeaders(req *http.Request, headers headers) *http.Request 
 		req.Header.Set(k, v)
 	}
 
-	for k, v := range headers {
-		req.Header[k] = v
+	if headers != nil {
+		for k, v := range headers {
+			req.Header[k] = v
+		}
 	}
 	return req
 }

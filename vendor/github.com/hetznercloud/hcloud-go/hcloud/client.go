@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"math"
 	"net/http"
 	"net/http/httputil"
@@ -221,7 +222,7 @@ func (c *Client) Do(r *http.Request, v interface{}) (*Response, error) {
 	var body []byte
 	var err error
 	if r.ContentLength > 0 {
-		body, err = io.ReadAll(r.Body)
+		body, err = ioutil.ReadAll(r.Body)
 		if err != nil {
 			r.Body.Close()
 			return nil, err
@@ -230,7 +231,7 @@ func (c *Client) Do(r *http.Request, v interface{}) (*Response, error) {
 	}
 	for {
 		if r.ContentLength > 0 {
-			r.Body = io.NopCloser(bytes.NewReader(body))
+			r.Body = ioutil.NopCloser(bytes.NewReader(body))
 		}
 
 		if c.debugWriter != nil {
@@ -246,13 +247,13 @@ func (c *Client) Do(r *http.Request, v interface{}) (*Response, error) {
 			return nil, err
 		}
 		response := &Response{Response: resp}
-		body, err := io.ReadAll(resp.Body)
+		body, err := ioutil.ReadAll(resp.Body)
 		if err != nil {
 			resp.Body.Close()
 			return response, err
 		}
 		resp.Body.Close()
-		resp.Body = io.NopCloser(bytes.NewReader(body))
+		resp.Body = ioutil.NopCloser(bytes.NewReader(body))
 
 		if c.debugWriter != nil {
 			dumpResp, err := httputil.DumpResponse(resp, true)
@@ -270,7 +271,7 @@ func (c *Client) Do(r *http.Request, v interface{}) (*Response, error) {
 			err = errorFromResponse(resp, body)
 			if err == nil {
 				err = fmt.Errorf("hcloud: server responded with status code %d", resp.StatusCode)
-			} else if isConflict(err) {
+			} else if isRetryable(err) {
 				c.backoff(retries)
 				retries++
 				continue
@@ -289,12 +290,12 @@ func (c *Client) Do(r *http.Request, v interface{}) (*Response, error) {
 	}
 }
 
-func isConflict(error error) bool {
+func isRetryable(error error) bool {
 	err, ok := error.(Error)
 	if !ok {
 		return false
 	}
-	return err.Code == ErrorCodeConflict
+	return err.Code == ErrorCodeRateLimitExceeded || err.Code == ErrorCodeConflict
 }
 
 func (c *Client) backoff(retries int) {

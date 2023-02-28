@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/go-resty/resty/v2"
 	"github.com/linode/linodego/internal/parseabletime"
 )
 
@@ -78,18 +77,17 @@ type ObjectStorageBucketsPagedResponse struct {
 }
 
 // endpoint gets the endpoint URL for ObjectStorageBucket
-func (ObjectStorageBucketsPagedResponse) endpoint(_ ...any) string {
-	return "object-storage/buckets"
+func (ObjectStorageBucketsPagedResponse) endpoint(c *Client) string {
+	endpoint, err := c.ObjectStorageBuckets.Endpoint()
+	if err != nil {
+		panic(err)
+	}
+	return endpoint
 }
 
-func (resp *ObjectStorageBucketsPagedResponse) castResult(r *resty.Request, e string) (int, int, error) {
-	res, err := coupleAPIErrors(r.SetResult(ObjectStorageBucketsPagedResponse{}).Get(e))
-	if err != nil {
-		return 0, 0, err
-	}
-	castedRes := res.Result().(*ObjectStorageBucketsPagedResponse)
-	resp.Data = append(resp.Data, castedRes.Data...)
-	return castedRes.Pages, castedRes.Results, nil
+// appendData appends ObjectStorageBuckets when processing paginated ObjectStorageBucket responses
+func (resp *ObjectStorageBucketsPagedResponse) appendData(r *ObjectStorageBucketsPagedResponse) {
+	resp.Data = append(resp.Data, r.Data...)
 }
 
 // ListObjectStorageBuckets lists ObjectStorageBuckets
@@ -104,9 +102,12 @@ func (c *Client) ListObjectStorageBuckets(ctx context.Context, opts *ListOptions
 
 // GetObjectStorageBucket gets the ObjectStorageBucket with the provided label
 func (c *Client) GetObjectStorageBucket(ctx context.Context, clusterID, label string) (*ObjectStorageBucket, error) {
-	e := fmt.Sprintf("object-storage/buckets/%s/%s", clusterID, label)
-	req := c.R(ctx).SetResult(&ObjectStorageBucket{})
-	r, err := coupleAPIErrors(req.Get(e))
+	e, err := c.ObjectStorageBuckets.Endpoint()
+	if err != nil {
+		return nil, err
+	}
+	e = fmt.Sprintf("%s/%s/%s", e, clusterID, label)
+	r, err := coupleAPIErrors(c.R(ctx).SetResult(&ObjectStorageBucket{}).Get(e))
 	if err != nil {
 		return nil, err
 	}
@@ -114,15 +115,24 @@ func (c *Client) GetObjectStorageBucket(ctx context.Context, clusterID, label st
 }
 
 // CreateObjectStorageBucket creates an ObjectStorageBucket
-func (c *Client) CreateObjectStorageBucket(ctx context.Context, opts ObjectStorageBucketCreateOptions) (*ObjectStorageBucket, error) {
-	body, err := json.Marshal(opts)
+func (c *Client) CreateObjectStorageBucket(ctx context.Context, createOpts ObjectStorageBucketCreateOptions) (*ObjectStorageBucket, error) {
+	var body string
+	e, err := c.ObjectStorageBuckets.Endpoint()
 	if err != nil {
 		return nil, err
 	}
 
-	e := "object-storage/buckets"
-	req := c.R(ctx).SetResult(&ObjectStorageBucket{}).SetBody(string(body))
-	r, err := coupleAPIErrors(req.Post(e))
+	req := c.R(ctx).SetResult(&ObjectStorageBucket{})
+
+	if bodyData, err := json.Marshal(createOpts); err == nil {
+		body = string(bodyData)
+	} else {
+		return nil, NewError(err)
+	}
+
+	r, err := coupleAPIErrors(req.
+		SetBody(body).
+		Post(e))
 	if err != nil {
 		return nil, err
 	}
@@ -131,9 +141,17 @@ func (c *Client) CreateObjectStorageBucket(ctx context.Context, opts ObjectStora
 
 // GetObjectStorageBucketAccess gets the current access config for a bucket
 func (c *Client) GetObjectStorageBucketAccess(ctx context.Context, clusterID, label string) (*ObjectStorageBucketAccess, error) {
-	e := fmt.Sprintf("object-storage/buckets/%s/%s/access", clusterID, label)
+	e, err := c.ObjectStorageBuckets.Endpoint()
+	if err != nil {
+		return nil, err
+	}
+
+	e = fmt.Sprintf("%s/%s/%s/access", e, clusterID, label)
+
 	req := c.R(ctx).SetResult(&ObjectStorageBucketAccess{})
-	r, err := coupleAPIErrors(req.Get(e))
+
+	r, err := coupleAPIErrors(
+		req.Get(e))
 	if err != nil {
 		return nil, err
 	}
@@ -142,14 +160,24 @@ func (c *Client) GetObjectStorageBucketAccess(ctx context.Context, clusterID, la
 }
 
 // UpdateObjectStorageBucketAccess updates the access configuration for an ObjectStorageBucket
-func (c *Client) UpdateObjectStorageBucketAccess(ctx context.Context, clusterID, label string, opts ObjectStorageBucketUpdateAccessOptions) error {
-	body, err := json.Marshal(opts)
+func (c *Client) UpdateObjectStorageBucketAccess(ctx context.Context, clusterID, label string, access ObjectStorageBucketUpdateAccessOptions) error {
+	e, err := c.ObjectStorageBuckets.Endpoint()
 	if err != nil {
 		return err
 	}
 
-	e := fmt.Sprintf("object-storage/buckets/%s/%s/access", clusterID, label)
-	_, err = coupleAPIErrors(c.R(ctx).SetBody(string(body)).Post(e))
+	e = fmt.Sprintf("%s/%s/%s/access", e, clusterID, label)
+
+	bodyData, err := json.Marshal(access)
+	if err != nil {
+		return err
+	}
+
+	body := string(bodyData)
+
+	_, err = coupleAPIErrors(c.R(ctx).
+		SetBody(body).
+		Post(e))
 	if err != nil {
 		return err
 	}
@@ -159,7 +187,12 @@ func (c *Client) UpdateObjectStorageBucketAccess(ctx context.Context, clusterID,
 
 // DeleteObjectStorageBucket deletes the ObjectStorageBucket with the specified label
 func (c *Client) DeleteObjectStorageBucket(ctx context.Context, clusterID, label string) error {
-	e := fmt.Sprintf("object-storage/buckets/%s/%s", clusterID, label)
-	_, err := coupleAPIErrors(c.R(ctx).Delete(e))
+	e, err := c.ObjectStorageBuckets.Endpoint()
+	if err != nil {
+		return err
+	}
+	e = fmt.Sprintf("%s/%s/%s", e, clusterID, label)
+
+	_, err = coupleAPIErrors(c.R(ctx).Delete(e))
 	return err
 }

@@ -55,10 +55,6 @@ type IntervalMetrics struct {
 	// Samples maps the key to an AggregateSample,
 	// which has the rolled up view of a sample
 	Samples map[string]SampledValue
-
-	// done is closed when this interval has ended, and a new IntervalMetrics
-	// has been created to receive any future metrics.
-	done chan struct{}
 }
 
 // NewIntervalMetrics creates a new IntervalMetrics for a given interval
@@ -69,7 +65,6 @@ func NewIntervalMetrics(intv time.Time) *IntervalMetrics {
 		Points:   make(map[string][]float32),
 		Counters: make(map[string]SampledValue),
 		Samples:  make(map[string]SampledValue),
-		done:     make(chan struct{}),
 	}
 }
 
@@ -250,8 +245,6 @@ func (i *InmemSink) Data() []*IntervalMetrics {
 	copyCurrent := intervals[n-1]
 	current.RLock()
 	*copyCurrent = *current
-	// RWMutex is not safe to copy, so create a new instance on the copy
-	copyCurrent.RWMutex = sync.RWMutex{}
 
 	copyCurrent.Gauges = make(map[string]GaugeValue, len(current.Gauges))
 	for k, v := range current.Gauges {
@@ -275,44 +268,47 @@ func (i *InmemSink) Data() []*IntervalMetrics {
 	return intervals
 }
 
-// getInterval returns the current interval. A new interval is created if no
-// previous interval exists, or if the current time is beyond the window for the
-// current interval.
-func (i *InmemSink) getInterval() *IntervalMetrics {
-	intv := time.Now().Truncate(i.interval)
-
-	// Attempt to return the existing interval first, because it only requires
-	// a read lock.
+func (i *InmemSink) getExistingInterval(intv time.Time) *IntervalMetrics {
 	i.intervalLock.RLock()
+	defer i.intervalLock.RUnlock()
+
 	n := len(i.intervals)
 	if n > 0 && i.intervals[n-1].Interval == intv {
-		defer i.intervalLock.RUnlock()
 		return i.intervals[n-1]
 	}
-	i.intervalLock.RUnlock()
+	return nil
+}
 
+func (i *InmemSink) createInterval(intv time.Time) *IntervalMetrics {
 	i.intervalLock.Lock()
 	defer i.intervalLock.Unlock()
 
-	// Re-check for an existing interval now that the lock is re-acquired.
-	n = len(i.intervals)
+	// Check for an existing interval
+	n := len(i.intervals)
 	if n > 0 && i.intervals[n-1].Interval == intv {
 		return i.intervals[n-1]
 	}
 
+	// Add the current interval
 	current := NewIntervalMetrics(intv)
 	i.intervals = append(i.intervals, current)
-	if n > 0 {
-		close(i.intervals[n-1].done)
-	}
-
 	n++
-	// Prune old intervals if the count exceeds the max.
+
+	// Truncate the intervals if they are too long
 	if n >= i.maxIntervals {
 		copy(i.intervals[0:], i.intervals[n-i.maxIntervals:])
 		i.intervals = i.intervals[:i.maxIntervals]
 	}
 	return current
+}
+
+// getInterval returns the current interval to write to
+func (i *InmemSink) getInterval() *IntervalMetrics {
+	intv := time.Now().Truncate(i.interval)
+	if m := i.getExistingInterval(intv); m != nil {
+		return m
+	}
+	return i.createInterval(intv)
 }
 
 // Flattens the key for formatting, removes spaces

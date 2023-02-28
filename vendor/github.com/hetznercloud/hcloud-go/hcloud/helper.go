@@ -2,27 +2,17 @@ package hcloud
 
 import "time"
 
-// Ptr returns a pointer to p.
-func Ptr[T any](p T) *T {
-	return &p
-}
-
 // String returns a pointer to the passed string s.
-//
-// Deprecated: Use [Ptr] instead.
-func String(s string) *string { return Ptr(s) }
+func String(s string) *string { return &s }
 
 // Int returns a pointer to the passed integer i.
-//
-// Deprecated: Use [Ptr] instead.
-func Int(i int) *int { return Ptr(i) }
+func Int(i int) *int { return &i }
 
 // Bool returns a pointer to the passed bool b.
-//
-// Deprecated: Use [Ptr] instead.
-func Bool(b bool) *bool { return Ptr(b) }
+func Bool(b bool) *bool { return &b }
 
 // Duration returns a pointer to the passed time.Duration d.
-//
-// Deprecated: Use [Ptr] instead.
-func Duration(d time.Duration) *time.Duration { return Ptr(d) }
+func Duration(d time.Duration) *time.Duration { return &d }
+
+func intSlice(is []int) *[]int          { return &is }
+func stringSlice(ss []string) *[]string { return &ss }

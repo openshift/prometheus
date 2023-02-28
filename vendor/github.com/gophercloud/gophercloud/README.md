@@ -126,9 +126,7 @@ Have a look at the [FAQ](./docs/FAQ.md) for some tips on customizing the way Gop
 
 ## Backwards-Compatibility Guarantees
 
-Gophercloud versioning follows [semver](https://semver.org/spec/v2.0.0.html).
-
-Before `v1.0.0`, there were no guarantees. Starting with v1, there will be no breaking changes within a major release.
+None. Vendor it and write tests covering the parts you use.
 
 ## Contributing
 
