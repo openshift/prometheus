@@ -202,7 +202,7 @@ func (t *Test) parseEval(lines []string, i int) (int, *evalCmd, error) {
 			break
 		}
 		if f, err := parseNumber(defLine); err == nil {
-			cmd.expect(0, parser.SequenceValue{Value: f})
+			cmd.expect(0, nil, parser.SequenceValue{Value: f})
 			break
 		}
 		metric, vals, err := parser.ParseSeriesDesc(defLine)
@@ -218,7 +218,7 @@ func (t *Test) parseEval(lines []string, i int) (int, *evalCmd, error) {
 		if len(vals) > 1 {
 			return i, nil, raise(i, "expecting multiple values in instant evaluation not allowed")
 		}
-		cmd.expectMetric(j, metric, vals...)
+		cmd.expect(j, metric, vals...)
 	}
 	return i, cmd, nil
 }
@@ -368,15 +368,13 @@ func (ev *evalCmd) String() string {
 	return "eval"
 }
 
-// expect adds a sequence of values to the set of expected
+// expect adds a new metric with a sequence of values to the set of expected
 // results for the query.
-func (ev *evalCmd) expect(pos int, vals ...parser.SequenceValue) {
-	ev.expected[0] = entry{pos: pos, vals: vals}
-}
-
-// expectMetric adds a new metric with a sequence of values to the set of expected
-// results for the query.
-func (ev *evalCmd) expectMetric(pos int, m labels.Labels, vals ...parser.SequenceValue) {
+func (ev *evalCmd) expect(pos int, m labels.Labels, vals ...parser.SequenceValue) {
+	if m == nil {
+		ev.expected[0] = entry{pos: pos, vals: vals}
+		return
+	}
 	h := m.Hash()
 	ev.metrics[h] = m
 	ev.expected[h] = entry{pos: pos, vals: vals}
@@ -493,8 +491,8 @@ func atModifierTestCases(exprStr string, evalTime time.Time) ([]atModifierTestCa
 	})
 
 	if containsNonStepInvariant {
-		// Expression contains a function whose result can vary with evaluation
-		// time, even though its arguments are step invariant: skip it.
+		// Since there is a step invariant function, we cannot automatically
+		// generate step invariant test cases for it sanely.
 		return nil, nil
 	}
 
@@ -787,7 +785,8 @@ func (ll *LazyLoader) QueryEngine() *Engine {
 
 // Queryable allows querying the LazyLoader's data.
 // Note: only the samples till the max timestamp used
-// in `WithSamplesTill` can be queried.
+//
+//	in `WithSamplesTill` can be queried.
 func (ll *LazyLoader) Queryable() storage.Queryable {
 	return ll.storage
 }

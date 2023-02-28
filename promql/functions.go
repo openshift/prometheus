@@ -24,7 +24,6 @@ import (
 	"github.com/grafana/regexp"
 	"github.com/prometheus/common/model"
 
-	"github.com/prometheus/prometheus/model/histogram"
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/promql/parser"
 )
@@ -33,21 +32,25 @@ import (
 //
 // vals is a list of the evaluated arguments for the function call.
 //
-// For range vectors it will be a Matrix with one series, instant vectors a
-// Vector, scalars a Vector with one series whose value is the scalar
-// value,and nil for strings.
+//	For range vectors it will be a Matrix with one series, instant vectors a
+//	Vector, scalars a Vector with one series whose value is the scalar
+//	value,and nil for strings.
 //
 // args are the original arguments to the function, where you can access
-// matrixSelectors, vectorSelectors, and StringLiterals.
+//
+//	matrixSelectors, vectorSelectors, and StringLiterals.
 //
 // enh.Out is a pre-allocated empty vector that you may use to accumulate
-// output before returning it. The vectors in vals should not be returned.a
+//
+//	output before returning it. The vectors in vals should not be returned.a
 //
 // Range vector functions need only return a vector with the right value,
-// the metric and timestamp are not needed.
+//
+//	the metric and timestamp are not needed.
 //
 // Instant vector functions need only return a vector with the right values and
-// metrics, the timestamp are not needed.
+//
+//	metrics, the timestamp are not needed.
 //
 // Scalar results should be returned as the value of a sample in a Vector.
 type FunctionCall func(vals []parser.Value, args parser.Expressions, enh *EvalNodeHelper) Vector
@@ -67,11 +70,9 @@ func extrapolatedRate(vals []parser.Value, args parser.Expressions, enh *EvalNod
 	ms := args[0].(*parser.MatrixSelector)
 	vs := ms.VectorSelector.(*parser.VectorSelector)
 	var (
-		samples         = vals[0].(Matrix)[0]
-		rangeStart      = enh.Ts - durationMilliseconds(ms.Range+vs.Offset)
-		rangeEnd        = enh.Ts - durationMilliseconds(vs.Offset)
-		resultValue     float64
-		resultHistogram *histogram.FloatHistogram
+		samples    = vals[0].(Matrix)[0]
+		rangeStart = enh.Ts - durationMilliseconds(ms.Range+vs.Offset)
+		rangeEnd   = enh.Ts - durationMilliseconds(vs.Offset)
 	)
 
 	// No sense in trying to compute a rate without at least two points. Drop
@@ -80,32 +81,14 @@ func extrapolatedRate(vals []parser.Value, args parser.Expressions, enh *EvalNod
 		return enh.Out
 	}
 
-	if samples.Points[0].H != nil {
-		resultHistogram = histogramRate(samples.Points, isCounter)
-		if resultHistogram == nil {
-			// Points are a mix of floats and histograms, or the histograms
-			// are not compatible with each other.
-			// TODO(beorn7): find a way of communicating the exact reason
-			return enh.Out
-		}
-	} else {
-		resultValue = samples.Points[len(samples.Points)-1].V - samples.Points[0].V
-		prevValue := samples.Points[0].V
-		// We have to iterate through everything even in the non-counter
-		// case because we have to check that everything is a float.
-		// TODO(beorn7): Find a way to check that earlier, e.g. by
-		// handing in a []FloatPoint and a []HistogramPoint separately.
-		for _, currPoint := range samples.Points[1:] {
-			if currPoint.H != nil {
-				return nil // Range contains a mix of histograms and floats.
+	resultValue := samples.Points[len(samples.Points)-1].V - samples.Points[0].V
+	if isCounter {
+		var lastValue float64
+		for _, sample := range samples.Points {
+			if sample.V < lastValue {
+				resultValue += lastValue
 			}
-			if !isCounter {
-				continue
-			}
-			if currPoint.V < prevValue {
-				resultValue += prevValue
-			}
-			prevValue = currPoint.V
+			lastValue = sample.V
 		}
 	}
 
@@ -116,7 +99,6 @@ func extrapolatedRate(vals []parser.Value, args parser.Expressions, enh *EvalNod
 	sampledInterval := float64(samples.Points[len(samples.Points)-1].T-samples.Points[0].T) / 1000
 	averageDurationBetweenSamples := sampledInterval / float64(len(samples.Points)-1)
 
-	// TODO(beorn7): Do this for histograms, too.
 	if isCounter && resultValue > 0 && samples.Points[0].V >= 0 {
 		// Counters cannot be negative. If we have any slope at
 		// all (i.e. resultValue went up), we can extrapolate
@@ -148,67 +130,14 @@ func extrapolatedRate(vals []parser.Value, args parser.Expressions, enh *EvalNod
 	} else {
 		extrapolateToInterval += averageDurationBetweenSamples / 2
 	}
-	factor := extrapolateToInterval / sampledInterval
+	resultValue = resultValue * (extrapolateToInterval / sampledInterval)
 	if isRate {
-		factor /= ms.Range.Seconds()
-	}
-	if resultHistogram == nil {
-		resultValue *= factor
-	} else {
-		resultHistogram.Scale(factor)
+		resultValue = resultValue / ms.Range.Seconds()
 	}
 
 	return append(enh.Out, Sample{
-		Point: Point{V: resultValue, H: resultHistogram},
+		Point: Point{V: resultValue},
 	})
-}
-
-// histogramRate is a helper function for extrapolatedRate. It requires
-// points[0] to be a histogram. It returns nil if any other Point in points is
-// not a histogram.
-func histogramRate(points []Point, isCounter bool) *histogram.FloatHistogram {
-	prev := points[0].H // We already know that this is a histogram.
-	last := points[len(points)-1].H
-	if last == nil {
-		return nil // Range contains a mix of histograms and floats.
-	}
-	minSchema := prev.Schema
-	if last.Schema < minSchema {
-		minSchema = last.Schema
-	}
-
-	// First iteration to find out two things:
-	// - What's the smallest relevant schema?
-	// - Are all data points histograms?
-	//   TODO(beorn7): Find a way to check that earlier, e.g. by handing in a
-	//   []FloatPoint and a []HistogramPoint separately.
-	for _, currPoint := range points[1 : len(points)-1] {
-		curr := currPoint.H
-		if curr == nil {
-			return nil // Range contains a mix of histograms and floats.
-		}
-		if !isCounter {
-			continue
-		}
-		if curr.Schema < minSchema {
-			minSchema = curr.Schema
-		}
-	}
-
-	h := last.CopyToSchema(minSchema)
-	h.Sub(prev)
-
-	if isCounter {
-		// Second iteration to deal with counter resets.
-		for _, currPoint := range points[1:] {
-			curr := currPoint.H
-			if curr.DetectReset(prev) {
-				h.Add(prev)
-			}
-			prev = curr
-		}
-	}
-	return h.Compact(0)
 }
 
 // === delta(Matrix parser.ValueTypeMatrix) Vector ===
@@ -302,7 +231,7 @@ func funcHoltWinters(vals []parser.Value, args parser.Expressions, enh *EvalNode
 	// The trend factor argument.
 	tf := vals[2].(Vector)[0].V
 
-	// Check that the input parameters are valid.
+	// Sanity check the input.
 	if sf <= 0 || sf >= 1 {
 		panic(fmt.Errorf("invalid smoothing factor. Expected: 0 < sf < 1, got: %f", sf))
 	}
@@ -868,59 +797,6 @@ func funcPredictLinear(vals []parser.Value, args parser.Expressions, enh *EvalNo
 	})
 }
 
-// === histogram_count(Vector parser.ValueTypeVector) Vector ===
-func funcHistogramCount(vals []parser.Value, args parser.Expressions, enh *EvalNodeHelper) Vector {
-	inVec := vals[0].(Vector)
-
-	for _, sample := range inVec {
-		// Skip non-histogram samples.
-		if sample.H == nil {
-			continue
-		}
-		enh.Out = append(enh.Out, Sample{
-			Metric: enh.DropMetricName(sample.Metric),
-			Point:  Point{V: sample.H.Count},
-		})
-	}
-	return enh.Out
-}
-
-// === histogram_sum(Vector parser.ValueTypeVector) Vector ===
-func funcHistogramSum(vals []parser.Value, args parser.Expressions, enh *EvalNodeHelper) Vector {
-	inVec := vals[0].(Vector)
-
-	for _, sample := range inVec {
-		// Skip non-histogram samples.
-		if sample.H == nil {
-			continue
-		}
-		enh.Out = append(enh.Out, Sample{
-			Metric: enh.DropMetricName(sample.Metric),
-			Point:  Point{V: sample.H.Sum},
-		})
-	}
-	return enh.Out
-}
-
-// === histogram_fraction(lower, upper parser.ValueTypeScalar, Vector parser.ValueTypeVector) Vector ===
-func funcHistogramFraction(vals []parser.Value, args parser.Expressions, enh *EvalNodeHelper) Vector {
-	lower := vals[0].(Vector)[0].V
-	upper := vals[1].(Vector)[0].V
-	inVec := vals[2].(Vector)
-
-	for _, sample := range inVec {
-		// Skip non-histogram samples.
-		if sample.H == nil {
-			continue
-		}
-		enh.Out = append(enh.Out, Sample{
-			Metric: enh.DropMetricName(sample.Metric),
-			Point:  Point{V: histogramFraction(lower, upper, sample.H)},
-		})
-	}
-	return enh.Out
-}
-
 // === histogram_quantile(k parser.ValueTypeScalar, Vector parser.ValueTypeVector) Vector ===
 func funcHistogramQuantile(vals []parser.Value, args parser.Expressions, enh *EvalNodeHelper) Vector {
 	q := vals[0].(Vector)[0].V
@@ -933,57 +809,26 @@ func funcHistogramQuantile(vals []parser.Value, args parser.Expressions, enh *Ev
 			v.buckets = v.buckets[:0]
 		}
 	}
-
-	var histogramSamples []Sample
-
-	for _, sample := range inVec {
-		// We are only looking for conventional buckets here. Remember
-		// the histograms for later treatment.
-		if sample.H != nil {
-			histogramSamples = append(histogramSamples, sample)
-			continue
-		}
-
+	for _, el := range inVec {
 		upperBound, err := strconv.ParseFloat(
-			sample.Metric.Get(model.BucketLabel), 64,
+			el.Metric.Get(model.BucketLabel), 64,
 		)
 		if err != nil {
 			// Oops, no bucket label or malformed label value. Skip.
 			// TODO(beorn7): Issue a warning somehow.
 			continue
 		}
-		enh.lblBuf = sample.Metric.BytesWithoutLabels(enh.lblBuf, labels.BucketLabel)
+		enh.lblBuf = el.Metric.BytesWithoutLabels(enh.lblBuf, labels.BucketLabel)
 		mb, ok := enh.signatureToMetricWithBuckets[string(enh.lblBuf)]
 		if !ok {
-			sample.Metric = labels.NewBuilder(sample.Metric).
+			el.Metric = labels.NewBuilder(el.Metric).
 				Del(excludedLabels...).
-				Labels(labels.EmptyLabels())
+				Labels()
 
-			mb = &metricWithBuckets{sample.Metric, nil}
+			mb = &metricWithBuckets{el.Metric, nil}
 			enh.signatureToMetricWithBuckets[string(enh.lblBuf)] = mb
 		}
-		mb.buckets = append(mb.buckets, bucket{upperBound, sample.V})
-
-	}
-
-	// Now deal with the histograms.
-	for _, sample := range histogramSamples {
-		// We have to reconstruct the exact same signature as above for
-		// a conventional histogram, just ignoring any le label.
-		enh.lblBuf = sample.Metric.Bytes(enh.lblBuf)
-		if mb, ok := enh.signatureToMetricWithBuckets[string(enh.lblBuf)]; ok && len(mb.buckets) > 0 {
-			// At this data point, we have conventional histogram
-			// buckets and a native histogram with the same name and
-			// labels. Do not evaluate anything.
-			// TODO(beorn7): Issue a warning somehow.
-			delete(enh.signatureToMetricWithBuckets, string(enh.lblBuf))
-			continue
-		}
-
-		enh.Out = append(enh.Out, Sample{
-			Metric: enh.DropMetricName(sample.Metric),
-			Point:  Point{V: histogramQuantile(q, sample.H)},
-		})
+		mb.buckets = append(mb.buckets, bucket{upperBound, el.V})
 	}
 
 	for _, mb := range enh.signatureToMetricWithBuckets {
@@ -1077,7 +922,7 @@ func funcLabelReplace(vals []parser.Value, args parser.Expressions, enh *EvalNod
 				if len(res) > 0 {
 					lb.Set(dst, string(res))
 				}
-				outMetric = lb.Labels(labels.EmptyLabels())
+				outMetric = lb.Labels()
 				enh.Dmn[h] = outMetric
 			}
 		}
@@ -1145,7 +990,7 @@ func funcLabelJoin(vals []parser.Value, args parser.Expressions, enh *EvalNodeHe
 				lb.Set(dst, strval)
 			}
 
-			outMetric = lb.Labels(labels.EmptyLabels())
+			outMetric = lb.Labels()
 			enh.Dmn[h] = outMetric
 		}
 
@@ -1262,10 +1107,7 @@ var FunctionCalls = map[string]FunctionCall{
 	"deriv":              funcDeriv,
 	"exp":                funcExp,
 	"floor":              funcFloor,
-	"histogram_count":    funcHistogramCount,
-	"histogram_fraction": funcHistogramFraction,
 	"histogram_quantile": funcHistogramQuantile,
-	"histogram_sum":      funcHistogramSum,
 	"holt_winters":       funcHoltWinters,
 	"hour":               funcHour,
 	"idelta":             funcIdelta,
@@ -1383,7 +1225,7 @@ func (s *vectorByReverseValueHeap) Pop() interface{} {
 // createLabelsForAbsentFunction returns the labels that are uniquely and exactly matched
 // in a given expression. It is used in the absent functions.
 func createLabelsForAbsentFunction(expr parser.Expr) labels.Labels {
-	b := labels.NewBuilder(labels.EmptyLabels())
+	m := labels.Labels{}
 
 	var lm []*labels.Matcher
 	switch n := expr.(type) {
@@ -1392,26 +1234,25 @@ func createLabelsForAbsentFunction(expr parser.Expr) labels.Labels {
 	case *parser.MatrixSelector:
 		lm = n.VectorSelector.(*parser.VectorSelector).LabelMatchers
 	default:
-		return labels.EmptyLabels()
+		return m
 	}
 
-	// The 'has' map implements backwards-compatibility for historic behaviour:
-	// e.g. in `absent(x{job="a",job="b",foo="bar"})` then `job` is removed from the output.
-	// Note this gives arguably wrong behaviour for `absent(x{job="a",job="a",foo="bar"})`.
-	has := make(map[string]bool, len(lm))
+	empty := []string{}
 	for _, ma := range lm {
 		if ma.Name == labels.MetricName {
 			continue
 		}
-		if ma.Type == labels.MatchEqual && !has[ma.Name] {
-			b.Set(ma.Name, ma.Value)
-			has[ma.Name] = true
+		if ma.Type == labels.MatchEqual && !m.Has(ma.Name) {
+			m = labels.NewBuilder(m).Set(ma.Name, ma.Value).Labels()
 		} else {
-			b.Del(ma.Name)
+			empty = append(empty, ma.Name)
 		}
 	}
 
-	return b.Labels(labels.EmptyLabels())
+	for _, v := range empty {
+		m = labels.NewBuilder(m).Del(v).Labels()
+	}
+	return m
 }
 
 func stringFromArg(e parser.Expr) string {

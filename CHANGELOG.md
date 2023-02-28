@@ -1,129 +1,34 @@
 # Changelog
 
-## 2.42.0 / 2023-01-31
+## 2.37.6 / 2023-02-20
 
-This release comes with a bunch of feature coverage for native histograms and breaking changes.
+This release contains a toolchain update. It is built on top of Go 1.19, as the Go
+1.18 release is no longer supported upstream.
 
-If you are trying native histograms already, we recommend you remove the `wal` directory when upgrading.
-Because the old WAL record for native histograms is not backward compatible in v2.42.0, this will lead to some data loss for the latest data.
-
-Additionally, if you scrape "float histograms" or use recording rules on native histograms in v2.42.0 (which writes float histograms),
-it is a one-way street since older versions do not support float histograms.
-
-* [CHANGE] **breaking** TSDB: Changed WAL record format for the experimental native histograms. #11783
-* [FEATURE] Add 'keep_firing_for' field to alerting rules. #11827
-* [FEATURE] Promtool: Add support of selecting timeseries for TSDB dump. #11872
-* [ENHANCEMENT] Agent: Native histogram support. #11842
-* [ENHANCEMENT] Rules: Support native histograms in recording rules. #11838
-* [ENHANCEMENT] SD: Add container ID as a meta label for pod targets for Kubernetes. #11844
-* [ENHANCEMENT] SD: Add VM size label to azure service discovery. #11650
-* [ENHANCEMENT] Support native histograms in federation. #11830
-* [ENHANCEMENT] TSDB: Add gauge histogram support. #11783 #11840 #11814
-* [ENHANCEMENT] TSDB/Scrape: Support FloatHistogram that represents buckets as float64 values. #11522 #11817 #11716
-* [ENHANCEMENT] UI: Show individual scrape pools on /targets page. #11142
-
-## 2.41.0 / 2022-12-20
-
-* [FEATURE] Relabeling: Add `keepequal` and `dropequal` relabel actions. #11564
-* [FEATURE] Add support for HTTP proxy headers. #11712
-* [ENHANCEMENT] Reload private certificates when changed on disk. #11685
-* [ENHANCEMENT] Add `max_version` to specify maximum TLS version in `tls_config`. #11685
-* [ENHANCEMENT] Add `goos` and `goarch` labels to `prometheus_build_info`. #11685
-* [ENHANCEMENT] SD: Add proxy support for EC2 and LightSail SDs #11611
-* [ENHANCEMENT] SD: Add new metric `prometheus_sd_file_watcher_errors_total`. #11066
-* [ENHANCEMENT] Remote Read: Use a pool to speed up marshalling. #11357
-* [ENHANCEMENT] TSDB: Improve handling of tombstoned chunks in iterators. #11632
-* [ENHANCEMENT] TSDB: Optimize postings offset table reading. #11535
-* [BUGFIX] Scrape: Validate the metric name, label names, and label values after relabeling. #11074
-* [BUGFIX] Remote Write receiver and rule manager: Fix error handling. #11727
-
-## 2.40.7 / 2022-12-14
-
-* [BUGFIX] Use Windows native DNS resolver. #11704
-* [BUGFIX] TSDB: Fix queries involving negative buckets of native histograms. #11699
-
-## 2.40.6 / 2022-12-09
+## 2.37.5 / 2022-12-09
 
 * [SECURITY] Security upgrade from go and upstream dependencies that include
-  security fixes to the net/http and os packages. #11691
+  security fixes to the net/http and os packages. #11690
 
-## 2.40.5 / 2022-12-01
-
-* [BUGFIX] TSDB: Fix queries involving native histograms due to improper reset of iterators. #11643
-
-## 2.40.4 / 2022-11-29
+## 2.37.4 / 2022-11-29
 
 * [SECURITY] Fix basic authentication bypass vulnerability (CVE-2022-46146). GHSA-4v48-4q5m-8vx4
 
-## 2.40.3 / 2022-11-23
+## 2.37.3 / 2022-11-23
 
-* [BUGFIX] TSDB: Fix compaction after a deletion is called. #11623
-
-## 2.40.2 / 2022-11-16
-
-* [BUGFIX] UI: Fix black-on-black metric name color in dark mode. #11572
-
-## 2.40.1 / 2022-11-09
-
-* [BUGFIX] TSDB: Fix alignment for atomic int64 for 32 bit architecture. #11547
-* [BUGFIX] Scrape: Fix accept headers. #11552
-
-## 2.40.0 / 2022-11-08
-
-This release introduces an experimental, native way of representing and storing histograms.
-
-It can be enabled in Prometheus via `--enable-feature=native-histograms` to accept native histograms.
-Enabling native histograms will also switch the preferred exposition format to protobuf.
-
-To instrument your application with native histograms, use the `main` branch of `client_golang` (this will change for the final release when v1.14.0 of client_golang will be out), and set the `NativeHistogramBucketFactor` in your `HistogramOpts` (`1.1` is a good starting point).
-Your existing histograms won't switch to native histograms until `NativeHistogramBucketFactor` is set.
-
-* [FEATURE] Add **experimental** support for native histograms. Enable with the flag `--enable-feature=native-histograms`. #11447
-* [FEATURE] SD: Add service discovery for OVHcloud. #10802
-* [ENHANCEMENT] Kubernetes SD: Use protobuf encoding. #11353
-* [ENHANCEMENT] TSDB: Use golang.org/x/exp/slices for improved sorting speed. #11054 #11318 #11380
-* [ENHANCEMENT] Consul SD: Add enterprise admin partitions. Adds `__meta_consul_partition` label. Adds `partition` config in `consul_sd_config`. #11482
-* [BUGFIX] API: Fix API error codes for `/api/v1/labels` and `/api/v1/series`. #11356
-
-## 2.39.2 / 2022-11-09
-
-* [BUGFIX] TSDB: Fix alignment for atomic int64 for 32 bit architecture. #11547
-
-## 2.39.1 / 2022-10-07
-
-* [BUGFIX] Rules: Fix notifier relabel changing the labels on active alerts. #11427
-
-## 2.39.0 / 2022-10-05
-
-* [FEATURE] **experimental** TSDB: Add support for ingesting out-of-order samples. This is configured via `out_of_order_time_window` field in the config file; check config file docs for more info. #11075
-* [ENHANCEMENT] API: `/-/healthy` and `/-/ready` API calls now also respond to a `HEAD` request on top of existing `GET` support. #11160
-* [ENHANCEMENT] PuppetDB SD: Add `__meta_puppetdb_query` label. #11238
-* [ENHANCEMENT] AWS EC2 SD: Add `__meta_ec2_region` label. #11326
-* [ENHANCEMENT] AWS Lightsail SD: Add `__meta_lightsail_region` label. #11326
-* [ENHANCEMENT] Scrape: Optimise relabeling by re-using memory. #11147
-* [ENHANCEMENT] TSDB: Improve WAL replay timings. #10973 #11307 #11319
-* [ENHANCEMENT] TSDB: Optimise memory by not storing unnecessary data in the memory. #11280 #11288 #11296
-* [ENHANCEMENT] TSDB: Allow overlapping blocks by default. `--storage.tsdb.allow-overlapping-blocks` now has no effect. #11331
-* [ENHANCEMENT] UI: Click to copy label-value pair from query result to clipboard. #11229
+* [BUGFIX] Update our regexp library to fix upstream CVE-2022-41715. #11619
 * [BUGFIX] TSDB: Turn off isolation for Head compaction to fix a memory leak. #11317
+
+## 2.37.2 / 2022-11-04
+
 * [BUGFIX] TSDB: Fix 'invalid magic number 0' error on Prometheus startup. #11338
-* [BUGFIX] PromQL: Properly close file descriptor when logging unfinished queries. #11148
 * [BUGFIX] Agent: Fix validation of flag options and prevent WAL from growing more than desired. #9876
 
-## 2.38.0 / 2022-08-16
+## 2.37.1 / 2022-09-12
 
-* [FEATURE]: Web: Add a `/api/v1/format_query` HTTP API endpoint that allows pretty-formatting PromQL expressions. #11036 #10544 #11005
-* [FEATURE]: UI: Add support for formatting PromQL expressions in the UI. #11039
-* [FEATURE]: DNS SD: Support MX records for discovering targets. #10099
-* [FEATURE]: Templates: Add `toTime()` template function that allows converting sample timestamps to Go `time.Time` values. #10993
-* [ENHANCEMENT]: Kubernetes SD: Add `__meta_kubernetes_service_port_number` meta label indicating the service port number. #11002 #11053
-* [ENHANCEMENT]: Kubernetes SD: Add `__meta_kubernetes_pod_container_image` meta label indicating the container image. #11034 #11146
-* [ENHANCEMENT]: PromQL: When a query panics, also log the query itself alongside the panic message. #10995
-* [ENHANCEMENT]: UI: Tweak colors in the dark theme to improve the contrast ratio. #11068
-* [ENHANCEMENT]: Web: Speed up calls to `/api/v1/rules` by avoiding locks and using atomic types instead. #10858
-* [ENHANCEMENT]: Scrape: Add a `no-default-scrape-port` feature flag, which omits or removes any default HTTP (`:80`) or HTTPS (`:443`) ports in the target's scrape address. #9523
-* [BUGFIX]: TSDB: In the WAL watcher metrics, expose the `type="exemplar"` label instead of `type="unknown"` for exemplar records. #11008
-* [BUGFIX]: TSDB: Fix race condition around allocating series IDs during chunk snapshot loading. #11099
+* [BUGFIX] Properly close file descriptor when logging unfinished queries. #11148
+* [BUGFIX] TSDB: In the WAL watcher metrics, expose the type="exemplar" label
+  instead of type="unknown" for exemplar records. #11008
 
 ## 2.37.0 / 2022-07-14
 

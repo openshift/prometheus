@@ -662,6 +662,25 @@ func Test_validateOptions(t *testing.T) {
 	})
 }
 
+func Test_validateOptions(t *testing.T) {
+	t.Run("Apply defaults to zero values", func(t *testing.T) {
+		opts := validateOptions(&Options{})
+		require.Equal(t, DefaultOptions(), opts)
+	})
+
+	t.Run("Defaults are already valid", func(t *testing.T) {
+		require.Equal(t, DefaultOptions(), validateOptions(nil))
+	})
+
+	t.Run("MaxWALTime should not be lower than TruncateFrequency", func(t *testing.T) {
+		opts := validateOptions(&Options{
+			MaxWALTime:        int64(time.Hour / time.Millisecond),
+			TruncateFrequency: 2 * time.Hour,
+		})
+		require.Equal(t, int64(2*time.Hour/time.Millisecond), opts.MaxWALTime)
+	})
+}
+
 func startTime() (int64, error) {
 	return time.Now().Unix() * 1000, nil
 }
