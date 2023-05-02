@@ -14,7 +14,7 @@ atexit() {
 
 trap atexit EXIT
 
-find . -name package.json -execdir npm list --prod --json --all --package-lock-only \; |
+find . -name package-lock.json -execdir npm list --prod --json --all --package-lock-only \; |
 	jq -r '..|objects|to_entries|.[]|select(.value.version?) | "\(.key)@\(.value.version)"' \
 		>>"${WORKING_FILE}"
 
