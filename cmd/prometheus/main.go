@@ -12,6 +12,7 @@
 // limitations under the License.
 
 // The main package for the Prometheus server executable.
+// nolint:revive // Many unsued function arguments in this file by design.
 package main
 
 import (
@@ -70,6 +71,7 @@ import (
 	"github.com/prometheus/prometheus/tracing"
 	"github.com/prometheus/prometheus/tsdb"
 	"github.com/prometheus/prometheus/tsdb/agent"
+	"github.com/prometheus/prometheus/util/documentcli"
 	"github.com/prometheus/prometheus/util/logging"
 	prom_runtime "github.com/prometheus/prometheus/util/runtime"
 	"github.com/prometheus/prometheus/web"
@@ -413,6 +415,15 @@ func main() {
 
 	promlogflag.AddFlags(a, &cfg.promlogConfig)
 
+	a.Flag("write-documentation", "Generate command line documentation. Internal use.").Hidden().Action(func(ctx *kingpin.ParseContext) error {
+		if err := documentcli.GenerateMarkdown(a.Model(), os.Stdout); err != nil {
+			os.Exit(1)
+			return err
+		}
+		os.Exit(0)
+		return nil
+	}).Bool()
+
 	_, err := a.Parse(os.Args[1:])
 	if err != nil {
 		fmt.Fprintln(os.Stderr, fmt.Errorf("Error parsing commandline arguments: %w", err))
@@ -480,7 +491,7 @@ func main() {
 		if cfgFile.StorageConfig.ExemplarsConfig == nil {
 			cfgFile.StorageConfig.ExemplarsConfig = &config.DefaultExemplarsConfig
 		}
-		cfg.tsdb.MaxExemplars = int64(cfgFile.StorageConfig.ExemplarsConfig.MaxExemplars)
+		cfg.tsdb.MaxExemplars = cfgFile.StorageConfig.ExemplarsConfig.MaxExemplars
 	}
 	if cfgFile.StorageConfig.TSDBConfig != nil {
 		cfg.tsdb.OutOfOrderTimeWindow = cfgFile.StorageConfig.TSDBConfig.OutOfOrderTimeWindow

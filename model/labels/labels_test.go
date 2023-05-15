@@ -596,7 +596,7 @@ func TestBuilder(t *testing.T) {
 				b.Keep(tcase.keep...)
 			}
 			b.Del(tcase.del...)
-			require.Equal(t, tcase.want, b.Labels(EmptyLabels()))
+			require.Equal(t, tcase.want, b.Labels())
 
 			// Check what happens when we call Range and mutate the builder.
 			b.Range(func(l Label) {
@@ -604,9 +604,16 @@ func TestBuilder(t *testing.T) {
 					b.Del(l.Name)
 				}
 			})
-			require.Equal(t, tcase.want.BytesWithoutLabels(nil, "aaa", "bbb"), b.Labels(tcase.base).Bytes(nil))
+			require.Equal(t, tcase.want.BytesWithoutLabels(nil, "aaa", "bbb"), b.Labels().Bytes(nil))
 		})
 	}
+	t.Run("set_after_del", func(t *testing.T) {
+		b := NewBuilder(FromStrings("aaa", "111"))
+		b.Del("bbb")
+		b.Set("bbb", "222")
+		require.Equal(t, FromStrings("aaa", "111", "bbb", "222"), b.Labels())
+		require.Equal(t, "222", b.Get("bbb"))
+	})
 }
 
 func TestScratchBuilder(t *testing.T) {
@@ -669,7 +676,7 @@ func BenchmarkLabels_Hash(b *testing.B) {
 					// Label ~20B name, 50B value.
 					b.Set(fmt.Sprintf("abcdefghijabcdefghijabcdefghij%d", i), fmt.Sprintf("abcdefghijabcdefghijabcdefghijabcdefghijabcdefghij%d", i))
 				}
-				return b.Labels(EmptyLabels())
+				return b.Labels()
 			}(),
 		},
 		{
@@ -680,7 +687,7 @@ func BenchmarkLabels_Hash(b *testing.B) {
 					// Label ~50B name, 50B value.
 					b.Set(fmt.Sprintf("abcdefghijabcdefghijabcdefghijabcdefghijabcdefghij%d", i), fmt.Sprintf("abcdefghijabcdefghijabcdefghijabcdefghijabcdefghij%d", i))
 				}
-				return b.Labels(EmptyLabels())
+				return b.Labels()
 			}(),
 		},
 		{
@@ -729,7 +736,7 @@ func BenchmarkBuilder(b *testing.B) {
 		for _, l := range m {
 			builder.Set(l.Name, l.Value)
 		}
-		l = builder.Labels(EmptyLabels())
+		l = builder.Labels()
 	}
 	require.Equal(b, 9, l.Len())
 }
