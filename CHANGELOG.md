@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.47.2 / 2023-10-11
+
+* [BUGFIX] TSDB: Fix counter reset edgecases causing native histogram panics. #12838
+
+## 2.47.1 / 2023-10-04
+
+* [BUGFIX] Fix duplicate sample detection at chunk size limit #12874
+
 ## 2.47.0 / 2023-09-06
 
 This release adds an experimental OpenTelemetry (OTLP) Ingestion feature,
