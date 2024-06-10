@@ -153,7 +153,7 @@ var (
 
 	DefaultRuntimeConfig = RuntimeConfig{
 		// Go runtime tuning.
-		GoGC: 50,
+		GoGC: 75,
 	}
 
 	// DefaultScrapeConfig is the default scrape configuration.
