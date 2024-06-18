@@ -1,4 +1,4 @@
-FROM registry.ci.openshift.org/ocp/builder:rhel-9-golang-1.21-openshift-4.16 AS builder
+FROM registry.ci.openshift.org/ocp/builder:rhel-9-golang-1.22-openshift-4.17 AS builder
 WORKDIR /go/src/github.com/prometheus/prometheus
 COPY . .
 # NOTE(spasquie): the 'build' target regenerates the ReactJS code and the Go
@@ -9,7 +9,7 @@ COPY . .
 # (web/ui/static/**/*.gz) should be committed to the repository.
 RUN if yum install -y prometheus-promu; then export BUILD_PROMU=false; fi && make common-build
 
-FROM registry.ci.openshift.org/ocp/4.16:base-rhel9
+FROM registry.ci.openshift.org/ocp/4.17:base-rhel9
 LABEL io.k8s.display-name="OpenShift Prometheus" \
       io.k8s.description="The Prometheus monitoring system and time series database." \
       io.openshift.tags="prometheus,monitoring" \
