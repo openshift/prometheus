@@ -61,8 +61,11 @@ A Prometheus server's data directory looks something like this:
 Note that a limitation of local storage is that it is not clustered or
 replicated. Thus, it is not arbitrarily scalable or durable in the face of
 drive or node outages and should be managed like any other single node
-database. The use of RAID is suggested for storage availability, and
-[snapshots](querying/api.md#snapshot) are recommended for backups. With proper
+database. 
+
+[Snapshots](querying/api.md#snapshot) are recommended for backups. Backups 
+made without snapshots run the risk of losing data that was recorded since 
+the last WAL sync, which typically happens every two hours. With proper
 architecture, it is possible to retain years of data in local storage.
 
 Alternatively, external storage may be used via the
@@ -133,6 +136,18 @@ will be used.
 
 Expired block cleanup happens in the background. It may take up to two hours
 to remove expired blocks. Blocks must be fully expired before they are removed.
+
+## Right-Sizing Retention Size
+
+If you are utilizing `storage.tsdb.retention.size` to set a size limit, you 
+will want to consider the right size for this value relative to the storage you 
+have allocated for Prometheus. It is wise to reduce the retention size to provide 
+a buffer, ensuring that older entries will be removed before the allocated storage 
+for Prometheus becomes full.
+
+At present, we recommend setting the retention size to, at most, 80-85% of your 
+allocated Prometheus disk space. This increases the likelihood that older entires 
+will be removed prior to hitting any disk limitations.
 
 ## Remote storage integrations
 
