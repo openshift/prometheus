@@ -16,9 +16,6 @@
 package plugins
 
 import (
-	// Register aws plugin.
-	_ "github.com/prometheus/prometheus/discovery/aws"
-
 	// Register azure plugin.
 	_ "github.com/prometheus/prometheus/discovery/azure"
 
@@ -33,9 +30,6 @@ import (
 
 	// Register eureka plugin.
 	_ "github.com/prometheus/prometheus/discovery/eureka"
-
-	// Register gce plugin.
-	_ "github.com/prometheus/prometheus/discovery/gce"
 
 	// Register hetzner plugin.
 	_ "github.com/prometheus/prometheus/discovery/hetzner"
