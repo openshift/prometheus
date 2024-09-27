@@ -1,8 +1,10 @@
+- github.com/prometheus/prometheus/discovery/aws
 - github.com/prometheus/prometheus/discovery/azure
 - github.com/prometheus/prometheus/discovery/consul
 - github.com/prometheus/prometheus/discovery/digitalocean
 - github.com/prometheus/prometheus/discovery/dns
 - github.com/prometheus/prometheus/discovery/eureka
+- github.com/prometheus/prometheus/discovery/gce
 - github.com/prometheus/prometheus/discovery/hetzner
 - github.com/prometheus/prometheus/discovery/ionos
 - github.com/prometheus/prometheus/discovery/kubernetes
