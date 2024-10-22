@@ -167,8 +167,11 @@ func NewEndpoints(l log.Logger, eps cache.SharedIndexInformer, svc, pod, node ca
 				e.enqueueNode(node.Name)
 			},
 			DeleteFunc: func(o interface{}) {
-				node := o.(*apiv1.Node)
-				e.enqueueNode(node.Name)
+				nodeName, err := nodeName(o)
+				if err != nil {
+					level.Error(l).Log("msg", "Error getting Node name", "err", err)
+				}
+				e.enqueueNode(nodeName)
 			},
 		})
 		if err != nil {
