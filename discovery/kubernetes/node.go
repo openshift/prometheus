@@ -76,7 +76,7 @@ func NewNode(l log.Logger, inf cache.SharedInformer) *Node {
 }
 
 func (n *Node) enqueue(obj interface{}) {
-	key, err := cache.DeletionHandlingMetaNamespaceKeyFunc(obj)
+	key, err := nodeName(obj)
 	if err != nil {
 		return
 	}
