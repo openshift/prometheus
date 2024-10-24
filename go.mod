@@ -215,3 +215,5 @@ exclude (
 	github.com/grpc-ecosystem/grpc-gateway v1.14.7
 	google.golang.org/api v0.30.0
 )
+
+replace golang.org/x/crypto => ./downstream/golang.org/x/crypto
