@@ -93,8 +93,11 @@ func NewPod(l log.Logger, pods cache.SharedIndexInformer, nodes cache.SharedInfo
 				p.enqueuePodsForNode(node.Name)
 			},
 			DeleteFunc: func(o interface{}) {
-				node := o.(*apiv1.Node)
-				p.enqueuePodsForNode(node.Name)
+				nodeName, err := nodeName(o)
+				if err != nil {
+					level.Error(l).Log("msg", "Error getting Node name", "err", err)
+				}
+				p.enqueuePodsForNode(nodeName)
 			},
 		})
 		if err != nil {
