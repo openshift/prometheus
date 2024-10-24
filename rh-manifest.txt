@@ -5,7 +5,7 @@
 @codemirror/lint@6.8.1
 @codemirror/search@6.5.6
 @codemirror/state@6.4.1
-@codemirror/view@6.28.3
+@codemirror/view@6.29.1
 @forevolve/bootstrap-dark@4.0.2
 @fortawesome/fontawesome-common-types@6.5.2
 @fortawesome/fontawesome-svg-core@6.5.2
@@ -14,21 +14,22 @@
 @hypnosphi/create-react-context@0.3.1
 @lezer/common@1.2.1
 @lezer/highlight@1.2.0
-@lezer/lr@1.4.1
+@lezer/lr@1.4.2
 @nexucis/fuzzy@0.4.1
 @nexucis/kvsearch@0.8.1
-@prometheus-io/app@0.54.1
-@prometheus-io/codemirror-promql@0.54.1
-@prometheus-io/lezer-promql@0.54.1
+@prometheus-io/app@0.55.0
+@prometheus-io/codemirror-promql@0.55.0
+@prometheus-io/lezer-promql@0.55.0
 @types/http-proxy@1.17.14
 @types/node@20.14.9
 anymatch@3.1.2
 binary-extensions@2.2.0
 bootstrap@4.6.2
-braces@3.0.2
+braces@3.0.3
 call-bind@1.0.2
 chokidar@3.5.3
 classnames@2.3.2
+colors@0.5.1
 compute-scroll-into-view@3.1.0
 copy-to-clipboard@3.3.2
 crelt@1.0.5
@@ -37,6 +38,7 @@ debug@4.3.4
 deep-equal@1.1.1
 deepmerge@4.2.2
 define-properties@1.1.4
+discontinuous-range@1.0.0
 dom-helpers@3.4.0
 dom-serializer@2.0.0
 domelementtype@2.3.0
@@ -46,8 +48,8 @@ downshift@9.0.6
 entities@4.4.0
 escape-string-regexp@4.0.0
 eventemitter3@4.0.7
-fill-range@7.0.1
-follow-redirects@1.15.2
+fill-range@7.1.1
+follow-redirects@1.15.6
 fsevents@2.3.3
 function-bind@1.1.1
 functions-have-names@1.2.3
@@ -77,6 +79,7 @@ isarray@0.0.1
 jquery.flot.tooltip@0.9.0
 jquery@3.7.1
 js-tokens@4.0.0
+lodash.flattendeep@4.4.0
 lodash@4.17.21
 loose-envify@1.4.0
 lru-cache@7.18.3
@@ -86,6 +89,8 @@ moment@2.29.4
 moment@2.30.1
 ms@2.1.2
 nanoid@3.3.4
+nearley@2.7.10
+nomnom@1.6.2
 normalize-path@3.0.0
 object-assign@4.1.1
 object-is@1.1.5
@@ -97,6 +102,8 @@ picomatch@2.3.1
 popper.js@1.16.1
 postcss@8.4.17
 prop-types@15.8.1
+railroad-diagrams@1.0.0
+randexp@0.4.6
 react-copy-to-clipboard@5.1.0
 react-dom@17.0.2
 react-infinite-scroll-component@6.1.0
@@ -118,6 +125,7 @@ regenerator-runtime@0.14.1
 regexp.prototype.flags@1.4.3
 requires-port@1.0.0
 resolve-pathname@3.0.0
+ret@0.1.15
 sanitize-html@2.13.0
 sass@1.77.6
 scheduler@0.20.2
@@ -132,6 +140,7 @@ to-regex-range@5.0.1
 toggle-selection@1.0.6
 tslib@2.6.3
 typed-styles@0.0.7
+underscore@1.4.4
 undici-types@5.26.5
 value-equal@1.0.1
 w3c-keyname@2.2.6
