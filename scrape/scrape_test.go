@@ -158,6 +158,9 @@ type testLoop struct {
 	timeout      time.Duration
 }
 
+func (l *testLoop) setScrapeFailureLogger(log.Logger) {
+}
+
 func (l *testLoop) run(errc chan<- error) {
 	if l.runOnce {
 		panic("loop must be started only once")
@@ -684,6 +687,7 @@ func newBasicScrapeLoop(t testing.TB, ctx context.Context, scraper scraper, app 
 		false,
 		newTestScrapeMetrics(t),
 		false,
+		model.LegacyValidation,
 	)
 }
 
@@ -826,6 +830,7 @@ func TestScrapeLoopRun(t *testing.T) {
 		false,
 		scrapeMetrics,
 		false,
+		model.LegacyValidation,
 	)
 
 	// The loop must terminate during the initial offset if the context
@@ -970,6 +975,7 @@ func TestScrapeLoopMetadata(t *testing.T) {
 		false,
 		scrapeMetrics,
 		false,
+		model.LegacyValidation,
 	)
 	defer cancel()
 
@@ -1063,6 +1069,40 @@ func TestScrapeLoopFailWithInvalidLabelsAfterRelabel(t *testing.T) {
 	require.Equal(t, 1, total)
 	require.Equal(t, 0, added)
 	require.Equal(t, 0, seriesAdded)
+}
+
+func TestScrapeLoopFailLegacyUnderUTF8(t *testing.T) {
+	// Test that scrapes fail when default validation is utf8 but scrape config is
+	// legacy.
+	model.NameValidationScheme = model.UTF8Validation
+	defer func() {
+		model.NameValidationScheme = model.LegacyValidation
+	}()
+	s := teststorage.New(t)
+	defer s.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	sl := newBasicScrapeLoop(t, ctx, &testScraper{}, s.Appender, 0)
+	sl.validationScheme = model.LegacyValidation
+
+	slApp := sl.appender(ctx)
+	total, added, seriesAdded, err := sl.append(slApp, []byte("{\"test.metric\"} 1\n"), "", time.Time{})
+	require.ErrorContains(t, err, "invalid metric name or label names")
+	require.NoError(t, slApp.Rollback())
+	require.Equal(t, 1, total)
+	require.Equal(t, 0, added)
+	require.Equal(t, 0, seriesAdded)
+
+	// When scrapeloop has validation set to UTF-8, the metric is allowed.
+	sl.validationScheme = model.UTF8Validation
+
+	slApp = sl.appender(ctx)
+	total, added, seriesAdded, err = sl.append(slApp, []byte("{\"test.metric\"} 1\n"), "", time.Time{})
+	require.NoError(t, err)
+	require.Equal(t, 1, total)
+	require.Equal(t, 1, added)
+	require.Equal(t, 1, seriesAdded)
 }
 
 func makeTestMetrics(n int) []byte {
@@ -2340,11 +2380,15 @@ func TestTargetScraperScrapeOK(t *testing.T) {
 	)
 
 	var protobufParsing bool
+	var allowUTF8 bool
 
 	server := httptest.NewServer(
 		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			accept := r.Header.Get("Accept")
+			if allowUTF8 {
+				require.Truef(t, strings.Contains(accept, "escaping=allow-utf-8"), "Expected Accept header to allow utf8, got %q", accept)
+			}
 			if protobufParsing {
-				accept := r.Header.Get("Accept")
 				require.True(t, strings.HasPrefix(accept, "application/vnd.google.protobuf;"),
 					"Expected Accept header to prefer application/vnd.google.protobuf.")
 			}
@@ -2352,7 +2396,11 @@ func TestTargetScraperScrapeOK(t *testing.T) {
 			timeout := r.Header.Get("X-Prometheus-Scrape-Timeout-Seconds")
 			require.Equal(t, expectedTimeout, timeout, "Expected scrape timeout header.")
 
-			w.Header().Set("Content-Type", `text/plain; version=0.0.4`)
+			if allowUTF8 {
+				w.Header().Set("Content-Type", `text/plain; version=1.0.0; escaping=allow-utf-8`)
+			} else {
+				w.Header().Set("Content-Type", `text/plain; version=0.0.4`)
+			}
 			w.Write([]byte("metric_a 1\nmetric_b 2\n"))
 		}),
 	)
@@ -2381,13 +2429,22 @@ func TestTargetScraperScrapeOK(t *testing.T) {
 		require.NoError(t, err)
 		contentType, err := ts.readResponse(context.Background(), resp, &buf)
 		require.NoError(t, err)
-		require.Equal(t, "text/plain; version=0.0.4", contentType)
+		if allowUTF8 {
+			require.Equal(t, "text/plain; version=1.0.0; escaping=allow-utf-8", contentType)
+		} else {
+			require.Equal(t, "text/plain; version=0.0.4", contentType)
+		}
 		require.Equal(t, "metric_a 1\nmetric_b 2\n", buf.String())
 	}
 
-	runTest(acceptHeader(config.DefaultScrapeProtocols))
+	runTest(acceptHeader(config.DefaultScrapeProtocols, model.LegacyValidation))
 	protobufParsing = true
-	runTest(acceptHeader(config.DefaultProtoFirstScrapeProtocols))
+	runTest(acceptHeader(config.DefaultProtoFirstScrapeProtocols, model.LegacyValidation))
+	protobufParsing = false
+	allowUTF8 = true
+	runTest(acceptHeader(config.DefaultScrapeProtocols, model.UTF8Validation))
+	protobufParsing = true
+	runTest(acceptHeader(config.DefaultProtoFirstScrapeProtocols, model.UTF8Validation))
 }
 
 func TestTargetScrapeScrapeCancel(t *testing.T) {
@@ -2413,7 +2470,7 @@ func TestTargetScrapeScrapeCancel(t *testing.T) {
 			),
 		},
 		client:       http.DefaultClient,
-		acceptHeader: acceptHeader(config.DefaultGlobalConfig.ScrapeProtocols),
+		acceptHeader: acceptHeader(config.DefaultGlobalConfig.ScrapeProtocols, model.LegacyValidation),
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -2468,7 +2525,7 @@ func TestTargetScrapeScrapeNotFound(t *testing.T) {
 			),
 		},
 		client:       http.DefaultClient,
-		acceptHeader: acceptHeader(config.DefaultGlobalConfig.ScrapeProtocols),
+		acceptHeader: acceptHeader(config.DefaultGlobalConfig.ScrapeProtocols, model.LegacyValidation),
 	}
 
 	resp, err := ts.scrape(context.Background())
@@ -2512,7 +2569,7 @@ func TestTargetScraperBodySizeLimit(t *testing.T) {
 		},
 		client:        http.DefaultClient,
 		bodySizeLimit: bodySizeLimit,
-		acceptHeader:  acceptHeader(config.DefaultGlobalConfig.ScrapeProtocols),
+		acceptHeader:  acceptHeader(config.DefaultGlobalConfig.ScrapeProtocols, model.LegacyValidation),
 		metrics:       newTestScrapeMetrics(t),
 	}
 	var buf bytes.Buffer
@@ -3728,7 +3785,7 @@ scrape_configs:
 	s.DB.EnableNativeHistograms()
 	reg := prometheus.NewRegistry()
 
-	mng, err := NewManager(&Options{EnableNativeHistogramsIngestion: true}, nil, s, reg)
+	mng, err := NewManager(&Options{EnableNativeHistogramsIngestion: true}, nil, nil, s, reg)
 	require.NoError(t, err)
 	cfg, err := config.Load(configStr, false, log.NewNopLogger())
 	require.NoError(t, err)

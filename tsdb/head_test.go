@@ -33,7 +33,6 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/prometheus/client_golang/prometheus"
 	prom_testutil "github.com/prometheus/client_golang/prometheus/testutil"
-	"github.com/prometheus/common/model"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/atomic"
 	"golang.org/x/sync/errgroup"
@@ -435,6 +434,32 @@ func BenchmarkLoadWLs(b *testing.B) {
 					}
 				})
 		}
+	}
+}
+
+// BenchmarkLoadRealWLs will be skipped unless the BENCHMARK_LOAD_REAL_WLS_DIR environment variable is set.
+// BENCHMARK_LOAD_REAL_WLS_DIR should be the folder where `wal` and `chunks_head` are located.
+func BenchmarkLoadRealWLs(b *testing.B) {
+	dir := os.Getenv("BENCHMARK_LOAD_REAL_WLS_DIR")
+	if dir == "" {
+		b.SkipNow()
+	}
+
+	wal, err := wlog.New(nil, nil, filepath.Join(dir, "wal"), wlog.CompressionNone)
+	require.NoError(b, err)
+	b.Cleanup(func() { wal.Close() })
+
+	wbl, err := wlog.New(nil, nil, filepath.Join(dir, "wbl"), wlog.CompressionNone)
+	require.NoError(b, err)
+	b.Cleanup(func() { wbl.Close() })
+
+	// Load the WAL.
+	for i := 0; i < b.N; i++ {
+		opts := DefaultHeadOptions()
+		opts.ChunkDirRoot = dir
+		h, err := NewHead(nil, nil, wal, wbl, opts, nil)
+		require.NoError(b, err)
+		require.NoError(b, h.Init(0))
 	}
 }
 
@@ -2719,7 +2744,7 @@ func testOutOfOrderSamplesMetric(t *testing.T, scenario sampleTypeScenario) {
 
 	require.Equal(t, int64(math.MinInt64), db.head.minValidTime.Load())
 	require.NoError(t, db.Compact(ctx))
-	require.Greater(t, db.head.minValidTime.Load(), int64(0))
+	require.Positive(t, db.head.minValidTime.Load())
 
 	app = db.Appender(ctx)
 	_, err = appendSample(app, db.head.minValidTime.Load()-2)
@@ -3467,6 +3492,133 @@ func TestWaitForPendingReadersInTimeRange(t *testing.T) {
 	}
 }
 
+func TestQueryOOOHeadDuringTruncate(t *testing.T) {
+	testQueryOOOHeadDuringTruncate(t,
+		func(db *DB, minT, maxT int64) (storage.LabelQuerier, error) {
+			return db.Querier(minT, maxT)
+		},
+		func(t *testing.T, lq storage.LabelQuerier, minT, _ int64) {
+			// Samples
+			q, ok := lq.(storage.Querier)
+			require.True(t, ok)
+			ss := q.Select(context.Background(), false, nil, labels.MustNewMatcher(labels.MatchEqual, "a", "b"))
+			require.True(t, ss.Next())
+			s := ss.At()
+			require.False(t, ss.Next()) // One series.
+			it := s.Iterator(nil)
+			require.NotEqual(t, chunkenc.ValNone, it.Next()) // Has some data.
+			require.Equal(t, minT, it.AtT())                 // It is an in-order sample.
+			require.NotEqual(t, chunkenc.ValNone, it.Next()) // Has some data.
+			require.Equal(t, minT+50, it.AtT())              // it is an out-of-order sample.
+			require.NoError(t, it.Err())
+		},
+	)
+}
+
+func TestChunkQueryOOOHeadDuringTruncate(t *testing.T) {
+	testQueryOOOHeadDuringTruncate(t,
+		func(db *DB, minT, maxT int64) (storage.LabelQuerier, error) {
+			return db.ChunkQuerier(minT, maxT)
+		},
+		func(t *testing.T, lq storage.LabelQuerier, minT, _ int64) {
+			// Chunks
+			q, ok := lq.(storage.ChunkQuerier)
+			require.True(t, ok)
+			ss := q.Select(context.Background(), false, nil, labels.MustNewMatcher(labels.MatchEqual, "a", "b"))
+			require.True(t, ss.Next())
+			s := ss.At()
+			require.False(t, ss.Next()) // One series.
+			metaIt := s.Iterator(nil)
+			require.True(t, metaIt.Next())
+			meta := metaIt.At()
+			// Samples
+			it := meta.Chunk.Iterator(nil)
+			require.NotEqual(t, chunkenc.ValNone, it.Next()) // Has some data.
+			require.Equal(t, minT, it.AtT())                 // It is an in-order sample.
+			require.NotEqual(t, chunkenc.ValNone, it.Next()) // Has some data.
+			require.Equal(t, minT+50, it.AtT())              // it is an out-of-order sample.
+			require.NoError(t, it.Err())
+		},
+	)
+}
+
+func testQueryOOOHeadDuringTruncate(t *testing.T, makeQuerier func(db *DB, minT, maxT int64) (storage.LabelQuerier, error), verify func(t *testing.T, q storage.LabelQuerier, minT, maxT int64)) {
+	const maxT int64 = 6000
+
+	dir := t.TempDir()
+	opts := DefaultOptions()
+	opts.EnableNativeHistograms = true
+	opts.OutOfOrderTimeWindow = maxT
+	opts.MinBlockDuration = maxT / 2 // So that head will compact up to 3000.
+
+	db, err := Open(dir, nil, nil, opts, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, db.Close())
+	})
+	db.DisableCompactions()
+
+	var (
+		ref = storage.SeriesRef(0)
+		app = db.Appender(context.Background())
+	)
+	// Add in-order samples at every 100ms starting at 0ms.
+	for i := int64(0); i < maxT; i += 100 {
+		_, err := app.Append(ref, labels.FromStrings("a", "b"), i, 0)
+		require.NoError(t, err)
+	}
+	// Add out-of-order samples at every 100ms starting at 50ms.
+	for i := int64(50); i < maxT; i += 100 {
+		_, err := app.Append(ref, labels.FromStrings("a", "b"), i, 0)
+		require.NoError(t, err)
+	}
+	require.NoError(t, app.Commit())
+
+	requireEqualOOOSamples(t, int(maxT/100-1), db)
+
+	// Synchronization points.
+	allowQueryToStart := make(chan struct{})
+	queryStarted := make(chan struct{})
+	compactionFinished := make(chan struct{})
+
+	db.head.memTruncationCallBack = func() {
+		// Compaction has started, let the query start and wait for it to actually start to simulate race condition.
+		allowQueryToStart <- struct{}{}
+		<-queryStarted
+	}
+
+	go func() {
+		db.Compact(context.Background()) // Compact and write blocks up to 3000 (maxtT/2).
+		compactionFinished <- struct{}{}
+	}()
+
+	// Wait for the compaction to start.
+	<-allowQueryToStart
+
+	q, err := makeQuerier(db, 1500, 2500)
+	require.NoError(t, err)
+	queryStarted <- struct{}{} // Unblock the compaction.
+	ctx := context.Background()
+
+	// Label names.
+	res, annots, err := q.LabelNames(ctx, nil, labels.MustNewMatcher(labels.MatchEqual, "a", "b"))
+	require.NoError(t, err)
+	require.Empty(t, annots)
+	require.Equal(t, []string{"a"}, res)
+
+	// Label values.
+	res, annots, err = q.LabelValues(ctx, "a", nil, labels.MustNewMatcher(labels.MatchEqual, "a", "b"))
+	require.NoError(t, err)
+	require.Empty(t, annots)
+	require.Equal(t, []string{"b"}, res)
+
+	verify(t, q, 1500, 2500)
+
+	require.NoError(t, q.Close()) // Cannot be deferred as the compaction waits for queries to close before finishing.
+
+	<-compactionFinished // Wait for compaction otherwise Go test finds stray goroutines.
+}
+
 func TestAppendHistogram(t *testing.T) {
 	l := labels.FromStrings("a", "b")
 	for _, numHistograms := range []int{1, 10, 150, 200, 250, 300} {
@@ -3639,7 +3791,7 @@ func TestHistogramInWALAndMmapChunk(t *testing.T) {
 	require.Len(t, ms.mmappedChunks, 25)
 	expMmapChunks := make([]*mmappedChunk, 0, 20)
 	for _, mmap := range ms.mmappedChunks {
-		require.Greater(t, mmap.numSamples, uint16(0))
+		require.Positive(t, mmap.numSamples)
 		cpy := *mmap
 		expMmapChunks = append(expMmapChunks, &cpy)
 	}
@@ -5657,7 +5809,7 @@ func TestCuttingNewHeadChunks(t *testing.T) {
 	}
 }
 
-// TestHeadDetectsDuplcateSampleAtSizeLimit tests a regression where a duplicate sample
+// TestHeadDetectsDuplicateSampleAtSizeLimit tests a regression where a duplicate sample
 // is appended to the head, right when the head chunk is at the size limit.
 // The test adds all samples as duplicate, thus expecting that the result has
 // exactly half of the samples.
@@ -5881,6 +6033,35 @@ func TestPostingsCardinalityStats(t *testing.T) {
 	require.Equal(t, statsForSomeLabel1, head.PostingsCardinalityStats("n", 1))
 }
 
+func TestHeadAppender_AppendFloatWithSameTimestampAsPreviousHistogram(t *testing.T) {
+	head, _ := newTestHead(t, DefaultBlockDuration, wlog.CompressionNone, false)
+	t.Cleanup(func() { head.Close() })
+
+	ls := labels.FromStrings(labels.MetricName, "test")
+
+	{
+		// Append a float 10.0 @ 1_000
+		app := head.Appender(context.Background())
+		_, err := app.Append(0, ls, 1_000, 10.0)
+		require.NoError(t, err)
+		require.NoError(t, app.Commit())
+	}
+
+	{
+		// Append a float histogram @ 2_000
+		app := head.Appender(context.Background())
+		h := tsdbutil.GenerateTestHistogram(1)
+		_, err := app.AppendHistogram(0, ls, 2_000, h, nil)
+		require.NoError(t, err)
+		require.NoError(t, app.Commit())
+	}
+
+	app := head.Appender(context.Background())
+	_, err := app.Append(0, ls, 2_000, 10.0)
+	require.Error(t, err)
+	require.ErrorIs(t, err, storage.NewDuplicateHistogramToFloatErr(2_000, 10.0))
+}
+
 func TestHeadAppender_AppendCTZeroSample(t *testing.T) {
 	type appendableSamples struct {
 		ts  int64
@@ -5890,16 +6071,16 @@ func TestHeadAppender_AppendCTZeroSample(t *testing.T) {
 	for _, tc := range []struct {
 		name              string
 		appendableSamples []appendableSamples
-		expectedSamples   []model.Sample
+		expectedSamples   []chunks.Sample
 	}{
 		{
 			name: "In order ct+normal sample",
 			appendableSamples: []appendableSamples{
 				{ts: 100, val: 10, ct: 1},
 			},
-			expectedSamples: []model.Sample{
-				{Timestamp: 1, Value: 0},
-				{Timestamp: 100, Value: 10},
+			expectedSamples: []chunks.Sample{
+				sample{t: 1, f: 0},
+				sample{t: 100, f: 10},
 			},
 		},
 		{
@@ -5908,10 +6089,10 @@ func TestHeadAppender_AppendCTZeroSample(t *testing.T) {
 				{ts: 100, val: 10, ct: 1},
 				{ts: 101, val: 10, ct: 1},
 			},
-			expectedSamples: []model.Sample{
-				{Timestamp: 1, Value: 0},
-				{Timestamp: 100, Value: 10},
-				{Timestamp: 101, Value: 10},
+			expectedSamples: []chunks.Sample{
+				sample{t: 1, f: 0},
+				sample{t: 100, f: 10},
+				sample{t: 101, f: 10},
 			},
 		},
 		{
@@ -5920,11 +6101,11 @@ func TestHeadAppender_AppendCTZeroSample(t *testing.T) {
 				{ts: 100, val: 10, ct: 1},
 				{ts: 102, val: 10, ct: 101},
 			},
-			expectedSamples: []model.Sample{
-				{Timestamp: 1, Value: 0},
-				{Timestamp: 100, Value: 10},
-				{Timestamp: 101, Value: 0},
-				{Timestamp: 102, Value: 10},
+			expectedSamples: []chunks.Sample{
+				sample{t: 1, f: 0},
+				sample{t: 100, f: 10},
+				sample{t: 101, f: 0},
+				sample{t: 102, f: 10},
 			},
 		},
 		{
@@ -5933,41 +6114,33 @@ func TestHeadAppender_AppendCTZeroSample(t *testing.T) {
 				{ts: 100, val: 10, ct: 1},
 				{ts: 101, val: 10, ct: 100},
 			},
-			expectedSamples: []model.Sample{
-				{Timestamp: 1, Value: 0},
-				{Timestamp: 100, Value: 10},
-				{Timestamp: 101, Value: 10},
+			expectedSamples: []chunks.Sample{
+				sample{t: 1, f: 0},
+				sample{t: 100, f: 10},
+				sample{t: 101, f: 10},
 			},
 		},
 	} {
-		h, _ := newTestHead(t, DefaultBlockDuration, wlog.CompressionNone, false)
-		defer func() {
-			require.NoError(t, h.Close())
-		}()
-		a := h.Appender(context.Background())
-		lbls := labels.FromStrings("foo", "bar")
-		for _, sample := range tc.appendableSamples {
-			_, err := a.AppendCTZeroSample(0, lbls, sample.ts, sample.ct)
-			require.NoError(t, err)
-			_, err = a.Append(0, lbls, sample.ts, sample.val)
-			require.NoError(t, err)
-		}
-		require.NoError(t, a.Commit())
+		t.Run(tc.name, func(t *testing.T) {
+			h, _ := newTestHead(t, DefaultBlockDuration, wlog.CompressionNone, false)
+			defer func() {
+				require.NoError(t, h.Close())
+			}()
+			a := h.Appender(context.Background())
+			lbls := labels.FromStrings("foo", "bar")
+			for _, sample := range tc.appendableSamples {
+				_, err := a.AppendCTZeroSample(0, lbls, sample.ts, sample.ct)
+				require.NoError(t, err)
+				_, err = a.Append(0, lbls, sample.ts, sample.val)
+				require.NoError(t, err)
+			}
+			require.NoError(t, a.Commit())
 
-		q, err := NewBlockQuerier(h, math.MinInt64, math.MaxInt64)
-		require.NoError(t, err)
-		ss := q.Select(context.Background(), false, nil, labels.MustNewMatcher(labels.MatchEqual, "foo", "bar"))
-		require.True(t, ss.Next())
-		s := ss.At()
-		require.False(t, ss.Next())
-		it := s.Iterator(nil)
-		for _, sample := range tc.expectedSamples {
-			require.Equal(t, chunkenc.ValFloat, it.Next())
-			timestamp, value := it.At()
-			require.Equal(t, sample.Timestamp, model.Time(timestamp))
-			require.Equal(t, sample.Value, model.SampleValue(value))
-		}
-		require.Equal(t, chunkenc.ValNone, it.Next())
+			q, err := NewBlockQuerier(h, math.MinInt64, math.MaxInt64)
+			require.NoError(t, err)
+			result := query(t, q, labels.MustNewMatcher(labels.MatchEqual, "foo", "bar"))
+			require.Equal(t, tc.expectedSamples, result[`{foo="bar"}`])
+		})
 	}
 }
 
