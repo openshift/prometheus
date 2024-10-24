@@ -1,6 +1,7 @@
 package klog
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"os"
@@ -8,11 +9,20 @@ import (
 
 	"github.com/go-kit/log"
 	"github.com/go-kit/log/level"
+	"github.com/go-logr/logr"
 )
 
 var maxLevel Level = math.MaxInt32
 var logger = log.NewNopLogger()
 var mu = sync.Mutex{}
+
+type Logger = logr.Logger
+
+// Any function calling klog.FromContext(), klog.Background() or klog.TODO()
+// will get a zero-value logger which drops all the logs.
+func FromContext(context.Context) Logger { return Logger{} }
+func Background() Logger                 { return Logger{} }
+func TODO() Logger                       { return Logger{} }
 
 // SetLogger redirects klog logging to the given logger.
 // It must be called prior any call to klog.
@@ -180,4 +190,10 @@ func KRef(namespace, name string) ObjectRef {
 		Name:      name,
 		Namespace: namespace,
 	}
+}
+
+// LoggerWithName() drops the name argument because klog has no ability to
+// retrieve the existing key and append the argument to it.
+func LoggerWithName(logger Logger, _ string) Logger {
+	return logger
 }
