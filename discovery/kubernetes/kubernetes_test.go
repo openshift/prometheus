@@ -22,6 +22,8 @@ import (
 
 	"github.com/go-kit/log"
 	"github.com/stretchr/testify/require"
+	apiv1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/version"
 	fakediscovery "k8s.io/client-go/discovery/fake"
@@ -292,4 +294,19 @@ func TestCheckNetworkingV1Supported(t *testing.T) {
 			require.Equal(t, tc.wantSupported, supported)
 		})
 	}
+}
+
+func TestNodeName(t *testing.T) {
+	node := &apiv1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "foo",
+		},
+	}
+	name, err := nodeName(node)
+	require.NoError(t, err)
+	require.Equal(t, "foo", name)
+
+	name, err = nodeName(cache.DeletedFinalStateUnknown{Key: "bar"})
+	require.NoError(t, err)
+	require.Equal(t, "bar", name)
 }
