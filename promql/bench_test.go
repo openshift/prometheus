@@ -539,6 +539,10 @@ func generateNativeHistogramSeries(app storage.Appender, numSeries int) error {
 
 func BenchmarkParser(b *testing.B) {
 	cases := []string{
+		`foo_bucket{a="b",c="d",le=~"1.0|2.0|3.0|4"}`,
+		`bar_bucket{a="b",c="d",le="1.0"}`,
+		`foo{a="b",c="d",quantile="0"}`,
+		`bar{a="b",c="d",quantile="0.99"}`,
 		"a",
 		"metric",
 		"1",

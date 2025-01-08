@@ -539,6 +539,9 @@ func main() {
 
 	logger := promslog.New(&cfg.promslogConfig)
 	slog.SetDefault(logger)
+	// Hacky but temporary
+	parser.Logger = logger.With("component", "parser")
+	relabel.Logger = logger.With("component", "relabel")
 
 	notifs := notifications.NewNotifications(cfg.maxNotificationsSubscribers, prometheus.DefaultRegisterer)
 	cfg.web.NotificationsSub = notifs.Sub
@@ -994,18 +997,12 @@ func main() {
 	listeners, err := webHandler.Listeners()
 	if err != nil {
 		logger.Error("Unable to start web listener", "err", err)
-		if err := queryEngine.Close(); err != nil {
-			logger.Warn("Closing query engine failed", "err", err)
-		}
 		os.Exit(1)
 	}
 
 	err = toolkit_web.Validate(*webConfig)
 	if err != nil {
 		logger.Error("Unable to validate web configuration file", "err", err)
-		if err := queryEngine.Close(); err != nil {
-			logger.Warn("Closing query engine failed", "err", err)
-		}
 		os.Exit(1)
 	}
 
@@ -1026,9 +1023,6 @@ func main() {
 					logger.Warn("Received termination request via web service, exiting gracefully...")
 				case <-cancel:
 					reloadReady.Close()
-				}
-				if err := queryEngine.Close(); err != nil {
-					logger.Warn("Closing query engine failed", "err", err)
 				}
 				return nil
 			},
