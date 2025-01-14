@@ -1250,7 +1250,7 @@ func main() {
 
 				switch fsType := prom_runtime.Statfs(localStoragePath); fsType {
 				case "NFS_SUPER_MAGIC":
-					logger.Warn("This filesystem is not supported and may lead to data corruption and data loss. Please carefully read https://prometheus.io/docs/prometheus/latest/storage/ to learn more about supported filesystems.", "fs_type", fsType)
+					logger.Warn("This filesystem is generally not recommended for Prometheus and may lead to data corruption and data loss. Some NFS implementations may work if they are POSIX-compliant. Please consult the documentation and carefully consider your NFS implementation: https://prometheus.io/docs/prometheus/latest/storage/", "fs_type", fsType)
 				default:
 					logger.Info("filesystem information", "fs_type", fsType)
 				}
@@ -1306,7 +1306,7 @@ func main() {
 
 				switch fsType := prom_runtime.Statfs(localStoragePath); fsType {
 				case "NFS_SUPER_MAGIC":
-					logger.Warn(fsType, "msg", "This filesystem is not supported and may lead to data corruption and data loss. Please carefully read https://prometheus.io/docs/prometheus/latest/storage/ to learn more about supported filesystems.")
+					logger.Warn(fsType, "msg", "This filesystem is generally not recommended for Prometheus and may lead to data corruption and data loss. Some NFS implementations may work if they are POSIX-compliant. Please consult the documentation and carefully consider your NFS implementation: https://prometheus.io/docs/prometheus/latest/storage/")
 				default:
 					logger.Info(fsType)
 				}
