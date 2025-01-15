@@ -28,6 +28,8 @@ import (
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/util/testutil"
 
+	client_testutil "github.com/prometheus/client_golang/prometheus/testutil"
+
 	"github.com/prometheus/prometheus/promql/parser/posrange"
 )
 
@@ -4006,8 +4008,7 @@ func TestParseExpressions(t *testing.T) {
 
 				require.Equal(t, expected, expr, "error on input '%s'", test.input)
 			} else {
-				require.Error(t, err)
-				require.Contains(t, err.Error(), test.errMsg, "unexpected error on input '%s', expected '%s', got '%s'", test.input, test.errMsg, err.Error())
+				require.ErrorContains(t, err, test.errMsg, "unexpected error on input '%s', expected '%s', got '%s'", test.input, test.errMsg, err.Error())
 
 				var errorList ParseErrors
 				ok := errors.As(err, &errorList)
@@ -4482,6 +4483,22 @@ func TestHistogramTestExpression(t *testing.T) {
 			},
 			expected: `{{offset:-3 buckets:[5.1 0 0 0 0 10 7] n_offset:-1 n_buckets:[4.1 5 0 0 7 8 9]}}`,
 		},
+		{
+			name: "known counter reset hint",
+			input: histogram.FloatHistogram{
+				Schema:           1,
+				Sum:              -0.3,
+				Count:            3.1,
+				ZeroCount:        7.1,
+				ZeroThreshold:    0.05,
+				PositiveBuckets:  []float64{5.1, 10, 7},
+				PositiveSpans:    []histogram.Span{{Offset: -3, Length: 3}},
+				NegativeBuckets:  []float64{4.1, 5},
+				NegativeSpans:    []histogram.Span{{Offset: -5, Length: 2}},
+				CounterResetHint: histogram.CounterReset,
+			},
+			expected: `{{schema:1 count:3.1 sum:-0.3 z_bucket:7.1 z_bucket_w:0.05 counter_reset_hint:reset offset:-3 buckets:[5.1 10 7] n_offset:-5 n_buckets:[4.1 5]}}`,
+		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			expression := test.input.TestExpression()
@@ -4533,7 +4550,7 @@ func TestRecoverParserError(t *testing.T) {
 	e := errors.New("custom error")
 
 	defer func() {
-		require.Equal(t, e.Error(), err.Error())
+		require.EqualError(t, err, e.Error())
 	}()
 	defer p.recover(&err)
 
@@ -4591,4 +4608,65 @@ func TestParseCustomFunctions(t *testing.T) {
 	call, ok := expr.(*Call)
 	require.True(t, ok)
 	require.Equal(t, "custom_func", call.Func.Name)
+}
+
+func Test_checkLabelMatchers(t *testing.T) {
+	parseExpr := func(s string) error {
+		_, err := ParseExpr(s)
+		return err
+	}
+
+	parseMetricSelector := func(s string) error {
+		_, err := ParseMetricSelector(s)
+		return err
+	}
+
+	cases := []struct {
+		expr                   string
+		shouldIncrementCounter bool
+		fn                     func(string) error
+	}{
+		{`rate(foo_bucket{le="1"}[1d])`, true, parseExpr},
+		{`sum(baz) - sum(foo_bucket{a="b",le=~"1|2|3"})`, true, parseExpr},
+
+		{`foo_bucket{le="1"}`, true, parseMetricSelector},
+		{`foo_bucket{le="-1"}`, true, parseMetricSelector},
+		{`foo_bucket{a="b",le="1"}`, true, parseMetricSelector},
+		{`foo_bucket{le=~"5|1|3"}`, true, parseMetricSelector},
+		{`foo_bucket{bar="1"}`, false, parseMetricSelector},
+		{`foo_bucket{le=~"0.5|1.5"}`, false, parseMetricSelector},
+		{`foo_bucket{le="0.5"}`, false, parseMetricSelector},
+		{`foo{le="0"}`, false, parseMetricSelector},
+		{`foo_bucket{le=~"0.5|1"}`, false, parseMetricSelector},
+		{`foo_bucket{le=~"1|0.6"}`, false, parseMetricSelector},
+		{`foo_bucket{le=""}`, false, parseMetricSelector},
+		// name inside the braces is not supported
+		{`{le="1",__name__="foo_bucket"}`, false, parseMetricSelector},
+
+		{`bar{quantile="0"}`, true, parseMetricSelector},
+		{`bar{quantile="-0"}`, true, parseMetricSelector},
+		{`bar{a="b",quantile="0"}`, true, parseMetricSelector},
+		{`bar{quantile=~"0|1"}`, true, parseMetricSelector},
+		{`{quantile="1",__name__="bar"}`, true, parseMetricSelector},
+		{`foo_bucket{bar="0"}`, false, parseMetricSelector},
+		{`bar{quantile="0.95"}`, false, parseMetricSelector},
+		{`bar{quantile=~"0.5|0.95"}`, false, parseMetricSelector},
+		{`bar{quantile=~"0.5|0"}`, false, parseMetricSelector},
+		{`bar{quantile=~"0|0.6"}`, false, parseMetricSelector},
+		{`bar{quantile=""}`, false, parseMetricSelector},
+	}
+
+	for _, tt := range cases {
+		t.Run(tt.expr, func(t *testing.T) {
+			counter := client_testutil.ToFloat64(NarrowSelectors.WithLabelValues("parser"))
+			err := tt.fn(tt.expr)
+			require.NoError(t, err)
+
+			if tt.shouldIncrementCounter {
+				counter++
+			}
+
+			require.Equal(t, counter, client_testutil.ToFloat64(NarrowSelectors.WithLabelValues("parser")))
+		})
+	}
 }
