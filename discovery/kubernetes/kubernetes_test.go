@@ -20,8 +20,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-kit/log"
 	prom_testutil "github.com/prometheus/client_golang/prometheus/testutil"
+	"github.com/prometheus/common/promslog"
 	"github.com/stretchr/testify/require"
 	apiv1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -48,7 +48,7 @@ func TestMain(m *testing.M) {
 
 // makeDiscovery creates a kubernetes.Discovery instance for testing.
 func makeDiscovery(role Role, nsDiscovery NamespaceDiscovery, objects ...runtime.Object) (*Discovery, kubernetes.Interface) {
-	return makeDiscoveryWithVersion(role, nsDiscovery, "v1.22.0", objects...)
+	return makeDiscoveryWithVersion(role, nsDiscovery, "v1.25.0", objects...)
 }
 
 // makeDiscoveryWithVersion creates a kubernetes.Discovery instance with the specified kubernetes version for testing.
@@ -73,7 +73,7 @@ func makeDiscoveryWithVersion(role Role, nsDiscovery NamespaceDiscovery, k8sVer 
 
 	d := &Discovery{
 		client:             clientset,
-		logger:             log.NewNopLogger(),
+		logger:             promslog.NewNopLogger(),
 		role:               role,
 		namespaceDiscovery: &nsDiscovery,
 		ownNamespace:       "own-ns",
@@ -284,40 +284,6 @@ func TestRetryOnError(t *testing.T) {
 		}
 		retryOnError(context.TODO(), 0, f)
 		require.Equal(t, successAt, called)
-	}
-}
-
-func TestCheckNetworkingV1Supported(t *testing.T) {
-	tests := []struct {
-		version       string
-		wantSupported bool
-		wantErr       bool
-	}{
-		{version: "v1.18.0", wantSupported: false, wantErr: false},
-		{version: "v1.18.1", wantSupported: false, wantErr: false},
-		// networking v1 is supported since Kubernetes v1.19
-		{version: "v1.19.0", wantSupported: true, wantErr: false},
-		{version: "v1.20.0-beta.2", wantSupported: true, wantErr: false},
-		// error patterns
-		{version: "", wantSupported: false, wantErr: true},
-		{version: "<>", wantSupported: false, wantErr: true},
-	}
-
-	for _, tc := range tests {
-		tc := tc
-		t.Run(tc.version, func(t *testing.T) {
-			clientset := fake.NewSimpleClientset()
-			fakeDiscovery, _ := clientset.Discovery().(*fakediscovery.FakeDiscovery)
-			fakeDiscovery.FakedServerVersion = &version.Info{GitVersion: tc.version}
-			supported, err := checkNetworkingV1Supported(clientset)
-
-			if tc.wantErr {
-				require.Error(t, err)
-			} else {
-				require.NoError(t, err)
-			}
-			require.Equal(t, tc.wantSupported, supported)
-		})
 	}
 }
 

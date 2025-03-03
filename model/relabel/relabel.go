@@ -22,11 +22,15 @@ import (
 
 	"github.com/grafana/regexp"
 	"github.com/prometheus/common/model"
+	"github.com/prometheus/common/promslog"
 
 	"github.com/prometheus/prometheus/model/labels"
+	"github.com/prometheus/prometheus/promql/parser"
 )
 
 var (
+	Logger = promslog.NewNopLogger()
+
 	relabelTarget = regexp.MustCompile(`^(?:(?:[a-zA-Z_]|\$(?:\{\w+\}|\w+))+\w*)+$`)
 
 	DefaultRelabelConfig = Config{
@@ -160,6 +164,21 @@ func (c *Config) Validate() error {
 		}
 	}
 
+	// look for configs that may need adjustment.
+	for i, ln := range c.SourceLabels {
+		if ln == model.BucketLabel || ln == model.QuantileLabel {
+			vals := strings.Split(c.Regex.String(), c.Separator)
+			if len(vals) <= i {
+				continue
+			}
+			// Supposing regexes ending with (\.0)? to be already adjusted, excluding them to avoid noise.
+			if !strings.HasSuffix(vals[i], `(\.0)?`) {
+				parser.NarrowSelectors.WithLabelValues("relabel").Inc()
+				Logger.Debug("relabel_config involves 'le' or 'quantile' labels, it may need to be adjusted to count for float values", "source_labels", c.SourceLabels, "regex", c.Regex)
+			}
+		}
+	}
+
 	return nil
 }
 
@@ -171,7 +190,7 @@ type Regexp struct {
 // NewRegexp creates a new anchored Regexp and returns an error if the
 // passed-in regular expression does not compile.
 func NewRegexp(s string) (Regexp, error) {
-	regex, err := regexp.Compile("^(?:" + s + ")$")
+	regex, err := regexp.Compile("^(?s:" + s + ")$")
 	return Regexp{Regexp: regex}, err
 }
 
@@ -218,8 +237,8 @@ func (re Regexp) String() string {
 	}
 
 	str := re.Regexp.String()
-	// Trim the anchor `^(?:` prefix and `)$` suffix.
-	return str[4 : len(str)-2]
+	// Trim the anchor `^(?s:` prefix and `)$` suffix.
+	return str[5 : len(str)-2]
 }
 
 // Process returns a relabeled version of the given label set. The relabel configurations
@@ -277,6 +296,13 @@ func relabel(cfg *Config, lb *labels.Builder) (keep bool) {
 			return false
 		}
 	case Replace:
+		// Fast path to add or delete label pair.
+		if val == "" && cfg.Regex == DefaultRelabelConfig.Regex &&
+			!varInRegexTemplate(cfg.TargetLabel) && !varInRegexTemplate(cfg.Replacement) {
+			lb.Set(cfg.TargetLabel, cfg.Replacement)
+			break
+		}
+
 		indexes := cfg.Regex.FindStringSubmatchIndex(val)
 		// If there is no match no replacement must take place.
 		if indexes == nil {
@@ -325,4 +351,8 @@ func relabel(cfg *Config, lb *labels.Builder) (keep bool) {
 	}
 
 	return true
+}
+
+func varInRegexTemplate(template string) bool {
+	return strings.Contains(template, "$")
 }
