@@ -17,10 +17,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"math"
+	"os"
+	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -39,8 +39,8 @@ import (
 	"github.com/prometheus/prometheus/storage"
 	"github.com/prometheus/prometheus/tsdb/chunkenc"
 	"github.com/prometheus/prometheus/util/annotations"
+	"github.com/prometheus/prometheus/util/logging"
 	"github.com/prometheus/prometheus/util/stats"
-	"github.com/prometheus/prometheus/util/teststorage"
 	"github.com/prometheus/prometheus/util/testutil"
 )
 
@@ -753,7 +753,7 @@ load 10s
 			Interval: 5 * time.Second,
 		},
 		{
-			Query:       `count_values("wrong label!", metric)`,
+			Query:       `count_values("wrong label!\xff", metric)`,
 			ShouldError: true,
 		},
 	}
@@ -2149,40 +2149,17 @@ func TestSubquerySelector(t *testing.T) {
 	}
 }
 
-type FakeQueryLogger struct {
-	closed bool
-	logs   []interface{}
-	attrs  []any
-}
+func getLogLines(t *testing.T, name string) []string {
+	content, err := os.ReadFile(name)
+	require.NoError(t, err)
 
-func NewFakeQueryLogger() *FakeQueryLogger {
-	return &FakeQueryLogger{
-		closed: false,
-		logs:   make([]interface{}, 0),
-		attrs:  make([]any, 0),
+	lines := strings.Split(string(content), "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		if lines[i] == "" {
+			lines = append(lines[:i], lines[i+1:]...)
+		}
 	}
-}
-
-// It implements the promql.QueryLogger interface.
-func (f *FakeQueryLogger) Close() error {
-	f.closed = true
-	return nil
-}
-
-// It implements the promql.QueryLogger interface.
-func (f *FakeQueryLogger) Log(ctx context.Context, level slog.Level, msg string, args ...any) {
-	// Test usage only really cares about existence of keyvals passed in
-	// via args, just append in the log message before handling the
-	// provided args and any embedded kvs added via `.With()` on f.attrs.
-	log := append([]any{msg}, args...)
-	log = append(log, f.attrs...)
-	f.attrs = f.attrs[:0]
-	f.logs = append(f.logs, log...)
-}
-
-// It implements the promql.QueryLogger interface.
-func (f *FakeQueryLogger) With(args ...any) {
-	f.attrs = append(f.attrs, args...)
+	return lines
 }
 
 func TestQueryLogger_basic(t *testing.T) {
@@ -2207,32 +2184,45 @@ func TestQueryLogger_basic(t *testing.T) {
 	// promql.Query works without query log initialized.
 	queryExec()
 
-	f1 := NewFakeQueryLogger()
+	tmpDir := t.TempDir()
+	ql1File := filepath.Join(tmpDir, "query1.log")
+	f1, err := logging.NewJSONFileLogger(ql1File)
+	require.NoError(t, err)
+
 	engine.SetQueryLogger(f1)
 	queryExec()
-	require.Contains(t, f1.logs, `params`)
-	require.Contains(t, f1.logs, map[string]interface{}{"query": "test statement"})
+	logLines := getLogLines(t, ql1File)
+	require.Contains(t, logLines[0], "params", map[string]interface{}{"query": "test statement"})
+	require.Len(t, logLines, 1)
 
-	l := len(f1.logs)
+	l := len(logLines)
 	queryExec()
-	require.Len(t, f1.logs, 2*l)
+	logLines = getLogLines(t, ql1File)
+	l2 := len(logLines)
+	require.Equal(t, l2, 2*l)
 
-	// Test that we close the query logger when unsetting it.
-	require.False(t, f1.closed, "expected f1 to be open, got closed")
+	// Test that we close the query logger when unsetting it. The following
+	// attempt to close the file should error.
 	engine.SetQueryLogger(nil)
-	require.True(t, f1.closed, "expected f1 to be closed, got open")
+	err = f1.Close()
+	require.ErrorContains(t, err, "file already closed", "expected f1 to be closed, got open")
 	queryExec()
 
 	// Test that we close the query logger when swapping.
-	f2 := NewFakeQueryLogger()
-	f3 := NewFakeQueryLogger()
+	ql2File := filepath.Join(tmpDir, "query2.log")
+	f2, err := logging.NewJSONFileLogger(ql2File)
+	require.NoError(t, err)
+	ql3File := filepath.Join(tmpDir, "query3.log")
+	f3, err := logging.NewJSONFileLogger(ql3File)
+	require.NoError(t, err)
 	engine.SetQueryLogger(f2)
-	require.False(t, f2.closed, "expected f2 to be open, got closed")
 	queryExec()
 	engine.SetQueryLogger(f3)
-	require.True(t, f2.closed, "expected f2 to be closed, got open")
-	require.False(t, f3.closed, "expected f3 to be open, got closed")
+	err = f2.Close()
+	require.ErrorContains(t, err, "file already closed", "expected f2 to be closed, got open")
 	queryExec()
+	err = f3.Close()
+	require.NoError(t, err)
 }
 
 func TestQueryLogger_fields(t *testing.T) {
@@ -2244,7 +2234,14 @@ func TestQueryLogger_fields(t *testing.T) {
 	}
 	engine := promqltest.NewTestEngineWithOpts(t, opts)
 
-	f1 := NewFakeQueryLogger()
+	tmpDir := t.TempDir()
+	ql1File := filepath.Join(tmpDir, "query1.log")
+	f1, err := logging.NewJSONFileLogger(ql1File)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, f1.Close())
+	})
+
 	engine.SetQueryLogger(f1)
 
 	ctx, cancelCtx := context.WithCancel(context.Background())
@@ -2257,8 +2254,8 @@ func TestQueryLogger_fields(t *testing.T) {
 	res := query.Exec(ctx)
 	require.NoError(t, res.Err)
 
-	require.Contains(t, f1.logs, `foo`)
-	require.Contains(t, f1.logs, `bar`)
+	logLines := getLogLines(t, ql1File)
+	require.Contains(t, logLines[0], "foo", "bar")
 }
 
 func TestQueryLogger_error(t *testing.T) {
@@ -2270,7 +2267,14 @@ func TestQueryLogger_error(t *testing.T) {
 	}
 	engine := promqltest.NewTestEngineWithOpts(t, opts)
 
-	f1 := NewFakeQueryLogger()
+	tmpDir := t.TempDir()
+	ql1File := filepath.Join(tmpDir, "query1.log")
+	f1, err := logging.NewJSONFileLogger(ql1File)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, f1.Close())
+	})
+
 	engine.SetQueryLogger(f1)
 
 	ctx, cancelCtx := context.WithCancel(context.Background())
@@ -2284,10 +2288,9 @@ func TestQueryLogger_error(t *testing.T) {
 	res := query.Exec(ctx)
 	require.Error(t, res.Err, "query should have failed")
 
-	require.Contains(t, f1.logs, `params`)
-	require.Contains(t, f1.logs, map[string]interface{}{"query": "test statement"})
-	require.Contains(t, f1.logs, `error`)
-	require.Contains(t, f1.logs, testErr)
+	logLines := getLogLines(t, ql1File)
+	require.Contains(t, logLines[0], "error", testErr)
+	require.Contains(t, logLines[0], "params", map[string]interface{}{"query": "test statement"})
 }
 
 func TestPreprocessAndWrapWithStepInvariantExpr(t *testing.T) {
@@ -3263,452 +3266,6 @@ func TestInstantQueryWithRangeVectorSelector(t *testing.T) {
 	}
 }
 
-func TestNativeHistogram_Sum_Count_Add_AvgOperator(t *testing.T) {
-	// TODO(codesome): Integrate histograms into the PromQL testing framework
-	// and write more tests there.
-	cases := []struct {
-		histograms  []histogram.Histogram
-		expected    histogram.FloatHistogram
-		expectedAvg histogram.FloatHistogram
-	}{
-		{
-			histograms: []histogram.Histogram{
-				{
-					CounterResetHint: histogram.GaugeType,
-					Schema:           0,
-					Count:            25,
-					Sum:              1234.5,
-					ZeroThreshold:    0.001,
-					ZeroCount:        4,
-					PositiveSpans: []histogram.Span{
-						{Offset: 0, Length: 2},
-						{Offset: 1, Length: 2},
-					},
-					PositiveBuckets: []int64{1, 1, -1, 0},
-					NegativeSpans: []histogram.Span{
-						{Offset: 0, Length: 2},
-						{Offset: 2, Length: 2},
-					},
-					NegativeBuckets: []int64{2, 2, -3, 8},
-				},
-				{
-					CounterResetHint: histogram.GaugeType,
-					Schema:           0,
-					Count:            41,
-					Sum:              2345.6,
-					ZeroThreshold:    0.001,
-					ZeroCount:        5,
-					PositiveSpans: []histogram.Span{
-						{Offset: 0, Length: 4},
-						{Offset: 0, Length: 0},
-						{Offset: 0, Length: 3},
-					},
-					PositiveBuckets: []int64{1, 2, -2, 1, -1, 0, 0},
-					NegativeSpans: []histogram.Span{
-						{Offset: 1, Length: 4},
-						{Offset: 2, Length: 0},
-						{Offset: 2, Length: 3},
-					},
-					NegativeBuckets: []int64{1, 3, -2, 5, -2, 0, -3},
-				},
-				{
-					CounterResetHint: histogram.GaugeType,
-					Schema:           0,
-					Count:            41,
-					Sum:              1111.1,
-					ZeroThreshold:    0.001,
-					ZeroCount:        5,
-					PositiveSpans: []histogram.Span{
-						{Offset: 0, Length: 4},
-						{Offset: 0, Length: 0},
-						{Offset: 0, Length: 3},
-					},
-					PositiveBuckets: []int64{1, 2, -2, 1, -1, 0, 0},
-					NegativeSpans: []histogram.Span{
-						{Offset: 1, Length: 4},
-						{Offset: 2, Length: 0},
-						{Offset: 2, Length: 3},
-					},
-					NegativeBuckets: []int64{1, 3, -2, 5, -2, 0, -3},
-				},
-				{
-					CounterResetHint: histogram.GaugeType,
-					Schema:           1, // Everything is 0 just to make the count 4 so avg has nicer numbers.
-				},
-			},
-			expected: histogram.FloatHistogram{
-				CounterResetHint: histogram.GaugeType,
-				Schema:           0,
-				ZeroThreshold:    0.001,
-				ZeroCount:        14,
-				Count:            107,
-				Sum:              4691.2,
-				PositiveSpans: []histogram.Span{
-					{Offset: 0, Length: 7},
-				},
-				PositiveBuckets: []float64{3, 8, 2, 5, 3, 2, 2},
-				NegativeSpans: []histogram.Span{
-					{Offset: 0, Length: 6},
-					{Offset: 3, Length: 3},
-				},
-				NegativeBuckets: []float64{2, 6, 8, 4, 15, 9, 10, 10, 4},
-			},
-			expectedAvg: histogram.FloatHistogram{
-				CounterResetHint: histogram.GaugeType,
-				Schema:           0,
-				ZeroThreshold:    0.001,
-				ZeroCount:        3.5,
-				Count:            26.75,
-				Sum:              1172.8,
-				PositiveSpans: []histogram.Span{
-					{Offset: 0, Length: 7},
-				},
-				PositiveBuckets: []float64{0.75, 2, 0.5, 1.25, 0.75, 0.5, 0.5},
-				NegativeSpans: []histogram.Span{
-					{Offset: 0, Length: 6},
-					{Offset: 3, Length: 3},
-				},
-				NegativeBuckets: []float64{0.5, 1.5, 2, 1, 3.75, 2.25, 2.5, 2.5, 1},
-			},
-		},
-	}
-
-	idx0 := int64(0)
-	for _, c := range cases {
-		for _, floatHisto := range []bool{true, false} {
-			t.Run(fmt.Sprintf("floatHistogram=%t %d", floatHisto, idx0), func(t *testing.T) {
-				storage := teststorage.New(t)
-				t.Cleanup(func() { storage.Close() })
-
-				seriesName := "sparse_histogram_series"
-				seriesNameOverTime := "sparse_histogram_series_over_time"
-
-				engine := newTestEngine(t)
-
-				ts := idx0 * int64(10*time.Minute/time.Millisecond)
-				app := storage.Appender(context.Background())
-				_, err := app.Append(0, labels.FromStrings("__name__", "float_series", "idx", "0"), ts, 42)
-				require.NoError(t, err)
-				for idx1, h := range c.histograms {
-					lbls := labels.FromStrings("__name__", seriesName, "idx", strconv.Itoa(idx1))
-					// Since we mutate h later, we need to create a copy here.
-					var err error
-					if floatHisto {
-						_, err = app.AppendHistogram(0, lbls, ts, nil, h.Copy().ToFloat(nil))
-					} else {
-						_, err = app.AppendHistogram(0, lbls, ts, h.Copy(), nil)
-					}
-					require.NoError(t, err)
-
-					lbls = labels.FromStrings("__name__", seriesNameOverTime)
-					newTs := ts + int64(idx1)*int64(time.Minute/time.Millisecond)
-					// Since we mutate h later, we need to create a copy here.
-					if floatHisto {
-						_, err = app.AppendHistogram(0, lbls, newTs, nil, h.Copy().ToFloat(nil))
-					} else {
-						_, err = app.AppendHistogram(0, lbls, newTs, h.Copy(), nil)
-					}
-					require.NoError(t, err)
-				}
-				require.NoError(t, app.Commit())
-
-				queryAndCheck := func(queryString string, ts int64, exp promql.Vector) {
-					qry, err := engine.NewInstantQuery(context.Background(), storage, nil, queryString, timestamp.Time(ts))
-					require.NoError(t, err)
-
-					res := qry.Exec(context.Background())
-					require.NoError(t, res.Err)
-					require.Empty(t, res.Warnings)
-
-					vector, err := res.Vector()
-					require.NoError(t, err)
-
-					testutil.RequireEqual(t, exp, vector)
-				}
-				queryAndCheckAnnotations := func(queryString string, ts int64, expWarnings annotations.Annotations) {
-					qry, err := engine.NewInstantQuery(context.Background(), storage, nil, queryString, timestamp.Time(ts))
-					require.NoError(t, err)
-
-					res := qry.Exec(context.Background())
-					require.NoError(t, res.Err)
-					require.Equal(t, expWarnings, res.Warnings)
-				}
-
-				// sum().
-				queryString := fmt.Sprintf("sum(%s)", seriesName)
-				queryAndCheck(queryString, ts, []promql.Sample{{T: ts, H: &c.expected, Metric: labels.EmptyLabels()}})
-
-				queryString = `sum({idx="0"})`
-				var annos annotations.Annotations
-				annos.Add(annotations.NewMixedFloatsHistogramsAggWarning(posrange.PositionRange{Start: 4, End: 13}))
-				queryAndCheckAnnotations(queryString, ts, annos)
-
-				// + operator.
-				queryString = fmt.Sprintf(`%s{idx="0"}`, seriesName)
-				for idx := 1; idx < len(c.histograms); idx++ {
-					queryString += fmt.Sprintf(` + ignoring(idx) %s{idx="%d"}`, seriesName, idx)
-				}
-				queryAndCheck(queryString, ts, []promql.Sample{{T: ts, H: &c.expected, Metric: labels.EmptyLabels()}})
-
-				// count().
-				queryString = fmt.Sprintf("count(%s)", seriesName)
-				queryAndCheck(queryString, ts, []promql.Sample{{T: ts, F: 4, Metric: labels.EmptyLabels()}})
-
-				// avg().
-				queryString = fmt.Sprintf("avg(%s)", seriesName)
-				queryAndCheck(queryString, ts, []promql.Sample{{T: ts, H: &c.expectedAvg, Metric: labels.EmptyLabels()}})
-
-				offset := int64(len(c.histograms) - 1)
-				newTs := ts + offset*int64(time.Minute/time.Millisecond)
-
-				// sum_over_time().
-				queryString = fmt.Sprintf("sum_over_time(%s[%dm:1m])", seriesNameOverTime, offset+1)
-				queryAndCheck(queryString, newTs, []promql.Sample{{T: newTs, H: &c.expected, Metric: labels.EmptyLabels(), DropName: true}})
-
-				// avg_over_time().
-				queryString = fmt.Sprintf("avg_over_time(%s[%dm:1m])", seriesNameOverTime, offset+1)
-				queryAndCheck(queryString, newTs, []promql.Sample{{T: newTs, H: &c.expectedAvg, Metric: labels.EmptyLabels(), DropName: true}})
-			})
-			idx0++
-		}
-	}
-}
-
-func TestNativeHistogram_SubOperator(t *testing.T) {
-	// TODO(codesome): Integrate histograms into the PromQL testing framework
-	// and write more tests there.
-	cases := []struct {
-		histograms []histogram.Histogram
-		expected   histogram.FloatHistogram
-	}{
-		{
-			histograms: []histogram.Histogram{
-				{
-					Schema:        0,
-					Count:         41,
-					Sum:           2345.6,
-					ZeroThreshold: 0.001,
-					ZeroCount:     5,
-					PositiveSpans: []histogram.Span{
-						{Offset: 0, Length: 4},
-						{Offset: 0, Length: 0},
-						{Offset: 0, Length: 3},
-					},
-					PositiveBuckets: []int64{1, 2, -2, 1, -1, 0, 0},
-					NegativeSpans: []histogram.Span{
-						{Offset: 1, Length: 4},
-						{Offset: 2, Length: 0},
-						{Offset: 2, Length: 3},
-					},
-					NegativeBuckets: []int64{1, 3, -2, 5, -2, 0, -3},
-				},
-				{
-					Schema:        0,
-					Count:         11,
-					Sum:           1234.5,
-					ZeroThreshold: 0.001,
-					ZeroCount:     3,
-					PositiveSpans: []histogram.Span{
-						{Offset: 1, Length: 2},
-					},
-					PositiveBuckets: []int64{2, -1},
-					NegativeSpans: []histogram.Span{
-						{Offset: 2, Length: 2},
-					},
-					NegativeBuckets: []int64{3, -1},
-				},
-			},
-			expected: histogram.FloatHistogram{
-				Schema:        0,
-				Count:         30,
-				Sum:           1111.1,
-				ZeroThreshold: 0.001,
-				ZeroCount:     2,
-				PositiveSpans: []histogram.Span{
-					{Offset: 0, Length: 2},
-					{Offset: 1, Length: 4},
-				},
-				PositiveBuckets: []float64{1, 1, 2, 1, 1, 1},
-				NegativeSpans: []histogram.Span{
-					{Offset: 1, Length: 2},
-					{Offset: 1, Length: 1},
-					{Offset: 4, Length: 3},
-				},
-				NegativeBuckets: []float64{1, 1, 7, 5, 5, 2},
-			},
-		},
-		{
-			histograms: []histogram.Histogram{
-				{
-					Schema:        0,
-					Count:         41,
-					Sum:           2345.6,
-					ZeroThreshold: 0.001,
-					ZeroCount:     5,
-					PositiveSpans: []histogram.Span{
-						{Offset: 0, Length: 4},
-						{Offset: 0, Length: 0},
-						{Offset: 0, Length: 3},
-					},
-					PositiveBuckets: []int64{1, 2, -2, 1, -1, 0, 0},
-					NegativeSpans: []histogram.Span{
-						{Offset: 1, Length: 4},
-						{Offset: 2, Length: 0},
-						{Offset: 2, Length: 3},
-					},
-					NegativeBuckets: []int64{1, 3, -2, 5, -2, 0, -3},
-				},
-				{
-					Schema:        1,
-					Count:         11,
-					Sum:           1234.5,
-					ZeroThreshold: 0.001,
-					ZeroCount:     3,
-					PositiveSpans: []histogram.Span{
-						{Offset: 1, Length: 2},
-					},
-					PositiveBuckets: []int64{2, -1},
-					NegativeSpans: []histogram.Span{
-						{Offset: 2, Length: 2},
-					},
-					NegativeBuckets: []int64{3, -1},
-				},
-			},
-			expected: histogram.FloatHistogram{
-				Schema:        0,
-				Count:         30,
-				Sum:           1111.1,
-				ZeroThreshold: 0.001,
-				ZeroCount:     2,
-				PositiveSpans: []histogram.Span{
-					{Offset: 0, Length: 1},
-					{Offset: 1, Length: 5},
-				},
-				PositiveBuckets: []float64{1, 1, 2, 1, 1, 1},
-				NegativeSpans: []histogram.Span{
-					{Offset: 1, Length: 4},
-					{Offset: 4, Length: 3},
-				},
-				NegativeBuckets: []float64{-2, 2, 2, 7, 5, 5, 2},
-			},
-		},
-		{
-			histograms: []histogram.Histogram{
-				{
-					Schema:        1,
-					Count:         11,
-					Sum:           1234.5,
-					ZeroThreshold: 0.001,
-					ZeroCount:     3,
-					PositiveSpans: []histogram.Span{
-						{Offset: 1, Length: 2},
-					},
-					PositiveBuckets: []int64{2, -1},
-					NegativeSpans: []histogram.Span{
-						{Offset: 2, Length: 2},
-					},
-					NegativeBuckets: []int64{3, -1},
-				},
-				{
-					Schema:        0,
-					Count:         41,
-					Sum:           2345.6,
-					ZeroThreshold: 0.001,
-					ZeroCount:     5,
-					PositiveSpans: []histogram.Span{
-						{Offset: 0, Length: 4},
-						{Offset: 0, Length: 0},
-						{Offset: 0, Length: 3},
-					},
-					PositiveBuckets: []int64{1, 2, -2, 1, -1, 0, 0},
-					NegativeSpans: []histogram.Span{
-						{Offset: 1, Length: 4},
-						{Offset: 2, Length: 0},
-						{Offset: 2, Length: 3},
-					},
-					NegativeBuckets: []int64{1, 3, -2, 5, -2, 0, -3},
-				},
-			},
-			expected: histogram.FloatHistogram{
-				Schema:        0,
-				Count:         -30,
-				Sum:           -1111.1,
-				ZeroThreshold: 0.001,
-				ZeroCount:     -2,
-				PositiveSpans: []histogram.Span{
-					{Offset: 0, Length: 1},
-					{Offset: 1, Length: 5},
-				},
-				PositiveBuckets: []float64{-1, -1, -2, -1, -1, -1},
-				NegativeSpans: []histogram.Span{
-					{Offset: 1, Length: 4},
-					{Offset: 4, Length: 3},
-				},
-				NegativeBuckets: []float64{2, -2, -2, -7, -5, -5, -2},
-			},
-		},
-	}
-
-	idx0 := int64(0)
-	for _, c := range cases {
-		for _, floatHisto := range []bool{true, false} {
-			t.Run(fmt.Sprintf("floatHistogram=%t %d", floatHisto, idx0), func(t *testing.T) {
-				engine := newTestEngine(t)
-				storage := teststorage.New(t)
-				t.Cleanup(func() { storage.Close() })
-
-				seriesName := "sparse_histogram_series"
-
-				ts := idx0 * int64(10*time.Minute/time.Millisecond)
-				app := storage.Appender(context.Background())
-				for idx1, h := range c.histograms {
-					lbls := labels.FromStrings("__name__", seriesName, "idx", strconv.Itoa(idx1))
-					// Since we mutate h later, we need to create a copy here.
-					var err error
-					if floatHisto {
-						_, err = app.AppendHistogram(0, lbls, ts, nil, h.Copy().ToFloat(nil))
-					} else {
-						_, err = app.AppendHistogram(0, lbls, ts, h.Copy(), nil)
-					}
-					require.NoError(t, err)
-				}
-				require.NoError(t, app.Commit())
-
-				queryAndCheck := func(queryString string, exp promql.Vector) {
-					qry, err := engine.NewInstantQuery(context.Background(), storage, nil, queryString, timestamp.Time(ts))
-					require.NoError(t, err)
-
-					res := qry.Exec(context.Background())
-					require.NoError(t, res.Err)
-
-					vector, err := res.Vector()
-					require.NoError(t, err)
-
-					if len(vector) == len(exp) {
-						for i, e := range exp {
-							got := vector[i].H
-							if got != e.H {
-								// Error messages are better if we compare structs, not pointers.
-								require.Equal(t, *e.H, *got)
-							}
-						}
-					}
-
-					testutil.RequireEqual(t, exp, vector)
-				}
-
-				// - operator.
-				queryString := fmt.Sprintf(`%s{idx="0"}`, seriesName)
-				for idx := 1; idx < len(c.histograms); idx++ {
-					queryString += fmt.Sprintf(` - ignoring(idx) %s{idx="%d"}`, seriesName, idx)
-				}
-				queryAndCheck(queryString, []promql.Sample{{T: ts, H: &c.expected, Metric: labels.EmptyLabels()}})
-			})
-		}
-		idx0++
-	}
-}
-
 func TestQueryLookbackDelta(t *testing.T) {
 	var (
 		load = `load 5m
@@ -3930,6 +3487,81 @@ func TestRateAnnotations(t *testing.T) {
 	}
 }
 
+func TestHistogramQuantileAnnotations(t *testing.T) {
+	testCases := map[string]struct {
+		data                       string
+		expr                       string
+		expectedWarningAnnotations []string
+		expectedInfoAnnotations    []string
+	}{
+		"info annotation for nonmonotonic buckets": {
+			data: `
+				nonmonotonic_bucket{le="0.1"}   0+2x10
+				nonmonotonic_bucket{le="1"}     0+1x10
+				nonmonotonic_bucket{le="10"}    0+5x10
+				nonmonotonic_bucket{le="100"}   0+4x10
+				nonmonotonic_bucket{le="1000"}  0+9x10
+				nonmonotonic_bucket{le="+Inf"}  0+8x10
+			`,
+			expr:                       "histogram_quantile(0.5, nonmonotonic_bucket)",
+			expectedWarningAnnotations: []string{},
+			expectedInfoAnnotations: []string{
+				`PromQL info: input to histogram_quantile needed to be fixed for monotonicity (see https://prometheus.io/docs/prometheus/latest/querying/functions/#histogram_quantile) for metric name "nonmonotonic_bucket" (1:25)`,
+			},
+		},
+		"warning annotation for missing le label": {
+			data: `
+				myHistogram{abe="0.1"}   0+2x10
+			`,
+			expr: "histogram_quantile(0.5, myHistogram)",
+			expectedWarningAnnotations: []string{
+				`PromQL warning: bucket label "le" is missing or has a malformed value of "" for metric name "myHistogram" (1:25)`,
+			},
+			expectedInfoAnnotations: []string{},
+		},
+		"warning annotation for malformed le label": {
+			data: `
+				myHistogram{le="Hello World"}   0+2x10
+			`,
+			expr: "histogram_quantile(0.5, myHistogram)",
+			expectedWarningAnnotations: []string{
+				`PromQL warning: bucket label "le" is missing or has a malformed value of "Hello World" for metric name "myHistogram" (1:25)`,
+			},
+			expectedInfoAnnotations: []string{},
+		},
+		"warning annotation for mixed histograms": {
+			data: `
+				mixedHistogram{le="0.1"}   0+2x10
+				mixedHistogram{le="1"}     0+3x10
+				mixedHistogram{}           {{schema:0 count:10 sum:50 buckets:[1 2 3]}}
+			`,
+			expr: "histogram_quantile(0.5, mixedHistogram)",
+			expectedWarningAnnotations: []string{
+				`PromQL warning: vector contains a mix of classic and native histograms for metric name "mixedHistogram" (1:25)`,
+			},
+			expectedInfoAnnotations: []string{},
+		},
+	}
+	for name, testCase := range testCases {
+		t.Run(name, func(t *testing.T) {
+			store := promqltest.LoadedStorage(t, "load 1m\n"+strings.TrimSpace(testCase.data))
+			t.Cleanup(func() { _ = store.Close() })
+
+			engine := newTestEngine(t)
+			query, err := engine.NewInstantQuery(context.Background(), store, nil, testCase.expr, timestamp.Time(0).Add(1*time.Minute))
+			require.NoError(t, err)
+			t.Cleanup(query.Close)
+
+			res := query.Exec(context.Background())
+			require.NoError(t, res.Err)
+
+			warnings, infos := res.Warnings.AsStrings(testCase.expr, 0, 0)
+			testutil.RequireEqual(t, testCase.expectedWarningAnnotations, warnings)
+			testutil.RequireEqual(t, testCase.expectedInfoAnnotations, infos)
+		})
+	}
+}
+
 func TestHistogramRateWithFloatStaleness(t *testing.T) {
 	// Make a chunk with two normal histograms of the same value.
 	h1 := histogram.Histogram{
@@ -4040,4 +3672,66 @@ func (s mockSeries) Iterator(it chunkenc.Iterator) chunkenc.Iterator {
 		iterables = append(iterables, c.Iterator(nil))
 	}
 	return storage.ChainSampleIteratorFromIterators(it, iterables)
+}
+
+func TestEvaluationWithDelayedNameRemovalDisabled(t *testing.T) {
+	opts := promql.EngineOpts{
+		Logger:                   nil,
+		Reg:                      nil,
+		EnableAtModifier:         true,
+		MaxSamples:               10000,
+		Timeout:                  10 * time.Second,
+		EnableDelayedNameRemoval: false,
+	}
+	engine := promqltest.NewTestEngineWithOpts(t, opts)
+
+	promqltest.RunTest(t, `
+load 5m
+	metric_total{env="1"}	0 60 120
+	another_metric{env="1"}	60 120 180
+
+# Does not drop __name__ for vector selector
+eval instant at 10m metric_total{env="1"}
+	metric_total{env="1"} 120
+
+# Drops __name__ for unary operators
+eval instant at 10m -metric_total
+	{env="1"} -120
+
+# Drops __name__ for binary operators
+eval instant at 10m metric_total + another_metric
+	{env="1"} 300
+
+# Does not drop __name__ for binary comparison operators
+eval instant at 10m metric_total <= another_metric
+	metric_total{env="1"} 120
+
+# Drops __name__ for binary comparison operators with "bool" modifier
+eval instant at 10m metric_total <= bool another_metric
+	{env="1"} 1
+
+# Drops __name__ for vector-scalar operations
+eval instant at 10m metric_total * 2
+	{env="1"} 240
+
+# Drops __name__ for instant-vector functions
+eval instant at 10m clamp(metric_total, 0, 100)
+	{env="1"} 100
+
+# Drops __name__ for round function
+eval instant at 10m round(metric_total)
+	{env="1"} 120
+
+# Drops __name__ for range-vector functions
+eval instant at 10m rate(metric_total{env="1"}[10m])
+	{env="1"} 0.2
+
+# Does not drop __name__ for last_over_time function
+eval instant at 10m last_over_time(metric_total{env="1"}[10m])
+	metric_total{env="1"} 120
+
+# Drops name for other _over_time functions
+eval instant at 10m max_over_time(metric_total{env="1"}[10m])
+	{env="1"} 120
+`, engine)
 }
