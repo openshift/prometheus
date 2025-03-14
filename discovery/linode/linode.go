@@ -141,7 +141,7 @@ type Discovery struct {
 func NewDiscovery(conf *SDConfig, logger *slog.Logger, metrics discovery.DiscovererMetrics) (*Discovery, error) {
 	m, ok := metrics.(*linodeMetrics)
 	if !ok {
-		return nil, fmt.Errorf("invalid discovery metrics type")
+		return nil, errors.New("invalid discovery metrics type")
 	}
 
 	d := &Discovery{
@@ -165,7 +165,7 @@ func NewDiscovery(conf *SDConfig, logger *slog.Logger, metrics discovery.Discove
 			Timeout:   time.Duration(conf.RefreshInterval),
 		},
 	)
-	client.SetUserAgent(fmt.Sprintf("Prometheus/%s", version.Version))
+	client.SetUserAgent(version.PrometheusUserAgent())
 	d.client = &client
 
 	d.Discovery = refresh.NewDiscovery(

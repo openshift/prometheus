@@ -70,18 +70,14 @@ const (
 	authMethodManagedIdentity = "ManagedIdentity"
 )
 
-var (
-	userAgent = fmt.Sprintf("Prometheus/%s", version.Version)
-
-	// DefaultSDConfig is the default Azure SD configuration.
-	DefaultSDConfig = SDConfig{
-		Port:                 80,
-		RefreshInterval:      model.Duration(5 * time.Minute),
-		Environment:          "AzurePublicCloud",
-		AuthenticationMethod: authMethodOAuth,
-		HTTPClientConfig:     config_util.DefaultHTTPClientConfig,
-	}
-)
+// DefaultSDConfig is the default Azure SD configuration.
+var DefaultSDConfig = SDConfig{
+	Port:                 80,
+	RefreshInterval:      model.Duration(5 * time.Minute),
+	Environment:          "AzurePublicCloud",
+	AuthenticationMethod: authMethodOAuth,
+	HTTPClientConfig:     config_util.DefaultHTTPClientConfig,
+}
 
 var environments = map[string]cloud.Configuration{
 	"AZURECHINACLOUD":        cloud.AzureChina,
@@ -186,7 +182,7 @@ type Discovery struct {
 func NewDiscovery(cfg *SDConfig, logger *slog.Logger, metrics discovery.DiscovererMetrics) (*Discovery, error) {
 	m, ok := metrics.(*azureMetrics)
 	if !ok {
-		return nil, fmt.Errorf("invalid discovery metrics type")
+		return nil, errors.New("invalid discovery metrics type")
 	}
 
 	if logger == nil {
@@ -244,7 +240,7 @@ func (d *Discovery) createAzureClient() (client, error) {
 	c.logger = d.logger
 
 	telemetry := policy.TelemetryOptions{
-		ApplicationID: userAgent,
+		ApplicationID: version.PrometheusUserAgent(),
 	}
 
 	credential, err := newCredential(*d.cfg, policy.ClientOptions{
