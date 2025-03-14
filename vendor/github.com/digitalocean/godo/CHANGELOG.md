@@ -1,5 +1,46 @@
 # Change Log
 
+##  [v1.132.0] - 2024-12-17
+- #764 - @greeshmapill - APPS-9365: Add bitbucket source to App Spec
+
+##  [v1.131.1] - 2024-12-10
+- #762 - @imaskm - Updated list ipv6 response
+
+##  [v1.131.0] - 2024-11-25
+
+- #760 - @jvasilevsky - LBAAS: add ipv6 field to loadbalancer model
+- #759 - @imaskm - Add reserved ipv6 changes as Beta
+- #758 - @dvigueras - Add Rules field to create Databases with Firewall Rules
+- #751 - @blesswinsamuel - APPS-9766 Add method to restart apps
+
+
+## [v1.130.0] - 2024-11-14
+
+- #755 - @vsharma6855  - Add Missing Database Configs for Postgresql and MYSQL
+- #754 - @blesswinsamuel - APPS-9858 Add method to obtain websocket URL to get console access into components
+
+## [v1.129.0] - 2024-11-06
+
+- #752 - @andrewsomething - Support maps in Stringify
+- #749 - @loosla - [droplets]: add droplet backup policies
+- #730 - @rak16 - DOCR-1201: Add new RegistriesService to support methods for multiple-registry open beta
+- #748 - @andrewsomething - Support Droplet GPU information
+
+## [v1.128.0] - 2024-10-24
+
+- #746 - @blesswinsamuel - Add archive field to AppSpec to archive/restore apps
+- #745 - @asaha2 - Add load balancer monitoring endpoints
+- #744 - @asaha2 - Adjust delete dangerous
+- #743 - @asaha2 - Introduce droplet autoscale godo methods
+- #740 - @blesswinsamuel - Add maintenance field to AppSpec to enable/disable maintenance mode
+- #739 - @markusthoemmes - Add protocol to AppSpec and pending to detect responses
+
+## [v1.127.0] - 2024-10-18
+
+- #737 - @loosla - [databases]: change Opensearch ism_history_max_docs type to int64 to …
+- #735 - @loosla - [databases]: add a missing field to Opensearch advanced configuration
+- #729 - @loosla - [databases]: add support for Opensearch advanced configuration
+
 ## [v1.126.0] - 2024-09-25
 
 - #732 - @gottwald - DOKS: add custom CIDR fields
