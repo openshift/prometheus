@@ -22,7 +22,6 @@ import (
 	"fmt"
 	"io"
 	"math"
-	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -213,7 +212,7 @@ func (p *OpenMetricsParser) Metric(l *labels.Labels) string {
 		label := unreplace(s[a:b])
 		c := p.offsets[i+2] - p.start
 		d := p.offsets[i+3] - p.start
-		value := normalizeFloatsInLabelValues(p.mtype, label, unreplace(s[c:d]))
+		value := unreplace(s[c:d])
 
 		p.builder.Add(label, value)
 	}
@@ -743,16 +742,4 @@ func (p *OpenMetricsParser) getFloatValue(t token, after string) (float64, error
 		val = math.Float64frombits(value.NormalNaN)
 	}
 	return val, nil
-}
-
-// normalizeFloatsInLabelValues ensures that values of the "le" labels of classic histograms and "quantile" labels
-// of summaries follow OpenMetrics formatting rules.
-func normalizeFloatsInLabelValues(t model.MetricType, l, v string) string {
-	if (t == model.MetricTypeSummary && l == model.QuantileLabel) || (t == model.MetricTypeHistogram && l == model.BucketLabel) {
-		f, err := strconv.ParseFloat(v, 64)
-		if err == nil {
-			return formatOpenMetricsFloat(f)
-		}
-	}
-	return v
 }
