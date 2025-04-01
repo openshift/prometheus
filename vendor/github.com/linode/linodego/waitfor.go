@@ -477,6 +477,8 @@ func (client Client) WaitForImageRegionStatus(ctx context.Context, imageID, regi
 }
 
 // WaitForMySQLDatabaseBackup waits for the backup with the given label to be available.
+// Deprecated: WaitForMySQLDatabaseBackup is a deprecated method, as the backup endpoints are no longer supported in DBaaS V2.
+// In DBaaS V2, databases can be backed up via database forking.
 func (client Client) WaitForMySQLDatabaseBackup(ctx context.Context, dbID int, label string, timeoutSeconds int) (*MySQLDatabaseBackup, error) {
 	ctx, cancel := context.WithTimeout(ctx, time.Duration(timeoutSeconds)*time.Second)
 	defer cancel()
@@ -504,6 +506,8 @@ func (client Client) WaitForMySQLDatabaseBackup(ctx context.Context, dbID int, l
 }
 
 // WaitForPostgresDatabaseBackup waits for the backup with the given label to be available.
+// Deprecated: WaitForPostgresDatabaseBackup is a deprecated method, as the backup endpoints are no longer supported in DBaaS V2.
+// In DBaaS V2, databases can be backed up via database forking.
 func (client Client) WaitForPostgresDatabaseBackup(ctx context.Context, dbID int, label string, timeoutSeconds int) (*PostgresDatabaseBackup, error) {
 	ctx, cancel := context.WithTimeout(ctx, time.Duration(timeoutSeconds)*time.Second)
 	defer cancel()
@@ -739,7 +743,7 @@ func (p *EventPoller) WaitForFinished(
 	for {
 		select {
 		case <-ticker.C:
-			event, err := p.client.GetEvent(ctx, event.ID)
+			event, err = p.client.GetEvent(ctx, event.ID)
 			if err != nil {
 				return nil, fmt.Errorf("failed to get event: %w", err)
 			}
