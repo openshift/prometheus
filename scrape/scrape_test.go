@@ -39,6 +39,7 @@ import (
 	prom_testutil "github.com/prometheus/client_golang/prometheus/testutil"
 	dto "github.com/prometheus/client_model/go"
 	config_util "github.com/prometheus/common/config"
+	"github.com/prometheus/common/expfmt"
 	"github.com/prometheus/common/model"
 	"github.com/prometheus/common/promslog"
 	"github.com/stretchr/testify/require"
@@ -49,13 +50,13 @@ import (
 	"github.com/prometheus/prometheus/model/exemplar"
 	"github.com/prometheus/prometheus/model/histogram"
 	"github.com/prometheus/prometheus/model/labels"
+	"github.com/prometheus/prometheus/model/metadata"
 	"github.com/prometheus/prometheus/model/relabel"
 	"github.com/prometheus/prometheus/model/textparse"
 	"github.com/prometheus/prometheus/model/timestamp"
 	"github.com/prometheus/prometheus/model/value"
 	"github.com/prometheus/prometheus/storage"
 	"github.com/prometheus/prometheus/tsdb/chunkenc"
-	"github.com/prometheus/prometheus/util/logging"
 	"github.com/prometheus/prometheus/util/pool"
 	"github.com/prometheus/prometheus/util/teststorage"
 	"github.com/prometheus/prometheus/util/testutil"
@@ -65,10 +66,15 @@ func TestMain(m *testing.M) {
 	testutil.TolerantVerifyLeak(m)
 }
 
-func newTestScrapeMetrics(t testing.TB) *scrapeMetrics {
+func newTestRegistryAndScrapeMetrics(t testing.TB) (*prometheus.Registry, *scrapeMetrics) {
 	reg := prometheus.NewRegistry()
 	metrics, err := newScrapeMetrics(reg)
 	require.NoError(t, err)
+	return reg, metrics
+}
+
+func newTestScrapeMetrics(t testing.TB) *scrapeMetrics {
+	_, metrics := newTestRegistryAndScrapeMetrics(t)
 	return metrics
 }
 
@@ -90,7 +96,9 @@ func TestStorageHandlesOutOfOrderTimestamps(t *testing.T) {
 	// Test with default OutOfOrderTimeWindow (0)
 	t.Run("Out-Of-Order Sample Disabled", func(t *testing.T) {
 		s := teststorage.New(t)
-		defer s.Close()
+		t.Cleanup(func() {
+			_ = s.Close()
+		})
 
 		runScrapeLoopTest(t, s, false)
 	})
@@ -98,7 +106,9 @@ func TestStorageHandlesOutOfOrderTimestamps(t *testing.T) {
 	// Test with specific OutOfOrderTimeWindow (600000)
 	t.Run("Out-Of-Order Sample Enabled", func(t *testing.T) {
 		s := teststorage.New(t, 600000)
-		defer s.Close()
+		t.Cleanup(func() {
+			_ = s.Close()
+		})
 
 		runScrapeLoopTest(t, s, true)
 	})
@@ -120,13 +130,13 @@ func runScrapeLoopTest(t *testing.T, s *teststorage.TestStorage, expectOutOfOrde
 	timestampInorder2 := now.Add(5 * time.Minute)
 
 	slApp := sl.appender(context.Background())
-	_, _, _, err := sl.append(slApp, []byte(`metric_a{a="1",b="1"} 1`), "text/plain", timestampInorder1)
+	_, _, _, err := sl.append(slApp, []byte(`metric_total{a="1",b="1"} 1`), "text/plain", timestampInorder1)
 	require.NoError(t, err)
 
-	_, _, _, err = sl.append(slApp, []byte(`metric_a{a="1",b="1"} 2`), "text/plain", timestampOutOfOrder)
+	_, _, _, err = sl.append(slApp, []byte(`metric_total{a="1",b="1"} 2`), "text/plain", timestampOutOfOrder)
 	require.NoError(t, err)
 
-	_, _, _, err = sl.append(slApp, []byte(`metric_a{a="1",b="1"} 3`), "text/plain", timestampInorder2)
+	_, _, _, err = sl.append(slApp, []byte(`metric_total{a="1",b="1"} 3`), "text/plain", timestampInorder2)
 	require.NoError(t, err)
 
 	require.NoError(t, slApp.Commit())
@@ -139,7 +149,7 @@ func runScrapeLoopTest(t *testing.T, s *teststorage.TestStorage, expectOutOfOrde
 	defer q.Close()
 
 	// Use a matcher to filter the metric name.
-	series := q.Select(ctx, false, nil, labels.MustNewMatcher(labels.MatchRegexp, "__name__", "metric_a"))
+	series := q.Select(ctx, false, nil, labels.MustNewMatcher(labels.MatchRegexp, "__name__", "metric_total"))
 
 	var results []floatSample
 	for series.Next() {
@@ -159,12 +169,12 @@ func runScrapeLoopTest(t *testing.T, s *teststorage.TestStorage, expectOutOfOrde
 	// Define the expected results
 	want := []floatSample{
 		{
-			metric: labels.FromStrings("__name__", "metric_a", "a", "1", "b", "1"),
+			metric: labels.FromStrings("__name__", "metric_total", "a", "1", "b", "1"),
 			t:      timestamp.FromTime(timestampInorder1),
 			f:      1,
 		},
 		{
-			metric: labels.FromStrings("__name__", "metric_a", "a", "1", "b", "1"),
+			metric: labels.FromStrings("__name__", "metric_total", "a", "1", "b", "1"),
 			t:      timestamp.FromTime(timestampInorder2),
 			f:      3,
 		},
@@ -175,6 +185,134 @@ func runScrapeLoopTest(t *testing.T, s *teststorage.TestStorage, expectOutOfOrde
 	} else {
 		require.Equal(t, want, results, "Appended samples not as expected:\n%s", results)
 	}
+}
+
+// Regression test against https://github.com/prometheus/prometheus/issues/15831.
+func TestScrapeAppendMetadataUpdate(t *testing.T) {
+	const (
+		scrape1 = `# TYPE test_metric counter
+# HELP test_metric some help text
+# UNIT test_metric metric
+test_metric_total 1
+# TYPE test_metric2 gauge
+# HELP test_metric2 other help text
+test_metric2{foo="bar"} 2
+# TYPE test_metric3 gauge
+# HELP test_metric3 this represents tricky case of "broken" text that is not trivial to detect
+test_metric3_metric4{foo="bar"} 2
+# EOF`
+		scrape2 = `# TYPE test_metric counter
+# HELP test_metric different help text
+test_metric_total 11
+# TYPE test_metric2 gauge
+# HELP test_metric2 other help text
+# UNIT test_metric2 metric2
+test_metric2{foo="bar"} 22
+# EOF`
+	)
+
+	// Create an appender for adding samples to the storage.
+	capp := &collectResultAppender{next: nopAppender{}}
+	sl := newBasicScrapeLoop(t, context.Background(), nil, func(ctx context.Context) storage.Appender { return capp }, 0)
+
+	now := time.Now()
+	slApp := sl.appender(context.Background())
+	_, _, _, err := sl.append(slApp, []byte(scrape1), "application/openmetrics-text", now)
+	require.NoError(t, err)
+	require.NoError(t, slApp.Commit())
+	testutil.RequireEqualWithOptions(t, []metadataEntry{
+		{metric: labels.FromStrings("__name__", "test_metric_total"), m: metadata.Metadata{Type: "counter", Unit: "metric", Help: "some help text"}},
+		{metric: labels.FromStrings("__name__", "test_metric2", "foo", "bar"), m: metadata.Metadata{Type: "gauge", Unit: "", Help: "other help text"}},
+	}, capp.resultMetadata, []cmp.Option{cmp.Comparer(metadataEntryEqual)})
+	capp.resultMetadata = nil
+
+	// Next (the same) scrape should not add new metadata entries.
+	slApp = sl.appender(context.Background())
+	_, _, _, err = sl.append(slApp, []byte(scrape1), "application/openmetrics-text", now.Add(15*time.Second))
+	require.NoError(t, err)
+	require.NoError(t, slApp.Commit())
+	testutil.RequireEqualWithOptions(t, []metadataEntry(nil), capp.resultMetadata, []cmp.Option{cmp.Comparer(metadataEntryEqual)})
+
+	slApp = sl.appender(context.Background())
+	_, _, _, err = sl.append(slApp, []byte(scrape2), "application/openmetrics-text", now.Add(15*time.Second))
+	require.NoError(t, err)
+	require.NoError(t, slApp.Commit())
+	testutil.RequireEqualWithOptions(t, []metadataEntry{
+		{metric: labels.FromStrings("__name__", "test_metric_total"), m: metadata.Metadata{Type: "counter", Unit: "metric", Help: "different help text"}}, // Here, technically we should have no unit, but it's a known limitation of the current implementation.
+		{metric: labels.FromStrings("__name__", "test_metric2", "foo", "bar"), m: metadata.Metadata{Type: "gauge", Unit: "metric2", Help: "other help text"}},
+	}, capp.resultMetadata, []cmp.Option{cmp.Comparer(metadataEntryEqual)})
+}
+
+type nopScraper struct {
+	scraper
+}
+
+func (n nopScraper) Report(start time.Time, dur time.Duration, err error) {}
+
+func TestScrapeReportMetadataUpdate(t *testing.T) {
+	// Create an appender for adding samples to the storage.
+	capp := &collectResultAppender{next: nopAppender{}}
+	sl := newBasicScrapeLoop(t, context.Background(), nopScraper{}, func(ctx context.Context) storage.Appender { return capp }, 0)
+	now := time.Now()
+	slApp := sl.appender(context.Background())
+
+	require.NoError(t, sl.report(slApp, now, 2*time.Second, 1, 1, 1, 512, nil))
+	require.NoError(t, slApp.Commit())
+	testutil.RequireEqualWithOptions(t, []metadataEntry{
+		{metric: labels.FromStrings("__name__", "up"), m: scrapeHealthMetric.Metadata},
+		{metric: labels.FromStrings("__name__", "scrape_duration_seconds"), m: scrapeDurationMetric.Metadata},
+		{metric: labels.FromStrings("__name__", "scrape_samples_scraped"), m: scrapeSamplesMetric.Metadata},
+		{metric: labels.FromStrings("__name__", "scrape_samples_post_metric_relabeling"), m: samplesPostRelabelMetric.Metadata},
+		{metric: labels.FromStrings("__name__", "scrape_series_added"), m: scrapeSeriesAddedMetric.Metadata},
+	}, capp.resultMetadata, []cmp.Option{cmp.Comparer(metadataEntryEqual)})
+}
+
+func TestIsSeriesPartOfFamily(t *testing.T) {
+	t.Run("counter", func(t *testing.T) {
+		require.True(t, isSeriesPartOfFamily("http_requests_total", []byte("http_requests_total"), model.MetricTypeCounter)) // Prometheus text style.
+		require.True(t, isSeriesPartOfFamily("http_requests_total", []byte("http_requests"), model.MetricTypeCounter))       // OM text style.
+		require.True(t, isSeriesPartOfFamily("http_requests_total", []byte("http_requests_total"), model.MetricTypeUnknown))
+
+		require.False(t, isSeriesPartOfFamily("http_requests_total", []byte("http_requests"), model.MetricTypeUnknown)) // We don't know.
+		require.False(t, isSeriesPartOfFamily("http_requests2_total", []byte("http_requests_total"), model.MetricTypeCounter))
+		require.False(t, isSeriesPartOfFamily("http_requests_requests_total", []byte("http_requests"), model.MetricTypeCounter))
+	})
+
+	t.Run("gauge", func(t *testing.T) {
+		require.True(t, isSeriesPartOfFamily("http_requests_count", []byte("http_requests_count"), model.MetricTypeGauge))
+		require.True(t, isSeriesPartOfFamily("http_requests_count", []byte("http_requests_count"), model.MetricTypeUnknown))
+
+		require.False(t, isSeriesPartOfFamily("http_requests_count2", []byte("http_requests_count"), model.MetricTypeCounter))
+	})
+
+	t.Run("histogram", func(t *testing.T) {
+		require.True(t, isSeriesPartOfFamily("http_requests_seconds_sum", []byte("http_requests_seconds"), model.MetricTypeHistogram))
+		require.True(t, isSeriesPartOfFamily("http_requests_seconds_count", []byte("http_requests_seconds"), model.MetricTypeHistogram))
+		require.True(t, isSeriesPartOfFamily("http_requests_seconds_bucket", []byte("http_requests_seconds"), model.MetricTypeHistogram))
+		require.True(t, isSeriesPartOfFamily("http_requests_seconds", []byte("http_requests_seconds"), model.MetricTypeHistogram))
+
+		require.False(t, isSeriesPartOfFamily("http_requests_seconds_sum", []byte("http_requests_seconds"), model.MetricTypeUnknown)) // We don't know.
+		require.False(t, isSeriesPartOfFamily("http_requests_seconds2_sum", []byte("http_requests_seconds"), model.MetricTypeHistogram))
+	})
+
+	t.Run("summary", func(t *testing.T) {
+		require.True(t, isSeriesPartOfFamily("http_requests_seconds_sum", []byte("http_requests_seconds"), model.MetricTypeSummary))
+		require.True(t, isSeriesPartOfFamily("http_requests_seconds_count", []byte("http_requests_seconds"), model.MetricTypeSummary))
+		require.True(t, isSeriesPartOfFamily("http_requests_seconds", []byte("http_requests_seconds"), model.MetricTypeSummary))
+
+		require.False(t, isSeriesPartOfFamily("http_requests_seconds_sum", []byte("http_requests_seconds"), model.MetricTypeUnknown)) // We don't know.
+		require.False(t, isSeriesPartOfFamily("http_requests_seconds2_sum", []byte("http_requests_seconds"), model.MetricTypeSummary))
+	})
+
+	t.Run("info", func(t *testing.T) {
+		require.True(t, isSeriesPartOfFamily("go_build_info", []byte("go_build_info"), model.MetricTypeInfo)) // Prometheus text style.
+		require.True(t, isSeriesPartOfFamily("go_build_info", []byte("go_build"), model.MetricTypeInfo))      // OM text style.
+		require.True(t, isSeriesPartOfFamily("go_build_info", []byte("go_build_info"), model.MetricTypeUnknown))
+
+		require.False(t, isSeriesPartOfFamily("go_build_info", []byte("go_build"), model.MetricTypeUnknown)) // We don't know.
+		require.False(t, isSeriesPartOfFamily("go_build2_info", []byte("go_build_info"), model.MetricTypeInfo))
+		require.False(t, isSeriesPartOfFamily("go_build_build_info", []byte("go_build_info"), model.MetricTypeInfo))
+	})
 }
 
 func TestDroppedTargetsList(t *testing.T) {
@@ -207,7 +345,8 @@ func TestDroppedTargetsList(t *testing.T) {
 	sp.Sync(tgs)
 	require.Len(t, sp.droppedTargets, expectedLength)
 	require.Equal(t, expectedLength, sp.droppedTargetsCount)
-	require.Equal(t, expectedLabelSetString, sp.droppedTargets[0].DiscoveredLabels().String())
+	lb := labels.NewBuilder(labels.EmptyLabels())
+	require.Equal(t, expectedLabelSetString, sp.droppedTargets[0].DiscoveredLabels(lb).String())
 
 	// Check that count is still correct when we don't retain all dropped targets.
 	sp.config.KeepDroppedTargets = 1
@@ -230,16 +369,19 @@ func TestDiscoveredLabelsUpdate(t *testing.T) {
 	}
 	sp.activeTargets = make(map[uint64]*Target)
 	t1 := &Target{
-		discoveredLabels: labels.FromStrings("label", "name"),
+		tLabels:      model.LabelSet{"label": "name"},
+		scrapeConfig: sp.config,
 	}
 	sp.activeTargets[t1.hash()] = t1
 
 	t2 := &Target{
-		discoveredLabels: labels.FromStrings("labelNew", "nameNew"),
+		tLabels:      model.LabelSet{"labelNew": "nameNew"},
+		scrapeConfig: sp.config,
 	}
 	sp.sync([]*Target{t2})
 
-	require.Equal(t, t2.DiscoveredLabels(), sp.activeTargets[t1.hash()].DiscoveredLabels())
+	lb := labels.NewBuilder(labels.EmptyLabels())
+	require.Equal(t, t2.DiscoveredLabels(lb), sp.activeTargets[t1.hash()].DiscoveredLabels(lb))
 }
 
 type testLoop struct {
@@ -252,7 +394,7 @@ type testLoop struct {
 	timeout      time.Duration
 }
 
-func (l *testLoop) setScrapeFailureLogger(*logging.JSONFileLogger) {
+func (l *testLoop) setScrapeFailureLogger(FailureLogger) {
 }
 
 func (l *testLoop) run(errc chan<- error) {
@@ -304,7 +446,8 @@ func TestScrapePoolStop(t *testing.T) {
 
 	for i := 0; i < numTargets; i++ {
 		t := &Target{
-			labels: labels.FromStrings(model.AddressLabel, fmt.Sprintf("example.com:%d", i)),
+			labels:       labels.FromStrings(model.AddressLabel, fmt.Sprintf("example.com:%d", i)),
+			scrapeConfig: &config.ScrapeConfig{},
 		}
 		l := &testLoop{}
 		d := time.Duration((i+1)*20) * time.Millisecond
@@ -370,6 +513,7 @@ func TestScrapePoolReload(t *testing.T) {
 		return l
 	}
 
+	reg, metrics := newTestRegistryAndScrapeMetrics(t)
 	sp := &scrapePool{
 		appendable:    &nopAppendable{},
 		activeTargets: map[uint64]*Target{},
@@ -377,7 +521,7 @@ func TestScrapePoolReload(t *testing.T) {
 		newLoop:       newLoop,
 		logger:        nil,
 		client:        http.DefaultClient,
-		metrics:       newTestScrapeMetrics(t),
+		metrics:       metrics,
 		symbolTable:   labels.NewSymbolTable(),
 	}
 
@@ -388,8 +532,8 @@ func TestScrapePoolReload(t *testing.T) {
 	for i := 0; i < numTargets; i++ {
 		labels := labels.FromStrings(model.AddressLabel, fmt.Sprintf("example.com:%d", i))
 		t := &Target{
-			labels:           labels,
-			discoveredLabels: labels,
+			labels:       labels,
+			scrapeConfig: &config.ScrapeConfig{},
 		}
 		l := &testLoop{}
 		d := time.Duration((i+1)*20) * time.Millisecond
@@ -432,6 +576,12 @@ func TestScrapePoolReload(t *testing.T) {
 
 	require.Equal(t, sp.activeTargets, beforeTargets, "Reloading affected target states unexpectedly")
 	require.Len(t, sp.loops, numTargets, "Unexpected number of stopped loops after reload")
+
+	got, err := gatherLabels(reg, "prometheus_target_reload_length_seconds")
+	require.NoError(t, err)
+	expectedName, expectedValue := "interval", "3s"
+	require.Equal(t, [][]*dto.LabelPair{{{Name: &expectedName, Value: &expectedValue}}}, got)
+	require.Equal(t, 1.0, prom_testutil.ToFloat64(sp.metrics.targetScrapePoolReloads))
 }
 
 func TestScrapePoolReloadPreserveRelabeledIntervalTimeout(t *testing.T) {
@@ -447,6 +597,7 @@ func TestScrapePoolReloadPreserveRelabeledIntervalTimeout(t *testing.T) {
 		}
 		return l
 	}
+	reg, metrics := newTestRegistryAndScrapeMetrics(t)
 	sp := &scrapePool{
 		appendable: &nopAppendable{},
 		activeTargets: map[uint64]*Target{
@@ -460,7 +611,7 @@ func TestScrapePoolReloadPreserveRelabeledIntervalTimeout(t *testing.T) {
 		newLoop:     newLoop,
 		logger:      nil,
 		client:      http.DefaultClient,
-		metrics:     newTestScrapeMetrics(t),
+		metrics:     metrics,
 		symbolTable: labels.NewSymbolTable(),
 	}
 
@@ -468,6 +619,30 @@ func TestScrapePoolReloadPreserveRelabeledIntervalTimeout(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to reload configuration: %s", err)
 	}
+	// Check that the reload metric is labeled with the pool interval, not the overridden interval.
+	got, err := gatherLabels(reg, "prometheus_target_reload_length_seconds")
+	require.NoError(t, err)
+	expectedName, expectedValue := "interval", "3s"
+	require.Equal(t, [][]*dto.LabelPair{{{Name: &expectedName, Value: &expectedValue}}}, got)
+}
+
+// Gather metrics from the provided Gatherer with specified familyName,
+// and return all sets of name/value pairs.
+func gatherLabels(g prometheus.Gatherer, familyName string) ([][]*dto.LabelPair, error) {
+	families, err := g.Gather()
+	if err != nil {
+		return nil, err
+	}
+	ret := make([][]*dto.LabelPair, 0)
+	for _, f := range families {
+		if f.GetName() == familyName {
+			for _, m := range f.GetMetric() {
+				ret = append(ret, m.GetLabel())
+			}
+			break
+		}
+	}
+	return ret, nil
 }
 
 func TestScrapePoolTargetLimit(t *testing.T) {
@@ -781,7 +956,7 @@ func newBasicScrapeLoopWithFallback(t testing.TB, ctx context.Context, scraper s
 		false,
 		false,
 		false,
-		false,
+		true,
 		nil,
 		false,
 		newTestScrapeMetrics(t),
@@ -1015,7 +1190,7 @@ func TestScrapeLoopForcedErr(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	sl := newBasicScrapeLoop(t, ctx, scraper, app, time.Second)
 
-	forcedErr := fmt.Errorf("forced err")
+	forcedErr := errors.New("forced err")
 	sl.setForcedError(forcedErr)
 
 	scraper.scrapeFunc = func(context.Context, io.Writer) error {
@@ -1088,7 +1263,7 @@ func TestScrapeLoopMetadata(t *testing.T) {
 	total, _, _, err := sl.append(slApp, []byte(`# TYPE test_metric counter
 # HELP test_metric some help text
 # UNIT test_metric metric
-test_metric 1
+test_metric_total 1
 # TYPE test_metric_no_help gauge
 # HELP test_metric_no_type other help text
 # EOF`), "application/openmetrics-text", time.Now())
@@ -1214,42 +1389,73 @@ func TestScrapeLoopFailLegacyUnderUTF8(t *testing.T) {
 func makeTestMetrics(n int) []byte {
 	// Construct a metrics string to parse
 	sb := bytes.Buffer{}
+	fmt.Fprintf(&sb, "# TYPE metric_a gauge\n")
+	fmt.Fprintf(&sb, "# HELP metric_a help text\n")
 	for i := 0; i < n; i++ {
-		fmt.Fprintf(&sb, "# TYPE metric_a gauge\n")
-		fmt.Fprintf(&sb, "# HELP metric_a help text\n")
 		fmt.Fprintf(&sb, "metric_a{foo=\"%d\",bar=\"%d\"} 1\n", i, i*100)
 	}
 	fmt.Fprintf(&sb, "# EOF\n")
 	return sb.Bytes()
 }
 
-func BenchmarkScrapeLoopAppend(b *testing.B) {
-	ctx, sl := simpleTestScrapeLoop(b)
+func promTextToProto(tb testing.TB, text []byte) []byte {
+	tb.Helper()
 
-	slApp := sl.appender(ctx)
-	metrics := makeTestMetrics(100)
-	ts := time.Time{}
+	d := expfmt.NewDecoder(bytes.NewReader(text), expfmt.TextVersion)
 
-	b.ResetTimer()
-
-	for i := 0; i < b.N; i++ {
-		ts = ts.Add(time.Second)
-		_, _, _, _ = sl.append(slApp, metrics, "text/plain", ts)
+	pb := &dto.MetricFamily{}
+	if err := d.Decode(pb); err != nil {
+		tb.Fatal(err)
 	}
+	o, err := proto.Marshal(pb)
+	if err != nil {
+		tb.Fatal(err)
+	}
+	buf := bytes.Buffer{}
+	// Write first length, then binary protobuf.
+	varintBuf := binary.AppendUvarint(nil, uint64(len(o)))
+	buf.Write(varintBuf)
+	buf.Write(o)
+	return buf.Bytes()
 }
 
-func BenchmarkScrapeLoopAppendOM(b *testing.B) {
-	ctx, sl := simpleTestScrapeLoop(b)
+/*
+	export bench=scrape-loop-v1 && go test \
+		-run '^$' -bench '^BenchmarkScrapeLoopAppend' \
+		-benchtime 5s -count 6 -cpu 2 -timeout 999m \
+		| tee ${bench}.txt
+*/
+func BenchmarkScrapeLoopAppend(b *testing.B) {
+	metricsText := makeTestMetrics(100)
 
-	slApp := sl.appender(ctx)
-	metrics := makeTestMetrics(100)
-	ts := time.Time{}
+	// Create proto representation.
+	metricsProto := promTextToProto(b, metricsText)
 
-	b.ResetTimer()
+	for _, bcase := range []struct {
+		name        string
+		contentType string
+		parsable    []byte
+	}{
+		{name: "PromText", contentType: "text/plain", parsable: metricsText},
+		{name: "OMText", contentType: "application/openmetrics-text", parsable: metricsText},
+		{name: "PromProto", contentType: "application/vnd.google.protobuf", parsable: metricsProto},
+	} {
+		b.Run(fmt.Sprintf("fmt=%v", bcase.name), func(b *testing.B) {
+			ctx, sl := simpleTestScrapeLoop(b)
 
-	for i := 0; i < b.N; i++ {
-		ts = ts.Add(time.Second)
-		_, _, _, _ = sl.append(slApp, metrics, "application/openmetrics-text", ts)
+			slApp := sl.appender(ctx)
+			ts := time.Time{}
+
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				ts = ts.Add(time.Second)
+				_, _, _, err := sl.append(slApp, bcase.parsable, bcase.contentType, ts)
+				if err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
 	}
 }
 
@@ -1472,7 +1678,7 @@ func TestScrapeLoopCache(t *testing.T) {
 		case 4:
 			cancel()
 		}
-		return fmt.Errorf("scrape failed")
+		return errors.New("scrape failed")
 	}
 
 	go func() {
@@ -2412,18 +2618,7 @@ metric: <
 
 			buf := &bytes.Buffer{}
 			if test.contentType == "application/vnd.google.protobuf" {
-				// In case of protobuf, we have to create the binary representation.
-				pb := &dto.MetricFamily{}
-				// From text to proto message.
-				require.NoError(t, proto.UnmarshalText(test.scrapeText, pb))
-				// From proto message to binary protobuf.
-				protoBuf, err := proto.Marshal(pb)
-				require.NoError(t, err)
-
-				// Write first length, then binary protobuf.
-				varintBuf := binary.AppendUvarint(nil, uint64(len(protoBuf)))
-				buf.Write(varintBuf)
-				buf.Write(protoBuf)
+				require.NoError(t, textToProto(test.scrapeText, buf))
 			} else {
 				buf.WriteString(test.scrapeText)
 			}
@@ -2436,6 +2631,26 @@ metric: <
 			requireEqual(t, test.exemplars, app.resultExemplars)
 		})
 	}
+}
+
+func textToProto(text string, buf *bytes.Buffer) error {
+	// In case of protobuf, we have to create the binary representation.
+	pb := &dto.MetricFamily{}
+	// From text to proto message.
+	err := proto.UnmarshalText(text, pb)
+	if err != nil {
+		return err
+	}
+	// From proto message to binary protobuf.
+	protoBuf, err := proto.Marshal(pb)
+	if err != nil {
+		return err
+	}
+	// Write first length, then binary protobuf.
+	varintBuf := binary.AppendUvarint(nil, uint64(len(protoBuf)))
+	buf.Write(varintBuf)
+	buf.Write(protoBuf)
+	return nil
 }
 
 func TestScrapeLoopAppendExemplarSeries(t *testing.T) {
@@ -2609,7 +2824,9 @@ func TestTargetScraperScrapeOK(t *testing.T) {
 		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			accept := r.Header.Get("Accept")
 			if allowUTF8 {
-				require.Truef(t, strings.Contains(accept, "escaping=allow-utf-8"), "Expected Accept header to allow utf8, got %q", accept)
+				require.Containsf(t, accept, "escaping=allow-utf-8", "Expected Accept header to allow utf8, got %q", accept)
+			} else {
+				require.NotContainsf(t, accept, "escaping=allow-utf-8", "Expected Accept header to not allow utf8, got %q", accept)
 			}
 			if protobufParsing {
 				require.True(t, strings.HasPrefix(accept, "application/vnd.google.protobuf;"),
@@ -2645,13 +2862,14 @@ func TestTargetScraperScrapeOK(t *testing.T) {
 		panic(err)
 	}
 
-	runTest := func(acceptHeader string) {
+	runTest := func(t *testing.T, acceptHeader string) {
 		ts := &targetScraper{
 			Target: &Target{
 				labels: labels.FromStrings(
 					model.SchemeLabel, serverURL.Scheme,
 					model.AddressLabel, serverURL.Host,
 				),
+				scrapeConfig: &config.ScrapeConfig{},
 			},
 			client:       http.DefaultClient,
 			timeout:      configTimeout,
@@ -2671,14 +2889,43 @@ func TestTargetScraperScrapeOK(t *testing.T) {
 		require.Equal(t, "metric_a 1\nmetric_b 2\n", buf.String())
 	}
 
-	runTest(acceptHeader(config.DefaultScrapeProtocols, model.LegacyValidation))
-	protobufParsing = true
-	runTest(acceptHeader(config.DefaultProtoFirstScrapeProtocols, model.LegacyValidation))
-	protobufParsing = false
-	allowUTF8 = true
-	runTest(acceptHeader(config.DefaultScrapeProtocols, model.UTF8Validation))
-	protobufParsing = true
-	runTest(acceptHeader(config.DefaultProtoFirstScrapeProtocols, model.UTF8Validation))
+	for _, tc := range []struct {
+		scrapeProtocols []config.ScrapeProtocol
+		scheme          model.ValidationScheme
+		protobufParsing bool
+		allowUTF8       bool
+	}{
+		{
+			scrapeProtocols: config.DefaultScrapeProtocols,
+			scheme:          model.LegacyValidation,
+			protobufParsing: false,
+			allowUTF8:       false,
+		},
+		{
+			scrapeProtocols: config.DefaultProtoFirstScrapeProtocols,
+			scheme:          model.LegacyValidation,
+			protobufParsing: true,
+			allowUTF8:       false,
+		},
+		{
+			scrapeProtocols: config.DefaultScrapeProtocols,
+			scheme:          model.UTF8Validation,
+			protobufParsing: false,
+			allowUTF8:       true,
+		},
+		{
+			scrapeProtocols: config.DefaultProtoFirstScrapeProtocols,
+			scheme:          model.UTF8Validation,
+			protobufParsing: true,
+			allowUTF8:       true,
+		},
+	} {
+		t.Run(fmt.Sprintf("%+v", tc), func(t *testing.T) {
+			protobufParsing = tc.protobufParsing
+			allowUTF8 = tc.allowUTF8
+			runTest(t, acceptHeader(tc.scrapeProtocols, tc.scheme))
+		})
+	}
 }
 
 func TestTargetScrapeScrapeCancel(t *testing.T) {
@@ -2702,6 +2949,7 @@ func TestTargetScrapeScrapeCancel(t *testing.T) {
 				model.SchemeLabel, serverURL.Scheme,
 				model.AddressLabel, serverURL.Host,
 			),
+			scrapeConfig: &config.ScrapeConfig{},
 		},
 		client:       http.DefaultClient,
 		acceptHeader: acceptHeader(config.DefaultGlobalConfig.ScrapeProtocols, model.LegacyValidation),
@@ -2757,6 +3005,7 @@ func TestTargetScrapeScrapeNotFound(t *testing.T) {
 				model.SchemeLabel, serverURL.Scheme,
 				model.AddressLabel, serverURL.Host,
 			),
+			scrapeConfig: &config.ScrapeConfig{},
 		},
 		client:       http.DefaultClient,
 		acceptHeader: acceptHeader(config.DefaultGlobalConfig.ScrapeProtocols, model.LegacyValidation),
@@ -2800,6 +3049,7 @@ func TestTargetScraperBodySizeLimit(t *testing.T) {
 				model.SchemeLabel, serverURL.Scheme,
 				model.AddressLabel, serverURL.Host,
 			),
+			scrapeConfig: &config.ScrapeConfig{},
 		},
 		client:        http.DefaultClient,
 		bodySizeLimit: bodySizeLimit,
@@ -3070,7 +3320,8 @@ func TestReuseScrapeCache(t *testing.T) {
 		}
 		sp, _ = newScrapePool(cfg, app, 0, nil, nil, &Options{}, newTestScrapeMetrics(t))
 		t1    = &Target{
-			discoveredLabels: labels.FromStrings("labelNew", "nameNew", "labelNew1", "nameNew1", "labelNew2", "nameNew2"),
+			labels:       labels.FromStrings("labelNew", "nameNew", "labelNew1", "nameNew1", "labelNew2", "nameNew2"),
+			scrapeConfig: &config.ScrapeConfig{},
 		}
 		proxyURL, _ = url.Parse("http://localhost:2128")
 	)
@@ -3254,7 +3505,8 @@ func TestReuseCacheRace(t *testing.T) {
 		buffers = pool.New(1e3, 100e6, 3, func(sz int) interface{} { return make([]byte, 0, sz) })
 		sp, _   = newScrapePool(cfg, app, 0, nil, buffers, &Options{}, newTestScrapeMetrics(t))
 		t1      = &Target{
-			discoveredLabels: labels.FromStrings("labelNew", "nameNew"),
+			labels:       labels.FromStrings("labelNew", "nameNew"),
+			scrapeConfig: &config.ScrapeConfig{},
 		}
 	)
 	defer sp.stop()
@@ -3300,7 +3552,7 @@ func TestScrapeReportSingleAppender(t *testing.T) {
 	scraper.scrapeFunc = func(ctx context.Context, w io.Writer) error {
 		numScrapes++
 		if numScrapes%4 == 0 {
-			return fmt.Errorf("scrape failed")
+			return errors.New("scrape failed")
 		}
 		w.Write([]byte("metric_a 44\nmetric_b 44\nmetric_c 44\nmetric_d 44\n"))
 		return nil
@@ -4438,7 +4690,9 @@ func BenchmarkTargetScraperGzip(b *testing.B) {
 						model.SchemeLabel, serverURL.Scheme,
 						model.AddressLabel, serverURL.Host,
 					),
-					params: url.Values{"count": []string{strconv.Itoa(scenario.metricsCount)}},
+					scrapeConfig: &config.ScrapeConfig{
+						Params: url.Values{"count": []string{strconv.Itoa(scenario.metricsCount)}},
+					},
 				},
 				client:  client,
 				timeout: time.Second,
@@ -4830,4 +5084,45 @@ func TestScrapeAppendWithParseError(t *testing.T) {
 		},
 	}
 	requireEqual(t, want, capp.resultFloats, "Appended samples not as expected:\n%s", capp)
+}
+
+// Regression test for the panic fixed in https://github.com/prometheus/prometheus/pull/15523.
+func TestScrapePoolScrapeAfterReload(t *testing.T) {
+	h := httptest.NewServer(http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			w.Write([]byte{0x42, 0x42})
+		},
+	))
+	t.Cleanup(h.Close)
+
+	cfg := &config.ScrapeConfig{
+		BodySizeLimit:     1,
+		JobName:           "test",
+		Scheme:            "http",
+		ScrapeInterval:    model.Duration(100 * time.Millisecond),
+		ScrapeTimeout:     model.Duration(100 * time.Millisecond),
+		EnableCompression: false,
+		ServiceDiscoveryConfigs: discovery.Configs{
+			&discovery.StaticConfig{
+				{
+					Targets: []model.LabelSet{{model.AddressLabel: model.LabelValue(h.URL)}},
+				},
+			},
+		},
+	}
+
+	p, err := newScrapePool(cfg, &nopAppendable{}, 0, nil, nil, &Options{}, newTestScrapeMetrics(t))
+	require.NoError(t, err)
+	t.Cleanup(p.stop)
+
+	p.Sync([]*targetgroup.Group{
+		{
+			Targets: []model.LabelSet{{model.AddressLabel: model.LabelValue(strings.TrimPrefix(h.URL, "http://"))}},
+			Source:  "test",
+		},
+	})
+
+	require.NoError(t, p.reload(cfg))
+
+	<-time.After(1 * time.Second)
 }

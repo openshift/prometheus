@@ -59,6 +59,7 @@ global:
   [ scrape_interval: <duration> | default = 1m ]
 
   # How long until a scrape request times out.
+  # It cannot be greater than the scrape interval.
   [ scrape_timeout: <duration> | default = 10s ]
 
   # The protocols to negotiate during a scrape with the client.
@@ -135,7 +136,7 @@ global:
   [ keep_dropped_targets: <int> | default = 0 ]
 
   # Specifies the validation scheme for metric and label names. Either blank or
-  # "utf8" for for full UTF-8 support, or "legacy" for letters, numbers, colons,
+  # "utf8" for full UTF-8 support, or "legacy" for letters, numbers, colons,
   # and underscores.
   [ metric_name_validation_scheme <string> | default "utf8" ]
 
@@ -179,9 +180,13 @@ otlp:
   # - "UnderscoreEscapingWithSuffixes" refers to commonly agreed normalization used
   #   by OpenTelemetry in https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/pkg/translator/prometheus
   # - "NoUTF8EscapingWithSuffixes" is a mode that relies on UTF-8 support in Prometheus.
-  #   It preserves all special characters like dots, but it still add required suffixes
-  #   for units and _total like in UnderscoreEscapingWithSuffixes.
+  #   It preserves all special characters like dots, but still adds required metric name suffixes
+  #   for units and _total, as UnderscoreEscapingWithSuffixes does.
   [ translation_strategy: <string> | default = "UnderscoreEscapingWithSuffixes" ]
+  # Enables adding "service.name", "service.namespace" and "service.instance.id"
+  # resource attributes to the "target_info" metric, on top of converting
+  # them into the "instance" and "job" labels.
+  [ keep_identifying_resource_attributes: <boolean> | default = false]
 
 # Settings related to the remote read feature.
 remote_read:
@@ -217,6 +222,7 @@ job_name: <job_name>
 [ scrape_interval: <duration> | default = <global_config.scrape_interval> ]
 
 # Per-scrape timeout when scraping this job.
+# It cannot be greater than the scrape interval.
 [ scrape_timeout: <duration> | default = <global_config.scrape_timeout> ]
 
 # The protocols to negotiate during a scrape with the client.
@@ -671,6 +677,13 @@ http_headers:
 ### `<azure_sd_config>`
 
 Azure SD configurations allow retrieving scrape targets from Azure VMs.
+
+The discovery requires at least the following permissions:
+
+* `Microsoft.Compute/virtualMachines/read`: Required for VM discovery
+* `Microsoft.Network/networkInterfaces/read`: Required for VM discovery
+* `Microsoft.Compute/virtualMachineScaleSets/virtualMachines/read`: Required for scale set (VMSS) discovery
+* `Microsoft.Compute/virtualMachineScaleSets/virtualMachines/networkInterfaces/read`: Required for scale set (VMSS) discovery
 
 The following meta labels are available on targets during [relabeling](#relabel_config):
 
@@ -1194,6 +1207,25 @@ The following meta labels are available on targets during [relabeling](#relabel_
 * `__meta_openstack_public_ip`: the public IP of the OpenStack instance.
 * `__meta_openstack_tag_<key>`: each metadata item of the instance, with any unsupported characters converted to an underscore.
 * `__meta_openstack_user_id`: the user account owning the tenant.
+
+#### `loadbalancer`
+
+The `loadbalancer` role discovers one target per Octavia loadbalancer with a 
+`PROMETHEUS` listener. The target address defaults to the VIP address
+of the load balancer.
+
+The following meta labels are available on targets during [relabeling](#relabel_config):
+
+* `__meta_openstack_loadbalancer_availability_zone`: the availability zone of the OpenStack load balancer.
+* `__meta_openstack_loadbalancer_floating_ip`: the floating IP of the OpenStack load balancer.
+* `__meta_openstack_loadbalancer_id`:  the OpenStack load balancer ID.
+* `__meta_openstack_loadbalancer_name`: the OpenStack load balancer name.
+* `__meta_openstack_loadbalancer_provider`: the Octavia provider of the OpenStack load balancer.
+* `__meta_openstack_loadbalancer_operating_status`: the operating status of the OpenStack load balancer.
+* `__meta_openstack_loadbalancer_provisioning_status`: the provisioning status of the OpenStack load balancer.
+* `__meta_openstack_loadbalancer_tags`: comma separated list of the OpenStack load balancer.
+* `__meta_openstack_loadbalancer_vip`: the VIP of the OpenStack load balancer.
+* `__meta_openstack_project_id`: the project (tenant) owning this load balancer.
 
 See below for the configuration options for OpenStack discovery:
 
@@ -2126,7 +2158,8 @@ The following meta labels are available on targets during [relabeling](#relabel_
 [ namespace: <string> | default = default ]
 [ refresh_interval: <duration> | default = 60s ]
 [ region: <string> | default = global ]
-[ server: <host> ]
+# The URL to connect to the API.
+[ server: <string> ]
 [ tag_separator: <string> | default = ,]
 
 # HTTP client settings, including authentication methods (such as basic auth and
@@ -2805,6 +2838,12 @@ write_relabel_configs:
 # Enables sending of native histograms, also known as sparse histograms, over remote write.
 # For the `io.prometheus.write.v2.Request` message, this option is noop (always true).
 [ send_native_histograms: <boolean> | default = false ]
+
+# When enabled, remote-write will resolve the URL host name via DNS, choose one of the IP addresses at random, and connect to it. 
+# When disabled, remote-write relies on Go's standard behavior, which is to try to connect to each address in turn.
+# The connection timeout applies to the whole operation, i.e. in the latter case it is spread over all attempt.
+# This is an experimental feature, and its behavior might still change, or even get removed.
+[ round_robin_dns: <boolean> | default = false ]
 
 # Optionally configures AWS's Signature Verification 4 signing process to
 # sign requests. Cannot be set at the same time as basic_auth, authorization, oauth2, or azuread.

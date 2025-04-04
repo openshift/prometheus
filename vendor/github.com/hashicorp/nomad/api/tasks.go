@@ -864,6 +864,7 @@ type TaskArtifact struct {
 	GetterMode     *string           `mapstructure:"mode" hcl:"mode,optional"`
 	GetterInsecure *bool             `mapstructure:"insecure" hcl:"insecure,optional"`
 	RelativeDest   *string           `mapstructure:"destination" hcl:"destination,optional"`
+	Chown          bool              `mapstructure:"chown" hcl:"chown,optional"`
 }
 
 func (a *TaskArtifact) Canonicalize() {
@@ -1246,6 +1247,7 @@ type WorkloadIdentity struct {
 	ChangeSignal string        `mapstructure:"change_signal" hcl:"change_signal,optional"`
 	Env          bool          `hcl:"env,optional"`
 	File         bool          `hcl:"file,optional"`
+	Filepath     string        `hcl:"filepath,optional"`
 	ServiceName  string        `hcl:"service_name,optional"`
 	TTL          time.Duration `mapstructure:"ttl" hcl:"ttl,optional"`
 }
