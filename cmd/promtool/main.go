@@ -64,6 +64,7 @@ import (
 
 func init() {
 	// This can be removed when the default validation scheme in common is updated.
+	//nolint:staticcheck
 	model.NameValidationScheme = model.UTF8Validation
 }
 
@@ -992,11 +993,11 @@ func checkDuplicates(groups []rulefmt.RuleGroup) []compareRuleType {
 	return duplicates
 }
 
-func ruleMetric(rule rulefmt.RuleNode) string {
-	if rule.Alert.Value != "" {
-		return rule.Alert.Value
+func ruleMetric(rule rulefmt.Rule) string {
+	if rule.Alert != "" {
+		return rule.Alert
 	}
-	return rule.Record.Value
+	return rule.Record
 }
 
 var checkMetricsUsage = strings.TrimSpace(`
@@ -1324,7 +1325,7 @@ func labelsSetPromQL(query, labelMatchType, name, value string) error {
 		return fmt.Errorf("invalid label match type: %s", labelMatchType)
 	}
 
-	parser.Inspect(expr, func(node parser.Node, path []parser.Node) error {
+	parser.Inspect(expr, func(node parser.Node, _ []parser.Node) error {
 		if n, ok := node.(*parser.VectorSelector); ok {
 			var found bool
 			for i, l := range n.LabelMatchers {
@@ -1355,7 +1356,7 @@ func labelsDeletePromQL(query, name string) error {
 		return err
 	}
 
-	parser.Inspect(expr, func(node parser.Node, path []parser.Node) error {
+	parser.Inspect(expr, func(node parser.Node, _ []parser.Node) error {
 		if n, ok := node.(*parser.VectorSelector); ok {
 			for i, l := range n.LabelMatchers {
 				if l.Name == name {
