@@ -164,8 +164,13 @@ func TestExprString(t *testing.T) {
 			in:  "{``=\"0\"}",
 			out: `{""="0"}`,
 		},
+		{
+			in:  "1048576",
+			out: "1048576",
+		},
 	}
 
+	//nolint:staticcheck
 	model.NameValidationScheme = model.UTF8Validation
 
 	for _, test := range inputs {

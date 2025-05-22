@@ -141,6 +141,7 @@ var (
 
 func init() {
 	// This can be removed when the default validation scheme in common is updated.
+	//nolint:staticcheck
 	model.NameValidationScheme = model.UTF8Validation
 	prometheus.MustRegister(versioncollector.NewCollector(strings.ReplaceAll(appName, "-", "_")))
 
@@ -154,7 +155,7 @@ func init() {
 // serverOnlyFlag creates server-only kingpin flag.
 func serverOnlyFlag(app *kingpin.Application, name, help string) *kingpin.FlagClause {
 	return app.Flag(name, fmt.Sprintf("%s Use with server mode only.", help)).
-		PreAction(func(parseContext *kingpin.ParseContext) error {
+		PreAction(func(_ *kingpin.ParseContext) error {
 			// This will be invoked only if flag is actually provided by user.
 			serverOnlyFlags = append(serverOnlyFlags, "--"+name)
 			return nil
@@ -164,7 +165,7 @@ func serverOnlyFlag(app *kingpin.Application, name, help string) *kingpin.FlagCl
 // agentOnlyFlag creates agent-only kingpin flag.
 func agentOnlyFlag(app *kingpin.Application, name, help string) *kingpin.FlagClause {
 	return app.Flag(name, fmt.Sprintf("%s Use with agent mode only.", help)).
-		PreAction(func(parseContext *kingpin.ParseContext) error {
+		PreAction(func(_ *kingpin.ParseContext) error {
 			// This will be invoked only if flag is actually provided by user.
 			agentOnlyFlags = append(agentOnlyFlags, "--"+name)
 			return nil
@@ -231,7 +232,7 @@ func (c *flagConfig) setFeatureListOptions(logger *slog.Logger) error {
 				logger.Info("Experimental additional scrape metrics enabled")
 			case "metadata-wal-records":
 				c.scrape.AppendMetadata = true
-				logger.Info("Experimental metadata records in WAL enabled, required for remote write 2.0")
+				logger.Info("Experimental metadata records in WAL enabled")
 			case "promql-per-step-stats":
 				c.enablePerStepStats = true
 				logger.Info("Experimental per-step statistics reporting")
@@ -526,7 +527,7 @@ func main() {
 
 	promslogflag.AddFlags(a, &cfg.promslogConfig)
 
-	a.Flag("write-documentation", "Generate command line documentation. Internal use.").Hidden().Action(func(ctx *kingpin.ParseContext) error {
+	a.Flag("write-documentation", "Generate command line documentation. Internal use.").Hidden().Action(func(_ *kingpin.ParseContext) error {
 		if err := documentcli.GenerateMarkdown(a.Model(), os.Stdout); err != nil {
 			os.Exit(1)
 			return err
@@ -620,6 +621,31 @@ func main() {
 		cfg.tsdb.OutOfOrderTimeWindow = cfgFile.StorageConfig.TSDBConfig.OutOfOrderTimeWindow
 	}
 
+	// Set Go runtime parameters before we get too far into initialization.
+	updateGoGC(cfgFile, logger)
+	if cfg.maxprocsEnable {
+		l := func(format string, a ...interface{}) {
+			logger.Info(fmt.Sprintf(strings.TrimPrefix(format, "maxprocs: "), a...), "component", "automaxprocs")
+		}
+		if _, err := maxprocs.Set(maxprocs.Logger(l)); err != nil {
+			logger.Warn("Failed to set GOMAXPROCS automatically", "component", "automaxprocs", "err", err)
+		}
+	}
+
+	if cfg.memlimitEnable {
+		if _, err := memlimit.SetGoMemLimitWithOpts(
+			memlimit.WithRatio(cfg.memlimitRatio),
+			memlimit.WithProvider(
+				memlimit.ApplyFallback(
+					memlimit.FromCgroup,
+					memlimit.FromSystem,
+				),
+			),
+		); err != nil {
+			logger.Warn("automemlimit", "msg", "Failed to set GOMEMLIMIT automatically", "err", err)
+		}
+	}
+
 	// Now that the validity of the config is established, set the config
 	// success metrics accordingly, although the config isn't really loaded
 	// yet. This will happen later (including setting these metrics again),
@@ -702,7 +728,7 @@ func main() {
 	var (
 		localStorage  = &readyStorage{stats: tsdb.NewDBStats()}
 		scraper       = &readyScrapeManager{}
-		remoteStorage = remote.NewStorage(logger.With("component", "remote"), prometheus.DefaultRegisterer, localStorage.StartTime, localStoragePath, time.Duration(cfg.RemoteFlushDeadline), scraper, cfg.scrape.AppendMetadata)
+		remoteStorage = remote.NewStorage(logger.With("component", "remote"), prometheus.DefaultRegisterer, localStorage.StartTime, localStoragePath, time.Duration(cfg.RemoteFlushDeadline), scraper)
 		fanoutStorage = storage.NewFanout(logger, localStorage, remoteStorage)
 	)
 
@@ -765,29 +791,6 @@ func main() {
 		queryEngine *promql.Engine
 		ruleManager *rules.Manager
 	)
-
-	if cfg.maxprocsEnable {
-		l := func(format string, a ...interface{}) {
-			logger.Info(fmt.Sprintf(strings.TrimPrefix(format, "maxprocs: "), a...), "component", "automaxprocs")
-		}
-		if _, err := maxprocs.Set(maxprocs.Logger(l)); err != nil {
-			logger.Warn("Failed to set GOMAXPROCS automatically", "component", "automaxprocs", "err", err)
-		}
-	}
-
-	if cfg.memlimitEnable {
-		if _, err := memlimit.SetGoMemLimitWithOpts(
-			memlimit.WithRatio(cfg.memlimitRatio),
-			memlimit.WithProvider(
-				memlimit.ApplyFallback(
-					memlimit.FromCgroup,
-					memlimit.FromSystem,
-				),
-			),
-		); err != nil {
-			logger.Warn("automemlimit", "msg", "Failed to set GOMEMLIMIT automatically", "err", err)
-		}
-	}
 
 	if !agentMode {
 		opts := promql.EngineOpts{
@@ -1024,7 +1027,7 @@ func main() {
 				}
 				return nil
 			},
-			func(err error) {
+			func(_ error) {
 				close(cancel)
 				webHandler.SetReady(web.Stopping)
 				notifs.AddNotification(notifications.ShuttingDown)
@@ -1039,7 +1042,7 @@ func main() {
 				logger.Info("Scrape discovery manager stopped")
 				return err
 			},
-			func(err error) {
+			func(_ error) {
 				logger.Info("Stopping scrape discovery manager...")
 				cancelScrape()
 			},
@@ -1053,7 +1056,7 @@ func main() {
 				logger.Info("Notify discovery manager stopped")
 				return err
 			},
-			func(err error) {
+			func(_ error) {
 				logger.Info("Stopping notify discovery manager...")
 				cancelNotify()
 			},
@@ -1067,7 +1070,7 @@ func main() {
 				ruleManager.Run()
 				return nil
 			},
-			func(err error) {
+			func(_ error) {
 				ruleManager.Stop()
 			},
 		)
@@ -1086,7 +1089,7 @@ func main() {
 				logger.Info("Scrape manager stopped")
 				return err
 			},
-			func(err error) {
+			func(_ error) {
 				// Scrape manager needs to be stopped before closing the local TSDB
 				// so that it doesn't try to write samples to a closed storage.
 				// We should also wait for rule manager to be fully stopped to ensure
@@ -1104,7 +1107,7 @@ func main() {
 				tracingManager.Run()
 				return nil
 			},
-			func(err error) {
+			func(_ error) {
 				tracingManager.Stop()
 			},
 		)
@@ -1185,7 +1188,7 @@ func main() {
 					}
 				}
 			},
-			func(err error) {
+			func(_ error) {
 				// Wait for any in-progress reloads to complete to avoid
 				// reloading things after they have been shutdown.
 				cancel <- struct{}{}
@@ -1217,7 +1220,7 @@ func main() {
 				<-cancel
 				return nil
 			},
-			func(err error) {
+			func(_ error) {
 				close(cancel)
 			},
 		)
@@ -1270,7 +1273,7 @@ func main() {
 				<-cancel
 				return nil
 			},
-			func(err error) {
+			func(_ error) {
 				if err := fanoutStorage.Close(); err != nil {
 					logger.Error("Error stopping storage", "err", err)
 				}
@@ -1325,7 +1328,7 @@ func main() {
 				<-cancel
 				return nil
 			},
-			func(e error) {
+			func(_ error) {
 				if err := fanoutStorage.Close(); err != nil {
 					logger.Error("Error stopping storage", "err", err)
 				}
@@ -1342,7 +1345,7 @@ func main() {
 				}
 				return nil
 			},
-			func(err error) {
+			func(_ error) {
 				cancelWeb()
 			},
 		)
@@ -1364,7 +1367,7 @@ func main() {
 				logger.Info("Notifier manager stopped")
 				return nil
 			},
-			func(err error) {
+			func(_ error) {
 				notifierManager.Stop()
 			},
 		)
@@ -1474,6 +1477,14 @@ func reloadConfig(filename string, enableExemplarStorage bool, logger *slog.Logg
 		return fmt.Errorf("one or more errors occurred while applying the new configuration (--config.file=%q)", filename)
 	}
 
+	updateGoGC(conf, logger)
+
+	noStepSuqueryInterval.Set(conf.GlobalConfig.EvaluationInterval)
+	timingsLogger.Info("Completed loading of configuration file", "filename", filename, "totalDuration", time.Since(start))
+	return nil
+}
+
+func updateGoGC(conf *config.Config, logger *slog.Logger) {
 	oldGoGC := debug.SetGCPercent(conf.Runtime.GoGC)
 	if oldGoGC != conf.Runtime.GoGC {
 		logger.Info("updated GOGC", "old", oldGoGC, "new", conf.Runtime.GoGC)
@@ -1484,10 +1495,6 @@ func reloadConfig(filename string, enableExemplarStorage bool, logger *slog.Logg
 	} else {
 		os.Setenv("GOGC", "off")
 	}
-
-	noStepSuqueryInterval.Set(conf.GlobalConfig.EvaluationInterval)
-	timingsLogger.Info("Completed loading of configuration file", "filename", filename, "totalDuration", time.Since(start))
-	return nil
 }
 
 func startsOrEndsWithQuote(s string) bool {
@@ -1641,29 +1648,29 @@ func (s *readyStorage) Appender(ctx context.Context) storage.Appender {
 type notReadyAppender struct{}
 
 // SetOptions does nothing in this appender implementation.
-func (n notReadyAppender) SetOptions(opts *storage.AppendOptions) {}
+func (n notReadyAppender) SetOptions(_ *storage.AppendOptions) {}
 
-func (n notReadyAppender) Append(ref storage.SeriesRef, l labels.Labels, t int64, v float64) (storage.SeriesRef, error) {
+func (n notReadyAppender) Append(_ storage.SeriesRef, _ labels.Labels, _ int64, _ float64) (storage.SeriesRef, error) {
 	return 0, tsdb.ErrNotReady
 }
 
-func (n notReadyAppender) AppendExemplar(ref storage.SeriesRef, l labels.Labels, e exemplar.Exemplar) (storage.SeriesRef, error) {
+func (n notReadyAppender) AppendExemplar(_ storage.SeriesRef, _ labels.Labels, _ exemplar.Exemplar) (storage.SeriesRef, error) {
 	return 0, tsdb.ErrNotReady
 }
 
-func (n notReadyAppender) AppendHistogram(ref storage.SeriesRef, l labels.Labels, t int64, h *histogram.Histogram, fh *histogram.FloatHistogram) (storage.SeriesRef, error) {
+func (n notReadyAppender) AppendHistogram(_ storage.SeriesRef, _ labels.Labels, _ int64, _ *histogram.Histogram, _ *histogram.FloatHistogram) (storage.SeriesRef, error) {
 	return 0, tsdb.ErrNotReady
 }
 
-func (n notReadyAppender) AppendHistogramCTZeroSample(ref storage.SeriesRef, l labels.Labels, t, ct int64, h *histogram.Histogram, fh *histogram.FloatHistogram) (storage.SeriesRef, error) {
+func (n notReadyAppender) AppendHistogramCTZeroSample(_ storage.SeriesRef, _ labels.Labels, _, _ int64, _ *histogram.Histogram, _ *histogram.FloatHistogram) (storage.SeriesRef, error) {
 	return 0, tsdb.ErrNotReady
 }
 
-func (n notReadyAppender) UpdateMetadata(ref storage.SeriesRef, l labels.Labels, m metadata.Metadata) (storage.SeriesRef, error) {
+func (n notReadyAppender) UpdateMetadata(_ storage.SeriesRef, _ labels.Labels, _ metadata.Metadata) (storage.SeriesRef, error) {
 	return 0, tsdb.ErrNotReady
 }
 
-func (n notReadyAppender) AppendCTZeroSample(ref storage.SeriesRef, l labels.Labels, t, ct int64) (storage.SeriesRef, error) {
+func (n notReadyAppender) AppendCTZeroSample(_ storage.SeriesRef, _ labels.Labels, _, _ int64) (storage.SeriesRef, error) {
 	return 0, tsdb.ErrNotReady
 }
 
