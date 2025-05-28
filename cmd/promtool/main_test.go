@@ -41,6 +41,7 @@ import (
 
 func init() {
 	// This can be removed when the default validation scheme in common is updated.
+	//nolint:staticcheck
 	model.NameValidationScheme = model.UTF8Validation
 }
 
@@ -136,8 +137,8 @@ func TestCheckSDFile(t *testing.T) {
 		},
 		{
 			name: "bad file extension",
-			file: "./testdata/bad-sd-file-extension.nonexistant",
-			err:  "invalid file extension: \".nonexistant\"",
+			file: "./testdata/bad-sd-file-extension.nonexistent",
+			err:  "invalid file extension: \".nonexistent\"",
 		},
 		{
 			name: "bad format",

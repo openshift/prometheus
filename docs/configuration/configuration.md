@@ -1915,7 +1915,7 @@ which automates the Prometheus setup on top of Kubernetes.
 
 Kuma SD configurations allow retrieving scrape target from the [Kuma](https://kuma.io) control plane.
 
-This SD discovers "monitoring assignments" based on Kuma [Dataplane Proxies](https://kuma.io/docs/latest/documentation/dps-and-data-model),
+This SD discovers "monitoring assignments" based on Kuma [Dataplane Proxies](https://kuma.io/docs/latest/production/dp-config/dpp/#data-plane-proxy),
 via the MADS v1 (Monitoring Assignment Discovery Service) xDS API, and will create a target for each proxy
 inside a Prometheus-enabled mesh.
 
@@ -2338,6 +2338,8 @@ The following meta labels are available on targets during [relabeling](#relabel_
 * `__meta_scaleway_instance_project_id`: project id of the server
 * `__meta_scaleway_instance_public_ipv4`: the public IPv4 address of the server
 * `__meta_scaleway_instance_public_ipv6`: the public IPv6 address of the server
+* `__meta_scaleway_instance_public_ipv4_addresses`: the public IPv4 addresses of the server
+* `__meta_scaleway_instance_public_ipv6_addresses`: the public IPv6 addresses of the server
 * `__meta_scaleway_instance_region`: the region of the server
 * `__meta_scaleway_instance_security_group_id`: the ID of the security group of the server
 * `__meta_scaleway_instance_security_group_name`: the name of the security group of the server
@@ -2549,7 +2551,8 @@ input to a subsequent relabeling step), use the `__tmp` label name prefix. This
 prefix is guaranteed to never be used by Prometheus itself.
 
 ```yaml
-# The source labels select values from existing labels. Their content is concatenated
+# The source_labels tells the rule what labels to fetch from the series. Any 
+# labels which do not exist get a blank value ("").  Their content is concatenated
 # using the configured separator and matched against the configured regular expression
 # for the replace, keep, and drop actions.
 [ source_labels: '[' <labelname> [, ...] ']' ]

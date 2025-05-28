@@ -46,6 +46,7 @@ import (
 	"github.com/prometheus/prometheus/storage"
 	"github.com/prometheus/prometheus/tsdb/chunkenc"
 	"github.com/prometheus/prometheus/tsdb/chunks"
+	"github.com/prometheus/prometheus/tsdb/fileutil"
 	"github.com/prometheus/prometheus/tsdb/index"
 	"github.com/prometheus/prometheus/tsdb/record"
 	"github.com/prometheus/prometheus/tsdb/tombstones"
@@ -440,27 +441,41 @@ func BenchmarkLoadWLs(b *testing.B) {
 
 // BenchmarkLoadRealWLs will be skipped unless the BENCHMARK_LOAD_REAL_WLS_DIR environment variable is set.
 // BENCHMARK_LOAD_REAL_WLS_DIR should be the folder where `wal` and `chunks_head` are located.
+//
+// Using an absolute path for BENCHMARK_LOAD_REAL_WLS_DIR is recommended.
+//
+// Because WLs loading may alter BENCHMARK_LOAD_REAL_WLS_DIR which can affect benchmark results and to ensure consistency,
+// a copy of BENCHMARK_LOAD_REAL_WLS_DIR is made for each iteration and deleted at the end.
+// Make sure there is sufficient disk space for that.
 func BenchmarkLoadRealWLs(b *testing.B) {
-	dir := os.Getenv("BENCHMARK_LOAD_REAL_WLS_DIR")
-	if dir == "" {
+	srcDir := os.Getenv("BENCHMARK_LOAD_REAL_WLS_DIR")
+	if srcDir == "" {
 		b.SkipNow()
 	}
 
-	wal, err := wlog.New(nil, nil, filepath.Join(dir, "wal"), wlog.CompressionNone)
-	require.NoError(b, err)
-	b.Cleanup(func() { wal.Close() })
-
-	wbl, err := wlog.New(nil, nil, filepath.Join(dir, "wbl"), wlog.CompressionNone)
-	require.NoError(b, err)
-	b.Cleanup(func() { wbl.Close() })
-
 	// Load the WAL.
 	for i := 0; i < b.N; i++ {
+		b.StopTimer()
+		dir := b.TempDir()
+		require.NoError(b, fileutil.CopyDirs(srcDir, dir))
+
+		wal, err := wlog.New(nil, nil, filepath.Join(dir, "wal"), wlog.CompressionNone)
+		require.NoError(b, err)
+		b.Cleanup(func() { wal.Close() })
+
+		wbl, err := wlog.New(nil, nil, filepath.Join(dir, "wbl"), wlog.CompressionNone)
+		require.NoError(b, err)
+		b.Cleanup(func() { wbl.Close() })
+		b.StartTimer()
+
 		opts := DefaultHeadOptions()
 		opts.ChunkDirRoot = dir
 		h, err := NewHead(nil, nil, wal, wbl, opts, nil)
 		require.NoError(b, err)
 		require.NoError(b, h.Init(0))
+
+		b.StopTimer()
+		require.NoError(b, os.RemoveAll(dir))
 	}
 }
 
@@ -704,11 +719,24 @@ func TestHead_ReadWAL(t *testing.T) {
 			s11 := head.series.getByID(11)
 			s50 := head.series.getByID(50)
 			s100 := head.series.getByID(100)
+			s101 := head.series.getByID(101)
 
 			testutil.RequireEqual(t, labels.FromStrings("a", "1"), s10.lset)
 			require.Nil(t, s11) // Series without samples should be garbage collected at head.Init().
 			testutil.RequireEqual(t, labels.FromStrings("a", "4"), s50.lset)
 			testutil.RequireEqual(t, labels.FromStrings("a", "3"), s100.lset)
+
+			// Duplicate series record should not be written to the head.
+			require.Nil(t, s101)
+			// But it should have a WAL expiry set.
+			keepUntil, ok := head.getWALExpiry(101)
+			require.True(t, ok)
+			_, last, err := wlog.Segments(w.Dir())
+			require.NoError(t, err)
+			require.Equal(t, last, keepUntil)
+			// Only the duplicate series record should have a WAL expiry set.
+			_, ok = head.getWALExpiry(50)
+			require.False(t, ok)
 
 			expandChunk := func(c chunkenc.Iterator) (x []sample) {
 				for c.Next() == chunkenc.ValFloat {
@@ -781,7 +809,7 @@ func TestHead_WALMultiRef(t *testing.T) {
 
 	opts := DefaultHeadOptions()
 	opts.ChunkRange = 1000
-	opts.ChunkDirRoot = w.Dir()
+	opts.ChunkDirRoot = head.opts.ChunkDirRoot
 	head, err = NewHead(nil, nil, w, nil, opts, nil)
 	require.NoError(t, err)
 	require.NoError(t, head.Init(0))
@@ -798,6 +826,64 @@ func TestHead_WALMultiRef(t *testing.T) {
 		sample{1700, 3, nil, nil},
 		sample{2000, 4, nil, nil},
 	}}, series)
+}
+
+func TestHead_KeepSeriesInWALCheckpoint(t *testing.T) {
+	existingRef := 1
+	existingLbls := labels.FromStrings("foo", "bar")
+	deletedKeepUntil := 10
+
+	cases := []struct {
+		name      string
+		prepare   func(t *testing.T, h *Head)
+		seriesRef chunks.HeadSeriesRef
+		last      int
+		expected  bool
+	}{
+		{
+			name: "keep series still in the head",
+			prepare: func(t *testing.T, h *Head) {
+				_, _, err := h.getOrCreateWithID(chunks.HeadSeriesRef(existingRef), existingLbls.Hash(), existingLbls)
+				require.NoError(t, err)
+			},
+			seriesRef: chunks.HeadSeriesRef(existingRef),
+			expected:  true,
+		},
+		{
+			name: "keep deleted series with keepUntil > last",
+			prepare: func(_ *testing.T, h *Head) {
+				h.setWALExpiry(chunks.HeadSeriesRef(existingRef), deletedKeepUntil)
+			},
+			seriesRef: chunks.HeadSeriesRef(existingRef),
+			last:      deletedKeepUntil - 1,
+			expected:  true,
+		},
+		{
+			name: "drop deleted series with keepUntil <= last",
+			prepare: func(_ *testing.T, h *Head) {
+				h.setWALExpiry(chunks.HeadSeriesRef(existingRef), deletedKeepUntil)
+			},
+			seriesRef: chunks.HeadSeriesRef(existingRef),
+			last:      deletedKeepUntil,
+			expected:  false,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			h, _ := newTestHead(t, 1000, wlog.CompressionNone, false)
+			t.Cleanup(func() {
+				require.NoError(t, h.Close())
+			})
+
+			if tc.prepare != nil {
+				tc.prepare(t, h)
+			}
+
+			kept := h.keepSeriesInWALCheckpoint(tc.seriesRef, tc.last)
+			require.Equal(t, tc.expected, kept)
+		})
+	}
 }
 
 func TestHead_ActiveAppenders(t *testing.T) {
@@ -2485,7 +2571,7 @@ func TestMemSeriesIsolation(t *testing.T) {
 		return i
 	}
 
-	testIsolation := func(h *Head, i int) {
+	testIsolation := func(_ *Head, _ int) {
 	}
 
 	// Test isolation without restart of Head.
@@ -5118,7 +5204,7 @@ func testWBLReplay(t *testing.T, scenario sampleTypeScenario) {
 
 	var expOOOSamples []chunks.Sample
 	l := labels.FromStrings("foo", "bar")
-	appendSample := func(mins int64, val float64, isOOO bool) {
+	appendSample := func(mins int64, _ float64, isOOO bool) {
 		app := h.Appender(context.Background())
 		_, s, err := scenario.appendFunc(app, l, mins*time.Minute.Milliseconds(), mins)
 		require.NoError(t, err)
@@ -5881,7 +5967,7 @@ func TestCuttingNewHeadChunks(t *testing.T) {
 	}{
 		"float samples": {
 			numTotalSamples: 180,
-			floatValFunc: func(i int) float64 {
+			floatValFunc: func(_ int) float64 {
 				return 1.
 			},
 			expectedChks: []struct {

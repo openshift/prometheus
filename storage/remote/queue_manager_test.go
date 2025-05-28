@@ -135,7 +135,7 @@ func TestBasicContentNegotiation(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
-			s := NewStorage(nil, nil, nil, dir, defaultFlushDeadline, nil, true)
+			s := NewStorage(nil, nil, nil, dir, defaultFlushDeadline, nil)
 			defer s.Close()
 
 			var (
@@ -243,7 +243,7 @@ func TestSampleDelivery(t *testing.T) {
 	} {
 		t.Run(fmt.Sprintf("%s-%s", tc.protoMsg, tc.name), func(t *testing.T) {
 			dir := t.TempDir()
-			s := NewStorage(nil, nil, nil, dir, defaultFlushDeadline, nil, true)
+			s := NewStorage(nil, nil, nil, dir, defaultFlushDeadline, nil)
 			defer s.Close()
 
 			var (
@@ -362,7 +362,7 @@ func TestMetadataDelivery(t *testing.T) {
 
 func TestWALMetadataDelivery(t *testing.T) {
 	dir := t.TempDir()
-	s := NewStorage(nil, nil, nil, dir, defaultFlushDeadline, nil, true)
+	s := NewStorage(nil, nil, nil, dir, defaultFlushDeadline, nil)
 	defer s.Close()
 
 	cfg := config.DefaultQueueConfig
@@ -761,7 +761,7 @@ func TestDisableReshardOnRetry(t *testing.T) {
 		metrics = newQueueManagerMetrics(nil, "", "")
 
 		client = &MockWriteClient{
-			StoreFunc: func(ctx context.Context, b []byte, i int) (WriteResponseStats, error) {
+			StoreFunc: func(_ context.Context, _ []byte, _ int) (WriteResponseStats, error) {
 				onStoreCalled()
 
 				return WriteResponseStats{}, RecoverableError{
@@ -839,7 +839,7 @@ func createTimeseries(numSamples, numSeries int, extraLabels ...labels.Label) ([
 	return samples, series
 }
 
-func createProtoTimeseriesWithOld(numSamples, baseTs int64, extraLabels ...labels.Label) []prompb.TimeSeries {
+func createProtoTimeseriesWithOld(numSamples, baseTs int64, _ ...labels.Label) []prompb.TimeSeries {
 	samples := make([]prompb.TimeSeries, numSamples)
 	// use a fixed rand source so tests are consistent
 	r := rand.New(rand.NewSource(99))
