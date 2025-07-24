@@ -30,7 +30,6 @@ import (
 	"time"
 
 	"github.com/gogo/protobuf/proto"
-	"github.com/golang/snappy"
 	"github.com/google/go-cmp/cmp"
 	"github.com/prometheus/client_golang/prometheus"
 	client_testutil "github.com/prometheus/client_golang/prometheus/testutil"
@@ -50,6 +49,7 @@ import (
 	"github.com/prometheus/prometheus/tsdb/chunks"
 	"github.com/prometheus/prometheus/tsdb/record"
 	"github.com/prometheus/prometheus/tsdb/wlog"
+	"github.com/prometheus/prometheus/util/compression"
 	"github.com/prometheus/prometheus/util/runutil"
 	"github.com/prometheus/prometheus/util/testutil"
 )
@@ -963,7 +963,6 @@ type TestWriteClient struct {
 	receivedMetadata        map[string][]prompb.MetricMetadata
 	writesReceived          int
 	mtx                     sync.Mutex
-	buf                     []byte
 	protoMsg                config.RemoteWriteProtoMsg
 	injectedErrs            []error
 	currErr                 int
@@ -1119,13 +1118,8 @@ func (c *TestWriteClient) Store(_ context.Context, req []byte, _ int) (WriteResp
 	if c.returnError != nil {
 		return WriteResponseStats{}, c.returnError
 	}
-	// nil buffers are ok for snappy, ignore cast error.
-	if c.buf != nil {
-		c.buf = c.buf[:cap(c.buf)]
-	}
 
-	reqBuf, err := snappy.Decode(c.buf, req)
-	c.buf = reqBuf
+	reqBuf, err := compression.Decode(compression.Snappy, req, nil)
 	if err != nil {
 		return WriteResponseStats{}, err
 	}
@@ -1858,7 +1852,7 @@ func createDummyTimeSeries(instances int) []timeSeries {
 func BenchmarkBuildWriteRequest(b *testing.B) {
 	noopLogger := promslog.NewNopLogger()
 	bench := func(b *testing.B, batch []timeSeries) {
-		buff := make([]byte, 0)
+		cEnc := compression.NewSyncEncodeBuffer()
 		seriesBuff := make([]prompb.TimeSeries, len(batch))
 		for i := range seriesBuff {
 			seriesBuff[i].Samples = []prompb.Sample{{}}
@@ -1869,7 +1863,7 @@ func BenchmarkBuildWriteRequest(b *testing.B) {
 		totalSize := 0
 		for i := 0; i < b.N; i++ {
 			populateTimeSeries(batch, seriesBuff, true, true)
-			req, _, _, err := buildWriteRequest(noopLogger, seriesBuff, nil, pBuf, &buff, nil, "snappy")
+			req, _, _, err := buildWriteRequest(noopLogger, seriesBuff, nil, pBuf, nil, cEnc, compression.Snappy)
 			if err != nil {
 				b.Fatal(err)
 			}
@@ -1899,7 +1893,7 @@ func BenchmarkBuildV2WriteRequest(b *testing.B) {
 	noopLogger := promslog.NewNopLogger()
 	bench := func(b *testing.B, batch []timeSeries) {
 		symbolTable := writev2.NewSymbolTable()
-		buff := make([]byte, 0)
+		cEnc := compression.NewSyncEncodeBuffer()
 		seriesBuff := make([]writev2.TimeSeries, len(batch))
 		for i := range seriesBuff {
 			seriesBuff[i].Samples = []writev2.Sample{{}}
@@ -1910,7 +1904,7 @@ func BenchmarkBuildV2WriteRequest(b *testing.B) {
 		totalSize := 0
 		for i := 0; i < b.N; i++ {
 			populateV2TimeSeries(&symbolTable, batch, seriesBuff, true, true)
-			req, _, _, err := buildV2WriteRequest(noopLogger, seriesBuff, symbolTable.Symbols(), &pBuf, &buff, nil, "snappy")
+			req, _, _, err := buildV2WriteRequest(noopLogger, seriesBuff, symbolTable.Symbols(), &pBuf, nil, cEnc, "snappy")
 			if err != nil {
 				b.Fatal(err)
 			}
@@ -1937,27 +1931,31 @@ func BenchmarkBuildV2WriteRequest(b *testing.B) {
 }
 
 func TestDropOldTimeSeries(t *testing.T) {
-	size := 10
-	nSeries := 6
-	nSamples := config.DefaultQueueConfig.Capacity * size
-	samples, newSamples, series := createTimeseriesWithOldSamples(nSamples, nSeries)
+	// Test both v1 and v2 remote write protocols
+	for _, protoMsg := range []config.RemoteWriteProtoMsg{config.RemoteWriteProtoMsgV1, config.RemoteWriteProtoMsgV2} {
+		t.Run(fmt.Sprint(protoMsg), func(t *testing.T) {
+			size := 10
+			nSeries := 6
+			nSamples := config.DefaultQueueConfig.Capacity * size
+			samples, newSamples, series := createTimeseriesWithOldSamples(nSamples, nSeries)
 
-	// TODO(alexg): test with new version
-	c := NewTestWriteClient(config.RemoteWriteProtoMsgV1)
-	c.expectSamples(newSamples, series)
+			c := NewTestWriteClient(protoMsg)
+			c.expectSamples(newSamples, series)
 
-	cfg := config.DefaultQueueConfig
-	mcfg := config.DefaultMetadataConfig
-	cfg.MaxShards = 1
-	cfg.SampleAgeLimit = model.Duration(60 * time.Second)
-	m := newTestQueueManager(t, cfg, mcfg, defaultFlushDeadline, c, config.RemoteWriteProtoMsgV1)
-	m.StoreSeries(series, 0)
+			cfg := config.DefaultQueueConfig
+			mcfg := config.DefaultMetadataConfig
+			cfg.MaxShards = 1
+			cfg.SampleAgeLimit = model.Duration(60 * time.Second)
+			m := newTestQueueManager(t, cfg, mcfg, defaultFlushDeadline, c, protoMsg)
+			m.StoreSeries(series, 0)
 
-	m.Start()
-	defer m.Stop()
+			m.Start()
+			defer m.Stop()
 
-	m.Append(samples)
-	c.waitForExpectedData(t, 30*time.Second)
+			m.Append(samples)
+			c.waitForExpectedData(t, 30*time.Second)
+		})
+	}
 }
 
 func TestIsSampleOld(t *testing.T) {

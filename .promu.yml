@@ -14,10 +14,8 @@ build:
         all:
             - netgo
             - builtinassets
-            - stringlabels
         windows:
             - builtinassets
-            - stringlabels
     ldflags: |
         -s
         -X github.com/prometheus/common/version.Version={{.Version}}
