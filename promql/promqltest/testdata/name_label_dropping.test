@@ -35,10 +35,6 @@ eval instant at 10m clamp(metric_total, 0, 100)
 eval instant at 10m round(metric_total)
 	{env="1"} 120
 
-# Drops __name__ for round function.
-eval instant at 10m round(metric_total)
-	{env="1"} 120
-
 # Drops __name__ for range-vector functions.
 eval instant at 10m rate(metric_total{env="1"}[10m])
 	{env="1"} 0.2
