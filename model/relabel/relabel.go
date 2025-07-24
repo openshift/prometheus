@@ -24,15 +24,11 @@ import (
 
 	"github.com/grafana/regexp"
 	"github.com/prometheus/common/model"
-	"github.com/prometheus/common/promslog"
 
 	"github.com/prometheus/prometheus/model/labels"
-	"github.com/prometheus/prometheus/promql/parser"
 )
 
 var (
-	Logger = promslog.NewNopLogger()
-
 	// relabelTargetLegacy allows targeting labels with legacy Prometheus character set, plus ${<var>} variables for dynamic characters from source the metrics.
 	relabelTargetLegacy = regexp.MustCompile(`^(?:(?:[a-zA-Z_]|\$(?:\{\w+\}|\w+))+\w*)+$`)
 
@@ -139,12 +135,6 @@ func (c *Config) Validate() error {
 		// Design escaping mechanism to allow that, once valid use case appears.
 		return model.LabelName(value).IsValid()
 	}
-	//nolint:staticcheck
-	if model.NameValidationScheme == model.LegacyValidation {
-		isValidLabelNameWithRegexVarFn = func(value string) bool {
-			return relabelTargetLegacy.MatchString(value)
-		}
-	}
 	if c.Action == Replace && varInRegexTemplate(c.TargetLabel) && !isValidLabelNameWithRegexVarFn(c.TargetLabel) {
 		return fmt.Errorf("%q is invalid 'target_label' for %s action", c.TargetLabel, c.Action)
 	}
@@ -177,21 +167,6 @@ func (c *Config) Validate() error {
 			c.Separator != DefaultRelabelConfig.Separator ||
 			c.Replacement != DefaultRelabelConfig.Replacement {
 			return fmt.Errorf("%s action requires only 'regex', and no other fields", c.Action)
-		}
-	}
-
-	// look for configs that may need adjustment.
-	for i, ln := range c.SourceLabels {
-		if ln == model.BucketLabel || ln == model.QuantileLabel {
-			vals := strings.Split(c.Regex.String(), c.Separator)
-			if len(vals) <= i {
-				continue
-			}
-			// Supposing regexes ending with (\.0)? to be already adjusted, excluding them to avoid noise.
-			if !strings.HasSuffix(vals[i], `(\.0)?`) {
-				parser.NarrowSelectors.WithLabelValues("relabel").Inc()
-				Logger.Debug("relabel_config involves 'le' or 'quantile' labels, it may need to be adjusted to count for float values", "source_labels", c.SourceLabels, "regex", c.Regex)
-			}
 		}
 	}
 
