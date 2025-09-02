@@ -14,18 +14,22 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"io"
 	"math"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -33,6 +37,7 @@ import (
 	"github.com/alecthomas/kingpin/v2"
 	"github.com/go-kit/log"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/common/expfmt"
 	"github.com/prometheus/common/model"
 	"github.com/stretchr/testify/require"
 
@@ -40,6 +45,7 @@ import (
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/notifier"
 	"github.com/prometheus/prometheus/rules"
+	"github.com/prometheus/prometheus/util/testutil"
 )
 
 const startupTime = 10 * time.Second
@@ -562,4 +568,160 @@ func TestRwProtoMsgFlagParser(t *testing.T) {
 			}
 		})
 	}
+}
+
+func getMetricValue(t *testing.T, body io.Reader, metricType model.MetricType, metricName string) (float64, error) {
+	t.Helper()
+
+	p := expfmt.TextParser{}
+	metricFamilies, err := p.TextToMetricFamilies(body)
+	if err != nil {
+		return 0, err
+	}
+	metricFamily, ok := metricFamilies[metricName]
+	if !ok {
+		return 0, errors.New("metric family not found")
+	}
+	metric := metricFamily.GetMetric()
+	if len(metric) != 1 {
+		return 0, errors.New("metric not found")
+	}
+	switch metricType {
+	case model.MetricTypeGauge:
+		return metric[0].GetGauge().GetValue(), nil
+	case model.MetricTypeCounter:
+		return metric[0].GetCounter().GetValue(), nil
+	default:
+		t.Fatalf("metric type %s not supported", metricType)
+	}
+
+	return 0, errors.New("cannot get value")
+}
+
+// This test verifies that metrics for the highest timestamps per queue account for relabelling.
+// See: https://github.com/prometheus/prometheus/pull/17065.
+func TestRemoteWrite_PerQueueMetricsAfterRelabeling(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+	configFile := filepath.Join(tmpDir, "prometheus.yml")
+
+	port := testutil.RandomUnprivilegedPort(t)
+	targetPort := testutil.RandomUnprivilegedPort(t)
+
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		panic("should never be reached")
+	}))
+	t.Cleanup(server.Close)
+
+	// Simulate a remote write relabeling that doesn't yield any series.
+	config := fmt.Sprintf(`
+global:
+  scrape_interval: 1s
+scrape_configs:
+  - job_name: 'self'
+    static_configs:
+      - targets: ['localhost:%d']
+  - job_name: 'target'
+    static_configs:
+      - targets: ['localhost:%d']
+remote_write:
+  - url: %s
+    write_relabel_configs:
+      - source_labels: [job,__name__]
+        regex: 'target,special_metric'
+        action: keep
+`, port, targetPort, server.URL)
+	require.NoError(t, os.WriteFile(configFile, []byte(config), 0o777))
+
+	prom := prometheusCommandWithLogging(
+		t,
+		configFile,
+		port,
+		fmt.Sprintf("--storage.tsdb.path=%s", tmpDir),
+	)
+	require.NoError(t, prom.Start())
+
+	require.Eventually(t, func() bool {
+		r, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d/metrics", port))
+		if err != nil {
+			return false
+		}
+		defer r.Body.Close()
+		if r.StatusCode != http.StatusOK {
+			return false
+		}
+
+		metrics, err := io.ReadAll(r.Body)
+		if err != nil {
+			return false
+		}
+
+		gHighestTimestamp, err := getMetricValue(t, bytes.NewReader(metrics), model.MetricTypeGauge, "prometheus_remote_storage_highest_timestamp_in_seconds")
+		// The highest timestamp at storage level sees all samples, it should also consider the ones that are filtered out by relabeling.
+		if err != nil || gHighestTimestamp == 0 {
+			return false
+		}
+
+		// The queue shouldn't see and send any sample, all samples are dropped due to relabeling, the metrics should reflect that.
+		droppedSamples, err := getMetricValue(t, bytes.NewReader(metrics), model.MetricTypeCounter, "prometheus_remote_storage_samples_dropped_total")
+		if err != nil || droppedSamples == 0 {
+			return false
+		}
+
+		highestTimestamp, err := getMetricValue(t, bytes.NewReader(metrics), model.MetricTypeGauge, "prometheus_remote_storage_queue_highest_timestamp_seconds")
+		require.NoError(t, err)
+		require.Zero(t, highestTimestamp)
+
+		highestSentTimestamp, err := getMetricValue(t, bytes.NewReader(metrics), model.MetricTypeGauge, "prometheus_remote_storage_queue_highest_sent_timestamp_seconds")
+		require.NoError(t, err)
+		require.Zero(t, highestSentTimestamp)
+		return true
+	}, 10*time.Second, 100*time.Millisecond)
+}
+
+func captureLogsToTLog(t *testing.T, r io.Reader) {
+	scanner := bufio.NewScanner(r)
+	for scanner.Scan() {
+		t.Log(scanner.Text())
+	}
+	if err := scanner.Err(); err != nil {
+		t.Logf("Error reading logs: %v", err)
+	}
+}
+
+func prometheusCommandWithLogging(t *testing.T, configFilePath string, port int, extraArgs ...string) *exec.Cmd {
+	stdoutPipe, stdoutWriter := io.Pipe()
+	stderrPipe, stderrWriter := io.Pipe()
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	args := []string{
+		"-test.main",
+		"--config.file=" + configFilePath,
+		"--web.listen-address=0.0.0.0:" + strconv.Itoa(port),
+	}
+	args = append(args, extraArgs...)
+	prom := exec.Command(promPath, args...)
+	prom.Stdout = stdoutWriter
+	prom.Stderr = stderrWriter
+
+	go func() {
+		defer wg.Done()
+		captureLogsToTLog(t, stdoutPipe)
+	}()
+	go func() {
+		defer wg.Done()
+		captureLogsToTLog(t, stderrPipe)
+	}()
+
+	t.Cleanup(func() {
+		prom.Process.Kill()
+		prom.Wait()
+		stdoutWriter.Close()
+		stderrWriter.Close()
+		wg.Wait()
+	})
+	return prom
 }
