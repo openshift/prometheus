@@ -51,10 +51,10 @@
 @parcel/watcher-win32-x64@2.5.0
 @parcel/watcher@2.5.0
 @prometheus-io/codemirror-promql@0.303.0
-@prometheus-io/codemirror-promql@0.305.0
+@prometheus-io/codemirror-promql@0.306.0
 @prometheus-io/lezer-promql@0.303.0
-@prometheus-io/lezer-promql@0.305.0
-@prometheus-io/mantine-ui@0.305.0
+@prometheus-io/lezer-promql@0.306.0
+@prometheus-io/mantine-ui@0.306.0
 @reduxjs/toolkit@2.7.0
 @standard-schema/spec@1.0.0
 @standard-schema/utils@0.3.0
@@ -90,6 +90,7 @@ clsx@2.1.1
 codemirror@6.0.1
 color-convert@2.0.1
 color-name@1.1.4
+colors@0.5.1
 compute-scroll-into-view@3.1.0
 cookie@1.0.2
 copy-to-clipboard@3.3.3
@@ -105,6 +106,7 @@ define-properties@1.2.1
 dequal@2.0.3
 detect-libc@1.0.3
 detect-node-es@1.1.0
+discontinuous-range@1.0.0
 dom-accessibility-api@0.5.16
 dom-accessibility-api@0.6.3
 dom-helpers@3.4.0
@@ -154,6 +156,7 @@ isarray@0.0.1
 jquery.flot.tooltip@0.9.0
 jquery@3.7.1
 js-tokens@4.0.0
+lodash.flattendeep@4.4.0
 lodash@4.17.21
 loose-envify@1.4.0
 lru-cache@11.0.2
@@ -166,7 +169,9 @@ moment@2.29.4
 moment@2.30.1
 ms@2.1.3
 nanoid@3.3.8
+nearley@2.7.10
 node-addon-api@7.1.1
+nomnom@1.6.2
 object-assign@4.1.1
 object-is@1.1.6
 object-keys@1.1.1
@@ -179,6 +184,8 @@ postcss@8.4.38
 postcss@8.5.3
 pretty-format@27.5.1
 prop-types@15.8.1
+railroad-diagrams@1.0.0
+randexp@0.4.6
 react-copy-to-clipboard@5.1.0
 react-dom@17.0.2
 react-dom@19.1.0
@@ -215,6 +222,7 @@ regexp.prototype.flags@1.5.2
 requires-port@1.0.0
 reselect@5.1.1
 resolve-pathname@3.0.0
+ret@0.1.15
 sanitize-html@2.16.0
 sass@1.87.0
 scheduler@0.20.2
@@ -240,6 +248,7 @@ tslib@2.8.1
 turbo-stream@2.4.0
 type-fest@4.40.1
 typed-styles@0.0.7
+underscore@1.4.4
 undici-types@6.21.0
 uplot-react@1.2.2
 uplot@1.6.32
