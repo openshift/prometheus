@@ -934,6 +934,11 @@ func (c *ScrapeConfig) Validate(globalConfig GlobalConfig) error {
 		c.AlwaysScrapeClassicHistograms = &global
 	}
 
+	// Default to legacy validation and escaping scheme.
+	// TODO: remove once utf-8 is fully supported.
+	c.MetricNameValidationScheme = LegacyValidationConfig
+	c.MetricNameEscapingScheme = model.EscapeUnderscores
+
 	return nil
 }
 
