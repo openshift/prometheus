@@ -319,6 +319,7 @@ var expectedConf = &Config{
 					Separator:    relabel.DefaultRelabelConfig.Separator,
 				},
 			},
+			MetricNameValidationScheme: LegacyValidationConfig,
 		},
 		{
 			JobName: "service-x",
@@ -417,6 +418,7 @@ var expectedConf = &Config{
 					Action:       relabel.Drop,
 				},
 			},
+			MetricNameValidationScheme: LegacyValidationConfig,
 		},
 		{
 			JobName: "service-y",
@@ -473,6 +475,7 @@ var expectedConf = &Config{
 					Action:       relabel.Replace,
 				},
 			},
+			MetricNameValidationScheme: LegacyValidationConfig,
 		},
 		{
 			JobName: "service-z",
@@ -507,6 +510,7 @@ var expectedConf = &Config{
 				FollowRedirects: true,
 				EnableHTTP2:     true,
 			},
+			MetricNameValidationScheme: LegacyValidationConfig,
 		},
 		{
 			JobName: "service-kubernetes",
@@ -547,6 +551,7 @@ var expectedConf = &Config{
 					NamespaceDiscovery: kubernetes.NamespaceDiscovery{},
 				},
 			},
+			MetricNameValidationScheme: LegacyValidationConfig,
 		},
 		{
 			JobName: "service-kubernetes-namespaces",
@@ -587,6 +592,7 @@ var expectedConf = &Config{
 					HTTPClientConfig: config.DefaultHTTPClientConfig,
 				},
 			},
+			MetricNameValidationScheme: LegacyValidationConfig,
 		},
 		{
 			JobName: "service-kuma",
@@ -617,6 +623,7 @@ var expectedConf = &Config{
 					FetchTimeout:     model.Duration(2 * time.Minute),
 				},
 			},
+			MetricNameValidationScheme: LegacyValidationConfig,
 		},
 		{
 			JobName: "service-marathon",
@@ -655,6 +662,7 @@ var expectedConf = &Config{
 					},
 				},
 			},
+			MetricNameValidationScheme: LegacyValidationConfig,
 		},
 		{
 			JobName: "service-nomad",
@@ -690,6 +698,7 @@ var expectedConf = &Config{
 					},
 				},
 			},
+			MetricNameValidationScheme: LegacyValidationConfig,
 		},
 		{
 			JobName: "service-ec2",
@@ -732,6 +741,7 @@ var expectedConf = &Config{
 					HTTPClientConfig: config.DefaultHTTPClientConfig,
 				},
 			},
+			MetricNameValidationScheme: LegacyValidationConfig,
 		},
 		{
 			JobName: "service-lightsail",
@@ -764,6 +774,7 @@ var expectedConf = &Config{
 					HTTPClientConfig: config.DefaultHTTPClientConfig,
 				},
 			},
+			MetricNameValidationScheme: LegacyValidationConfig,
 		},
 		{
 			JobName: "service-azure",
@@ -799,6 +810,7 @@ var expectedConf = &Config{
 					HTTPClientConfig:     config.DefaultHTTPClientConfig,
 				},
 			},
+			MetricNameValidationScheme: LegacyValidationConfig,
 		},
 		{
 			JobName: "service-nerve",
@@ -827,6 +839,7 @@ var expectedConf = &Config{
 					Timeout: model.Duration(10 * time.Second),
 				},
 			},
+			MetricNameValidationScheme: LegacyValidationConfig,
 		},
 		{
 			JobName: "0123service-xxx",
@@ -858,6 +871,7 @@ var expectedConf = &Config{
 					},
 				},
 			},
+			MetricNameValidationScheme: LegacyValidationConfig,
 		},
 		{
 			JobName: "badfederation",
@@ -889,6 +903,7 @@ var expectedConf = &Config{
 					},
 				},
 			},
+			MetricNameValidationScheme: LegacyValidationConfig,
 		},
 		{
 			JobName: "測試",
@@ -920,6 +935,7 @@ var expectedConf = &Config{
 					},
 				},
 			},
+			MetricNameValidationScheme: LegacyValidationConfig,
 		},
 		{
 			JobName: "httpsd",
@@ -948,6 +964,7 @@ var expectedConf = &Config{
 					RefreshInterval:  model.Duration(60 * time.Second),
 				},
 			},
+			MetricNameValidationScheme: LegacyValidationConfig,
 		},
 		{
 			JobName: "service-triton",
@@ -984,6 +1001,7 @@ var expectedConf = &Config{
 					},
 				},
 			},
+			MetricNameValidationScheme: LegacyValidationConfig,
 		},
 		{
 			JobName: "digitalocean-droplets",
@@ -1019,6 +1037,7 @@ var expectedConf = &Config{
 					RefreshInterval: model.Duration(60 * time.Second),
 				},
 			},
+			MetricNameValidationScheme: LegacyValidationConfig,
 		},
 		{
 			JobName: "docker",
@@ -1051,6 +1070,7 @@ var expectedConf = &Config{
 					MatchFirstNetwork:  true,
 				},
 			},
+			MetricNameValidationScheme: LegacyValidationConfig,
 		},
 		{
 			JobName: "dockerswarm",
@@ -1082,6 +1102,7 @@ var expectedConf = &Config{
 					HTTPClientConfig: config.DefaultHTTPClientConfig,
 				},
 			},
+			MetricNameValidationScheme: LegacyValidationConfig,
 		},
 		{
 			JobName: "service-openstack",
@@ -1117,6 +1138,7 @@ var expectedConf = &Config{
 					},
 				},
 			},
+			MetricNameValidationScheme: LegacyValidationConfig,
 		},
 		{
 			JobName: "service-puppetdb",
@@ -1156,6 +1178,7 @@ var expectedConf = &Config{
 					},
 				},
 			},
+			MetricNameValidationScheme: LegacyValidationConfig,
 		},
 		{
 			JobName:               "hetzner",
@@ -1212,6 +1235,7 @@ var expectedConf = &Config{
 					Role:            "robot",
 				},
 			},
+			MetricNameValidationScheme: LegacyValidationConfig,
 		},
 		{
 			JobName: "service-eureka",
@@ -1240,6 +1264,7 @@ var expectedConf = &Config{
 					HTTPClientConfig: config.DefaultHTTPClientConfig,
 				},
 			},
+			MetricNameValidationScheme: LegacyValidationConfig,
 		},
 		{
 			JobName: "ovhcloud",
@@ -1279,6 +1304,7 @@ var expectedConf = &Config{
 					Service:           "dedicated_server",
 				},
 			},
+			MetricNameValidationScheme: LegacyValidationConfig,
 		},
 		{
 			JobName: "scaleway",
@@ -1324,6 +1350,7 @@ var expectedConf = &Config{
 					Zone:             "fr-par-1",
 				},
 			},
+			MetricNameValidationScheme: LegacyValidationConfig,
 		},
 		{
 			JobName: "linode-instances",
@@ -1360,6 +1387,7 @@ var expectedConf = &Config{
 					RefreshInterval: model.Duration(60 * time.Second),
 				},
 			},
+			MetricNameValidationScheme: LegacyValidationConfig,
 		},
 		{
 			JobName: "uyuni",
@@ -1391,6 +1419,7 @@ var expectedConf = &Config{
 					HTTPClientConfig: config.DefaultHTTPClientConfig,
 				},
 			},
+			MetricNameValidationScheme: LegacyValidationConfig,
 		},
 		{
 			JobName:               "ionos",
@@ -1423,6 +1452,7 @@ var expectedConf = &Config{
 					RefreshInterval: model.Duration(60 * time.Second),
 				},
 			},
+			MetricNameValidationScheme: LegacyValidationConfig,
 		},
 		{
 			JobName: "vultr",
@@ -1458,6 +1488,7 @@ var expectedConf = &Config{
 					RefreshInterval: model.Duration(60 * time.Second),
 				},
 			},
+			MetricNameValidationScheme: LegacyValidationConfig,
 		},
 	},
 	AlertingConfig: AlertingConfig{
@@ -2299,6 +2330,7 @@ func TestGetScrapeConfigs(t *testing.T) {
 					},
 				},
 			},
+			MetricNameValidationScheme: LegacyValidationConfig,
 		}
 	}
 
@@ -2363,6 +2395,7 @@ func TestGetScrapeConfigs(t *testing.T) {
 							},
 						},
 					},
+					MetricNameValidationScheme: LegacyValidationConfig,
 				},
 				{
 					JobName: "node",
@@ -2400,6 +2433,7 @@ func TestGetScrapeConfigs(t *testing.T) {
 							RefreshInterval: model.Duration(60 * time.Second),
 						},
 					},
+					MetricNameValidationScheme: LegacyValidationConfig,
 				},
 			},
 		},
@@ -2466,7 +2500,7 @@ func TestScrapeConfigNameValidationSettings(t *testing.T) {
 		{
 			name:         "blank config implies default",
 			inputFile:    "scrape_config_default_validation_mode",
-			expectScheme: "",
+			expectScheme: "legacy",
 		},
 		{
 			name:         "global setting implies local settings",
@@ -2481,7 +2515,7 @@ func TestScrapeConfigNameValidationSettings(t *testing.T) {
 		{
 			name:         "local setting overrides global setting",
 			inputFile:    "scrape_config_local_global_validation_mode",
-			expectScheme: "utf8",
+			expectScheme: "legacy",
 		},
 	}
 

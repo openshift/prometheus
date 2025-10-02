@@ -849,6 +849,10 @@ func (c *ScrapeConfig) Validate(globalConfig GlobalConfig) error {
 		c.MetricNameValidationScheme = globalConfig.MetricNameValidationScheme
 	}
 
+	// Default to legacy validation scheme.
+	// TODO: remove once utf-8 is fully supported.
+	c.MetricNameValidationScheme = LegacyValidationConfig
+
 	return nil
 }
 

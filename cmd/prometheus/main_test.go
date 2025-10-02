@@ -22,6 +22,7 @@ import (
 	"math"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -773,4 +774,47 @@ func prometheusCommandWithLogging(t *testing.T, configFilePath string, port int,
 		wg.Wait()
 	})
 	return prom
+}
+
+// TestScrapeHeaderDoesNotContainAllowUTF8 ensures that Prometheus doesn't ask
+// for utf8 when scraping targets.
+func TestUTF8DisabledOnScrape(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+	configFile := filepath.Join(tmpDir, "prometheus.yml")
+
+	headerChecked := make(chan bool)
+	targetServer := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		acceptHeader := r.Header.Get("Accept")
+		require.NotContains(t, acceptHeader, "utf-8")
+		require.NotContains(t, acceptHeader, "utf8")
+		headerChecked <- true
+	}))
+	t.Cleanup(targetServer.Close)
+	targetURL, err := url.Parse(targetServer.URL)
+	require.NoError(t, err)
+
+	config := fmt.Sprintf(`
+scrape_configs:
+  - job_name: 'target'
+    scrape_interval: 100ms
+    static_configs:
+      - targets: ['%s']
+`, targetURL.Host)
+	require.NoError(t, os.WriteFile(configFile, []byte(config), 0o777))
+
+	prom := prometheusCommandWithLogging(
+		t,
+		configFile,
+		testutil.RandomUnprivilegedPort(t),
+		fmt.Sprintf("--storage.tsdb.path=%s", tmpDir),
+	)
+	require.NoError(t, prom.Start())
+
+	select {
+	case <-headerChecked:
+	case <-time.After(10 * time.Second):
+		t.Fatal("Timeout waiting for target to be scraped")
+	}
 }
