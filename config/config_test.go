@@ -1808,6 +1808,20 @@ func TestOTLPConvertHistogramsToNHCB(t *testing.T) {
 	})
 }
 
+func TestOTLPPromoteScopeMetadata(t *testing.T) {
+	t.Run("good config", func(t *testing.T) {
+		want, err := LoadFile(filepath.Join("testdata", "otlp_promote_scope_metadata.good.yml"), false, promslog.NewNopLogger())
+		require.NoError(t, err)
+
+		out, err := yaml.Marshal(want)
+		require.NoError(t, err)
+		var got Config
+		require.NoError(t, yaml.UnmarshalStrict(out, &got))
+
+		require.True(t, got.OTLPConfig.PromoteScopeMetadata)
+	})
+}
+
 func TestOTLPAllowUTF8(t *testing.T) {
 	t.Run("good config - NoUTF8EscapingWithSuffixes", func(t *testing.T) {
 		fpath := filepath.Join("testdata", "otlp_allow_utf8.good.yml")
@@ -2788,7 +2802,7 @@ func TestScrapeConfigNameValidationSettings(t *testing.T) {
 	tests := []struct {
 		name         string
 		inputFile    string
-		expectScheme string
+		expectScheme model.ValidationScheme
 	}{
 		{
 			name:         "blank config implies default",
@@ -2798,12 +2812,12 @@ func TestScrapeConfigNameValidationSettings(t *testing.T) {
 		{
 			name:         "global setting implies local settings",
 			inputFile:    "scrape_config_global_validation_mode",
-			expectScheme: "legacy",
+			expectScheme: model.LegacyValidation,
 		},
 		{
 			name:         "local setting",
 			inputFile:    "scrape_config_local_validation_mode",
-			expectScheme: "legacy",
+			expectScheme: model.LegacyValidation,
 		},
 		{
 			name:         "local setting overrides global setting",
@@ -2832,7 +2846,7 @@ func TestScrapeConfigNameEscapingSettings(t *testing.T) {
 	tests := []struct {
 		name                   string
 		inputFile              string
-		expectValidationScheme string
+		expectValidationScheme model.ValidationScheme
 		expectEscapingScheme   string
 	}{
 		{
