@@ -435,10 +435,11 @@ func SendAlerts(s Sender, externalURL string) NotifyFunc {
 
 		for _, alert := range alerts {
 			a := &notifier.Alert{
-				StartsAt:     alert.FiredAt,
-				Labels:       alert.Labels,
-				Annotations:  alert.Annotations,
-				GeneratorURL: externalURL + strutil.TableLinkForExpression(expr),
+				StartsAt:    alert.FiredAt,
+				Labels:      alert.Labels,
+				Annotations: alert.Annotations,
+				// Add /monitoring prefix to generatorURL for OpenShift console integration
+				GeneratorURL: externalURL + "/monitoring" + strutil.TableLinkForExpression(expr),
 			}
 			if !alert.ResolvedAt.IsZero() {
 				a.EndsAt = alert.ResolvedAt
