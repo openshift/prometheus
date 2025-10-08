@@ -931,7 +931,7 @@ func (c *ScrapeConfig) Validate(globalConfig GlobalConfig) error {
 
 	// Default to legacy validation and escaping scheme.
 	// TODO: remove once utf-8 is fully supported.
-	c.MetricNameValidationScheme = LegacyValidationConfig
+	c.MetricNameValidationScheme = model.LegacyValidation
 	c.MetricNameEscapingScheme = model.EscapeUnderscores
 
 	return nil
