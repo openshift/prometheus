@@ -37,13 +37,13 @@ func NewStringSlice() StringSlice {
 
 // AsRaw returns a copy of the []string slice.
 func (ms StringSlice) AsRaw() []string {
-	return internal.CopyOrigStringSlice(nil, *ms.getOrig())
+	return copyStringSlice(nil, *ms.getOrig())
 }
 
 // FromRaw copies raw []string into the slice StringSlice.
 func (ms StringSlice) FromRaw(val []string) {
 	ms.getState().AssertMutable()
-	*ms.getOrig() = internal.CopyOrigStringSlice(*ms.getOrig(), val)
+	*ms.getOrig() = copyStringSlice(*ms.getOrig(), val)
 }
 
 // Len returns length of the []string slice value.
@@ -131,10 +131,15 @@ func (ms StringSlice) MoveAndAppendTo(dest StringSlice) {
 // CopyTo copies all elements from the current slice overriding the destination.
 func (ms StringSlice) CopyTo(dest StringSlice) {
 	dest.getState().AssertMutable()
-	*dest.getOrig() = internal.CopyOrigStringSlice(*dest.getOrig(), *ms.getOrig())
+	*dest.getOrig() = copyStringSlice(*dest.getOrig(), *ms.getOrig())
 }
 
 // Equal checks equality with another StringSlice
 func (ms StringSlice) Equal(val StringSlice) bool {
 	return slices.Equal(*ms.getOrig(), *val.getOrig())
+}
+
+func copyStringSlice(dst, src []string) []string {
+	dst = dst[:0]
+	return append(dst, src...)
 }

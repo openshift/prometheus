@@ -78,7 +78,17 @@ func (es Slice) All() iter.Seq2[int, Value] {
 // CopyTo copies all elements from the current slice overriding the destination.
 func (es Slice) CopyTo(dest Slice) {
 	dest.getState().AssertMutable()
-	*dest.getOrig() = internal.CopyOrigSlice(*dest.getOrig(), *es.getOrig())
+	srcLen := es.Len()
+	destCap := cap(*dest.getOrig())
+	if srcLen <= destCap {
+		(*dest.getOrig()) = (*dest.getOrig())[:srcLen:destCap]
+	} else {
+		(*dest.getOrig()) = make([]otlpcommon.AnyValue, srcLen)
+	}
+
+	for i := range *es.getOrig() {
+		newValue(&(*es.getOrig())[i], es.getState()).CopyTo(newValue(&(*dest.getOrig())[i], dest.getState()))
+	}
 }
 
 // EnsureCapacity is an operation that ensures the slice has at least the specified capacity.

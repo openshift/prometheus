@@ -15,7 +15,6 @@ import { useElementSize } from "@mantine/hooks";
 import UPlotChart, { UPlotChartRange } from "./UPlotChart";
 import ASTNode, { nodeType } from "../../promql/ast";
 import serializeNode from "../../promql/serialize";
-import { useSettings } from "../../state/settingsSlice";
 
 export interface GraphProps {
   expr: string;
@@ -42,7 +41,6 @@ const Graph: FC<GraphProps> = ({
 }) => {
   const { ref, width } = useElementSize();
   const [rerender, setRerender] = useState(true);
-  const { showQueryWarnings, showQueryInfoNotices } = useSettings();
 
   const effectiveExpr =
     node === null
@@ -90,28 +88,26 @@ const Graph: FC<GraphProps> = ({
   const renderAlerts = (warnings?: string[], infos?: string[]) => {
     return (
       <>
-        {showQueryWarnings &&
-          warnings?.map((w, idx) => (
-            <Alert
-              key={idx}
-              color="red"
-              title="Query warning"
-              icon={<IconAlertTriangle />}
-            >
-              {w}
-            </Alert>
-          ))}
-        {showQueryInfoNotices &&
-          infos?.map((w, idx) => (
-            <Alert
-              key={idx}
-              color="yellow"
-              title="Query notice"
-              icon={<IconInfoCircle />}
-            >
-              {w}
-            </Alert>
-          ))}
+        {warnings?.map((w, idx) => (
+          <Alert
+            key={idx}
+            color="red"
+            title="Query warning"
+            icon={<IconAlertTriangle />}
+          >
+            {w}
+          </Alert>
+        ))}
+        {infos?.map((w, idx) => (
+          <Alert
+            key={idx}
+            color="yellow"
+            title="Query notice"
+            icon={<IconInfoCircle />}
+          >
+            {w}
+          </Alert>
+        ))}
       </>
     );
   };

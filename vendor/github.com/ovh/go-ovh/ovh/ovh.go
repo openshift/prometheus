@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
-	"runtime"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -161,16 +160,6 @@ func NewAccessTokenClient(endpoint, accessToken string) (*Client, error) {
 
 func (c *Client) Endpoint() string {
 	return c.endpoint
-}
-
-func (c *Client) SetEndpoint(endpoint string) error {
-	if strings.HasSuffix(endpoint, "/") {
-		return errors.New("endpoint name cannot have a trailing slash")
-	}
-
-	c.endpoint = endpoint
-
-	return nil
 }
 
 //
@@ -388,13 +377,7 @@ func (c *Client) NewRequest(method, path string, reqBody interface{}, needAuth b
 	c.Client.Timeout = c.Timeout
 
 	if c.UserAgent != "" {
-		// When running in a WebAssembly binary, let the caller set
-		// the user-agent freely to be able to use the browser's one.
-		if runtime.GOARCH == "wasm" && runtime.GOOS == "js" {
-			req.Header.Set("User-Agent", c.UserAgent)
-		} else {
-			req.Header.Set("User-Agent", "github.com/ovh/go-ovh ("+c.UserAgent+")")
-		}
+		req.Header.Set("User-Agent", "github.com/ovh/go-ovh ("+c.UserAgent+")")
 	} else {
 		req.Header.Set("User-Agent", "github.com/ovh/go-ovh")
 	}

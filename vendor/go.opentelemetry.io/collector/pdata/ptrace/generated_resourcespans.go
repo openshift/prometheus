@@ -74,11 +74,7 @@ func (ms ResourceSpans) ScopeSpans() ScopeSpansSlice {
 // CopyTo copies all properties from the current struct overriding the destination.
 func (ms ResourceSpans) CopyTo(dest ResourceSpans) {
 	dest.state.AssertMutable()
-	copyOrigResourceSpans(dest.orig, ms.orig)
-}
-
-func copyOrigResourceSpans(dest, src *otlptrace.ResourceSpans) {
-	internal.CopyOrigResource(&dest.Resource, &src.Resource)
-	dest.SchemaUrl = src.SchemaUrl
-	dest.ScopeSpans = copyOrigScopeSpansSlice(dest.ScopeSpans, src.ScopeSpans)
+	ms.Resource().CopyTo(dest.Resource())
+	dest.SetSchemaUrl(ms.SchemaUrl())
+	ms.ScopeSpans().CopyTo(dest.ScopeSpans())
 }

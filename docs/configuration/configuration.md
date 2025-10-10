@@ -197,11 +197,6 @@ otlp:
   # - "NoUTF8EscapingWithSuffixes" is a mode that relies on UTF-8 support in Prometheus.
   #   It preserves all special characters like dots, but still adds required metric name suffixes
   #   for units and _total, as UnderscoreEscapingWithSuffixes does.
-  # - "UnderscoreEscapingWithoutSuffixes" translates metric name characters that
-  #   are not alphanumerics/underscores/colons to underscores, and label name
-  #   characters that are not alphanumerics/underscores to underscores, but
-  #   unlike UnderscoreEscapingWithSuffixes it does not append any suffixes to
-  #   the names.
   # - (EXPERIMENTAL) "NoTranslation" is a mode that relies on UTF-8 support in Prometheus.
   #   It preserves all special character like dots and won't append special suffixes for metric
   #   unit and type.
@@ -219,9 +214,6 @@ otlp:
   [ keep_identifying_resource_attributes: <boolean> | default = false ]
   # Configures optional translation of OTLP explicit bucket histograms into native histograms with custom buckets.
   [ convert_histograms_to_nhcb: <boolean> | default = false ]
-  # Enables promotion of OTel scope metadata (i.e. name, version, schema URL, and attributes) to metric labels.
-  # This is disabled by default for backwards compatibility, but according to OTel spec, scope metadata _should_ be identifying, i.e. translated to metric labels.
-  [ promote_scope_metadata: <boolean> | default = false ]
 
 # Settings related to the remote read feature.
 remote_read:
@@ -265,7 +257,7 @@ job_name: <job_name>
 # OpenMetricsText1.0.0, PrometheusText0.0.4, PrometheusText1.0.0.
 [ scrape_protocols: [<string>, ...] | default = <global_config.scrape_protocols> ]
 
-# Fallback protocol to use if a scrape returns blank, unparsable, or otherwise
+# Fallback protocol to use if a scrape returns blank, unparseable, or otherwise
 # invalid Content-Type.
 # Supported values (case sensitive): PrometheusProto, OpenMetricsText0.0.1,
 # OpenMetricsText1.0.0, PrometheusText0.0.4, PrometheusText1.0.0.
@@ -274,7 +266,7 @@ job_name: <job_name>
 # Whether to scrape a classic histogram, even if it is also exposed as a native
 # histogram (has no effect without --enable-feature=native-histograms).
 [ always_scrape_classic_histograms: <boolean> |
-default = <global.always_scrape_classic_histograms> ]
+default = <global.always_scrape_classic_hisotgrams> ]
 
 # The HTTP resource path on which to fetch metrics from targets.
 [ metrics_path: <path> | default = /metrics ]
@@ -1970,11 +1962,8 @@ namespaces:
 # Optional metadata to attach to discovered targets. If omitted, no additional metadata is attached.
 attach_metadata:
 # Attaches node metadata to discovered targets. Valid for roles: pod, endpoints, endpointslice.
-# When set to true, Prometheus must have permissions to list/watch Nodes.
+# When set to true, Prometheus must have permissions to get Nodes.
   [ node: <boolean> | default = false ]
-# Attaches namespace metadata to discovered targets. Valid for roles: pod, endpoints, endpointslice, service, ingress.
-# When set to true, Prometheus must have permissions to list/watch Namespaces.
-  [ namespace: <boolean> | default = false ]
 
 # HTTP client settings, including authentication methods (such as basic auth and
 # authorization), proxy configurations, TLS options, custom HTTP headers, etc.
@@ -2294,7 +2283,7 @@ The following meta labels are available on targets during [relabeling](#relabel_
 See below for the configuration options for STACKIT discovery:
 
 ```yaml
-# The STACKIT project
+# The STACKIT project 
 project: <string>
 
 # STACKIT region to use. No automatic discovery of the region is done.

@@ -23,6 +23,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -666,58 +667,31 @@ func TestOutOfOrderHistogram_V1Message(t *testing.T) {
 }
 
 func BenchmarkRemoteWriteHandler(b *testing.B) {
-	labelStrings := []string{
-		"__name__", "test_metric",
-		"test_label_name", "abcdefg'hijlmn234!@#$%^&*()_+~`\"{}[],./<>?hello0123hiOlá你好Dzieńdobry9Zd8ra765v4stvuyte",
-	}
-	v1Labels := prompb.FromLabels(labels.FromStrings(labelStrings...), nil)
-
-	testCases := []struct {
-		name        string
-		payloadFunc func() ([]byte, error)
-		protoFormat config.RemoteWriteProtoMsg
-	}{
-		{
-			name: "V1 Write",
-			payloadFunc: func() ([]byte, error) {
-				buf, _, _, err := buildWriteRequest(nil, []prompb.TimeSeries{{
-					Labels:     v1Labels,
-					Histograms: []prompb.Histogram{prompb.FromIntHistogram(0, &testHistogram)},
-				}}, nil, nil, nil, nil, "snappy")
-				return buf, err
+	const labelValue = "abcdefg'hijlmn234!@#$%^&*()_+~`\"{}[],./<>?hello0123hiOlá你好Dzieńdobry9Zd8ra765v4stvuyte"
+	var reqs []*http.Request
+	for i := 0; i < b.N; i++ {
+		num := strings.Repeat(strconv.Itoa(i), 16)
+		buf, _, _, err := buildWriteRequest(nil, []prompb.TimeSeries{{
+			Labels: []prompb.Label{
+				{Name: "__name__", Value: "test_metric"},
+				{Name: "test_label_name_" + num, Value: labelValue + num},
 			},
-			protoFormat: config.RemoteWriteProtoMsgV1,
-		},
-		{
-			name: "V2 Write",
-			payloadFunc: func() ([]byte, error) {
-				buf, _, _, err := buildV2WriteRequest(promslog.NewNopLogger(), []writev2.TimeSeries{{
-					LabelsRefs: []uint32{0, 1, 2, 3},
-					Histograms: []writev2.Histogram{writev2.FromIntHistogram(0, &testHistogram)},
-				}}, labelStrings,
-					nil, nil, nil, "snappy")
-				return buf, err
-			},
-			protoFormat: config.RemoteWriteProtoMsgV2,
-		},
+			Histograms: []prompb.Histogram{prompb.FromIntHistogram(0, &testHistogram)},
+		}}, nil, nil, nil, nil, "snappy")
+		require.NoError(b, err)
+		req, err := http.NewRequest("", "", bytes.NewReader(buf))
+		require.NoError(b, err)
+		reqs = append(reqs, req)
 	}
-	for _, tc := range testCases {
-		b.Run(tc.name, func(b *testing.B) {
-			appendable := &mockAppendable{}
-			handler := NewWriteHandler(promslog.NewNopLogger(), nil, appendable, []config.RemoteWriteProtoMsg{tc.protoFormat}, false)
-			b.ResetTimer()
-			for i := 0; i < b.N; i++ {
-				b.StopTimer()
-				buf, err := tc.payloadFunc()
-				require.NoError(b, err)
-				req, err := http.NewRequest("", "", bytes.NewReader(buf))
-				require.NoError(b, err)
-				b.StartTimer()
 
-				recorder := httptest.NewRecorder()
-				handler.ServeHTTP(recorder, req)
-			}
-		})
+	appendable := &mockAppendable{}
+	// TODO: test with other proto format(s)
+	handler := NewWriteHandler(promslog.NewNopLogger(), nil, appendable, []config.RemoteWriteProtoMsg{config.RemoteWriteProtoMsgV1}, false)
+	recorder := httptest.NewRecorder()
+
+	b.ResetTimer()
+	for _, req := range reqs {
+		handler.ServeHTTP(recorder, req)
 	}
 }
 

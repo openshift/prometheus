@@ -293,7 +293,6 @@ type Options struct {
 	NativeOTLPDeltaIngestion   bool
 	IsAgent                    bool
 	CTZeroIngestionEnabled     bool
-	EnableTypeAndUnitLabels    bool
 	AppName                    string
 
 	AcceptRemoteWriteProtoMsgs []config.RemoteWriteProtoMsg
@@ -393,8 +392,6 @@ func New(logger *slog.Logger, o *Options) *Handler {
 		o.ConvertOTLPDelta,
 		o.NativeOTLPDeltaIngestion,
 		o.CTZeroIngestionEnabled,
-		o.LookbackDelta,
-		o.EnableTypeAndUnitLabels,
 	)
 
 	if o.RoutePrefix != "/" {

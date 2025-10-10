@@ -21,8 +21,6 @@ const SettingsMenu: FC = () => {
     enableSyntaxHighlighting,
     enableLinter,
     showAnnotations,
-    showQueryWarnings,
-    showQueryInfoNotices,
     ruleGroupsPerPage,
     alertGroupsPerPage,
   } = useSettings();
@@ -99,28 +97,6 @@ const SettingsMenu: FC = () => {
                     dispatch(
                       updateSettings({
                         enableLinter: event.currentTarget.checked,
-                      })
-                    )
-                  }
-                />
-                <Checkbox
-                  checked={showQueryWarnings}
-                  label="Show query warnings"
-                  onChange={(event) =>
-                    dispatch(
-                      updateSettings({
-                        showQueryWarnings: event.currentTarget.checked,
-                      })
-                    )
-                  }
-                />
-                <Checkbox
-                  checked={showQueryInfoNotices}
-                  label="Show query info notices"
-                  onChange={(event) =>
-                    dispatch(
-                      updateSettings({
-                        showQueryInfoNotices: event.currentTarget.checked,
                       })
                     )
                   }

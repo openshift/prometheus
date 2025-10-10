@@ -10,7 +10,6 @@ import { setVisualizer } from "../../state/queryPageSlice";
 import TimeInput from "./TimeInput";
 import DataTable from "./DataTable";
 import QueryStatsDisplay from "./QueryStatsDisplay";
-import { useSettings } from "../../state/settingsSlice";
 dayjs.extend(timezone);
 
 export interface TableTabProps {
@@ -27,7 +26,6 @@ const TableTab: FC<TableTabProps> = ({ panelIdx, retriggerIdx, expr }) => {
     (state) => state.queryPage.panels[panelIdx]
   );
   const dispatch = useAppDispatch();
-  const { showQueryWarnings, showQueryInfoNotices } = useSettings();
 
   const { endTime, range } = visualizer;
 
@@ -101,29 +99,27 @@ const TableTab: FC<TableTabProps> = ({ panelIdx, retriggerIdx, expr }) => {
             </Alert>
           )}
 
-          {showQueryWarnings &&
-            data.warnings?.map((w, idx) => (
-              <Alert
-                key={idx}
-                color="red"
-                title="Query warning"
-                icon={<IconAlertTriangle />}
-              >
-                {w}
-              </Alert>
-            ))}
+          {data.warnings?.map((w, idx) => (
+            <Alert
+              key={idx}
+              color="red"
+              title="Query warning"
+              icon={<IconAlertTriangle />}
+            >
+              {w}
+            </Alert>
+          ))}
 
-          {showQueryInfoNotices &&
-            data.infos?.map((w, idx) => (
-              <Alert
-                key={idx}
-                color="yellow"
-                title="Query notice"
-                icon={<IconInfoCircle />}
-              >
-                {w}
-              </Alert>
-            ))}
+          {data.infos?.map((w, idx) => (
+            <Alert
+              key={idx}
+              color="yellow"
+              title="Query notice"
+              icon={<IconInfoCircle />}
+            >
+              {w}
+            </Alert>
+          ))}
           <DataTable
             data={data.data}
             limitResults={limitResults}

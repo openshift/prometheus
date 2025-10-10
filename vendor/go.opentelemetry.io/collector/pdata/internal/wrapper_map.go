@@ -24,18 +24,6 @@ func NewMap(orig *[]otlpcommon.KeyValue, state *State) Map {
 	return Map{orig: orig, state: state}
 }
 
-func CopyOrigMap(dest, src []otlpcommon.KeyValue) []otlpcommon.KeyValue {
-	if cap(dest) < len(src) {
-		dest = make([]otlpcommon.KeyValue, len(src))
-	}
-	dest = dest[:len(src)]
-	for i := 0; i < len(src); i++ {
-		dest[i].Key = src[i].Key
-		CopyOrigValue(&dest[i].Value, &src[i].Value)
-	}
-	return dest
-}
-
 func GenerateTestMap() Map {
 	var orig []otlpcommon.KeyValue
 	state := StateMutable

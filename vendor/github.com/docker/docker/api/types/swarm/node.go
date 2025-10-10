@@ -1,5 +1,4 @@
-package swarm
-
+package swarm // import "github.com/docker/docker/api/types/swarm"
 import "github.com/docker/docker/api/types/filters"
 
 // Node represents a node.

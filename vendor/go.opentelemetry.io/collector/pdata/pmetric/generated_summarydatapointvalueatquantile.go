@@ -74,10 +74,6 @@ func (ms SummaryDataPointValueAtQuantile) SetValue(v float64) {
 // CopyTo copies all properties from the current struct overriding the destination.
 func (ms SummaryDataPointValueAtQuantile) CopyTo(dest SummaryDataPointValueAtQuantile) {
 	dest.state.AssertMutable()
-	copyOrigSummaryDataPointValueAtQuantile(dest.orig, ms.orig)
-}
-
-func copyOrigSummaryDataPointValueAtQuantile(dest, src *otlpmetrics.SummaryDataPoint_ValueAtQuantile) {
-	dest.Quantile = src.Quantile
-	dest.Value = src.Value
+	dest.SetQuantile(ms.Quantile())
+	dest.SetValue(ms.Value())
 }

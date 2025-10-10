@@ -23,11 +23,6 @@ func NewStringSlice(orig *[]string, state *State) StringSlice {
 	return StringSlice{orig: orig, state: state}
 }
 
-func CopyOrigStringSlice(dst, src []string) []string {
-	dst = dst[:0]
-	return append(dst, src...)
-}
-
 func FillTestStringSlice(tv StringSlice) {
 }
 
