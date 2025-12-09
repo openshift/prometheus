@@ -24,9 +24,9 @@ type uyuniMetrics struct {
 }
 
 // Register implements discovery.DiscovererMetrics.
-func (*uyuniMetrics) Register() error {
+func (m *uyuniMetrics) Register() error {
 	return nil
 }
 
 // Unregister implements discovery.DiscovererMetrics.
-func (*uyuniMetrics) Unregister() {}
+func (m *uyuniMetrics) Unregister() {}

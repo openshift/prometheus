@@ -181,10 +181,8 @@ type NetworkResource struct {
 	CNI   *CNIConfig `hcl:"cni,block"`
 }
 
-// Megabits should not be used.
-//
 // COMPAT(0.13)
-// Deprecated. Please do not use. The method will be removed in Nomad
+// XXX Deprecated. Please do not use. The method will be removed in Nomad
 // 0.13 and is only being kept to allow any references to be removed before
 // then.
 func (n *NetworkResource) Megabits() int {

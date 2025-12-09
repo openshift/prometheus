@@ -17,41 +17,42 @@
 package prometheusremotewrite
 
 import (
-	"github.com/prometheus/common/model"
 	"go.opentelemetry.io/collector/pdata/pmetric"
+
+	"github.com/prometheus/prometheus/prompb"
 )
 
-func otelMetricTypeToPromMetricType(otelMetric pmetric.Metric) model.MetricType {
+func otelMetricTypeToPromMetricType(otelMetric pmetric.Metric) prompb.MetricMetadata_MetricType {
 	switch otelMetric.Type() {
 	case pmetric.MetricTypeGauge:
-		return model.MetricTypeGauge
+		return prompb.MetricMetadata_GAUGE
 	case pmetric.MetricTypeSum:
-		metricType := model.MetricTypeGauge
+		metricType := prompb.MetricMetadata_GAUGE
 		if otelMetric.Sum().IsMonotonic() {
-			metricType = model.MetricTypeCounter
+			metricType = prompb.MetricMetadata_COUNTER
 		}
 		// We're in an early phase of implementing delta support (proposal: https://github.com/prometheus/proposals/pull/48/)
 		// We don't have a proper way to flag delta metrics yet, therefore marking the metric type as unknown for now.
 		if otelMetric.Sum().AggregationTemporality() == pmetric.AggregationTemporalityDelta {
-			metricType = model.MetricTypeUnknown
+			metricType = prompb.MetricMetadata_UNKNOWN
 		}
 		return metricType
 	case pmetric.MetricTypeHistogram:
 		// We're in an early phase of implementing delta support (proposal: https://github.com/prometheus/proposals/pull/48/)
 		// We don't have a proper way to flag delta metrics yet, therefore marking the metric type as unknown for now.
 		if otelMetric.Histogram().AggregationTemporality() == pmetric.AggregationTemporalityDelta {
-			return model.MetricTypeUnknown
+			return prompb.MetricMetadata_UNKNOWN
 		}
-		return model.MetricTypeHistogram
+		return prompb.MetricMetadata_HISTOGRAM
 	case pmetric.MetricTypeSummary:
-		return model.MetricTypeSummary
+		return prompb.MetricMetadata_SUMMARY
 	case pmetric.MetricTypeExponentialHistogram:
 		if otelMetric.ExponentialHistogram().AggregationTemporality() == pmetric.AggregationTemporalityDelta {
 			// We're in an early phase of implementing delta support (proposal: https://github.com/prometheus/proposals/pull/48/)
 			// We don't have a proper way to flag delta metrics yet, therefore marking the metric type as unknown for now.
-			return model.MetricTypeUnknown
+			return prompb.MetricMetadata_UNKNOWN
 		}
-		return model.MetricTypeHistogram
+		return prompb.MetricMetadata_HISTOGRAM
 	}
-	return model.MetricTypeUnknown
+	return prompb.MetricMetadata_UNKNOWN
 }

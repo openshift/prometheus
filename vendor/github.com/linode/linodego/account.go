@@ -63,7 +63,7 @@ func (i Account) GetUpdateOptions() (o AccountUpdateOptions) {
 	o.TaxID = i.TaxID
 	o.Zip = i.Zip
 
-	return o
+	return
 }
 
 // UnmarshalJSON implements the json.Unmarshaler interface
@@ -72,7 +72,6 @@ func (i *Account) UnmarshalJSON(b []byte) error {
 
 	p := struct {
 		*Mask
-
 		ActiveSince *parseabletime.ParseableTime `json:"active_since"`
 	}{
 		Mask: (*Mask)(i),

@@ -172,7 +172,7 @@ func (f *chunkPos) shouldCutNewFile(bytesToWrite uint64) bool {
 // bytesToWriteForChunk returns the number of bytes that will need to be written for the given chunk size,
 // including all meta data before and after the chunk data.
 // Head chunk format: https://github.com/prometheus/prometheus/blob/main/tsdb/docs/format/head_chunks.md#chunk
-func (*chunkPos) bytesToWriteForChunk(chkLen uint64) uint64 {
+func (f *chunkPos) bytesToWriteForChunk(chkLen uint64) uint64 {
 	// Headers.
 	bytes := uint64(SeriesRefSize) + 2*MintMaxtSize + ChunkEncodingSize
 
@@ -283,16 +283,16 @@ const (
 	OutOfOrderMask = uint8(0b10000000)
 )
 
-func (*ChunkDiskMapper) ApplyOutOfOrderMask(sourceEncoding chunkenc.Encoding) chunkenc.Encoding {
+func (cdm *ChunkDiskMapper) ApplyOutOfOrderMask(sourceEncoding chunkenc.Encoding) chunkenc.Encoding {
 	enc := uint8(sourceEncoding) | OutOfOrderMask
 	return chunkenc.Encoding(enc)
 }
 
-func (*ChunkDiskMapper) IsOutOfOrderChunk(e chunkenc.Encoding) bool {
+func (cdm *ChunkDiskMapper) IsOutOfOrderChunk(e chunkenc.Encoding) bool {
 	return (uint8(e) & OutOfOrderMask) != 0
 }
 
-func (*ChunkDiskMapper) RemoveMasks(sourceEncoding chunkenc.Encoding) chunkenc.Encoding {
+func (cdm *ChunkDiskMapper) RemoveMasks(sourceEncoding chunkenc.Encoding) chunkenc.Encoding {
 	restored := uint8(sourceEncoding) & (^OutOfOrderMask)
 	return chunkenc.Encoding(restored)
 }
@@ -1109,7 +1109,7 @@ type chunkBuffer struct {
 
 func newChunkBuffer() *chunkBuffer {
 	cb := &chunkBuffer{}
-	for i := range inBufferShards {
+	for i := 0; i < inBufferShards; i++ {
 		cb.inBufferChunks[i] = make(map[ChunkDiskMapperRef]chunkenc.Chunk)
 	}
 	return cb
@@ -1133,7 +1133,7 @@ func (cb *chunkBuffer) get(ref ChunkDiskMapperRef) chunkenc.Chunk {
 }
 
 func (cb *chunkBuffer) clear() {
-	for i := range inBufferShards {
+	for i := 0; i < inBufferShards; i++ {
 		cb.inBufferChunksMtxs[i].Lock()
 		cb.inBufferChunks[i] = make(map[ChunkDiskMapperRef]chunkenc.Chunk)
 		cb.inBufferChunksMtxs[i].Unlock()

@@ -30,7 +30,7 @@ type Secret string
 // MarshalSecretValue if set to true will expose Secret type
 // through the marshal interfaces. Useful for outside projects
 // that load and marshal the Prometheus config.
-var MarshalSecretValue = false
+var MarshalSecretValue bool = false
 
 // MarshalYAML implements the yaml.Marshaler interface for Secrets.
 func (s Secret) MarshalYAML() (interface{}, error) {

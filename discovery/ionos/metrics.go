@@ -24,9 +24,9 @@ type ionosMetrics struct {
 }
 
 // Register implements discovery.DiscovererMetrics.
-func (*ionosMetrics) Register() error {
+func (m *ionosMetrics) Register() error {
 	return nil
 }
 
 // Unregister implements discovery.DiscovererMetrics.
-func (*ionosMetrics) Unregister() {}
+func (m *ionosMetrics) Unregister() {}

@@ -24,14 +24,14 @@ type tracerProviderWithAttributesSdk struct {
 
 // TracerProviderWithAttributes creates a TracerProvider with a new set of injected instrumentation scope attributes.
 func TracerProviderWithAttributes(tp trace.TracerProvider, attrs attribute.Set) trace.TracerProvider {
-	switch tpwa := tp.(type) {
-	case tracerProviderWithAttributesSdk:
+	if tpwa, ok := tp.(tracerProviderWithAttributesSdk); ok {
 		tp = tpwa.TracerProvider
-	case tracerProviderWithAttributes:
+	} else if tpwa, ok := tp.(tracerProviderWithAttributes); ok {
 		tp = tpwa.TracerProvider
-	case *sdkTrace.TracerProvider:
+	}
+	if tpSdk, ok := tp.(*sdkTrace.TracerProvider); ok {
 		return tracerProviderWithAttributesSdk{
-			TracerProvider: tpwa,
+			TracerProvider: tpSdk,
 			attrs:          attrs.ToSlice(),
 		}
 	}

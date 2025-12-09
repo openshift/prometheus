@@ -35,7 +35,7 @@ func (s *API) WaitForVolume(req *WaitForVolumeRequest, opts ...scw.RequestOption
 	}
 
 	volume, err := async.WaitSync(&async.WaitSyncConfig{
-		Get: func() (any, bool, error) {
+		Get: func() (interface{}, bool, error) {
 			res, err := s.GetVolume(&GetVolumeRequest{
 				VolumeID: req.VolumeID,
 				Zone:     req.Zone,

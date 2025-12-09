@@ -50,7 +50,7 @@ type EndpointSlice struct {
 	endpointSliceStore cache.Store
 	serviceStore       cache.Store
 
-	queue *workqueue.Typed[string]
+	queue *workqueue.Type
 }
 
 // NewEndpointSlice returns a new endpointslice discovery.
@@ -79,21 +79,19 @@ func NewEndpointSlice(l *slog.Logger, eps cache.SharedIndexInformer, svc, pod, n
 		withNodeMetadata:      node != nil,
 		namespaceInf:          namespace,
 		withNamespaceMetadata: namespace != nil,
-		queue: workqueue.NewTypedWithConfig(workqueue.TypedQueueConfig[string]{
-			Name: RoleEndpointSlice.String(),
-		}),
+		queue:                 workqueue.NewNamed(RoleEndpointSlice.String()),
 	}
 
 	_, err := e.endpointSliceInf.AddEventHandler(cache.ResourceEventHandlerFuncs{
-		AddFunc: func(o any) {
+		AddFunc: func(o interface{}) {
 			epslAddCount.Inc()
 			e.enqueue(o)
 		},
-		UpdateFunc: func(_, o any) {
+		UpdateFunc: func(_, o interface{}) {
 			epslUpdateCount.Inc()
 			e.enqueue(o)
 		},
-		DeleteFunc: func(o any) {
+		DeleteFunc: func(o interface{}) {
 			epslDeleteCount.Inc()
 			e.enqueue(o)
 		},
@@ -102,7 +100,7 @@ func NewEndpointSlice(l *slog.Logger, eps cache.SharedIndexInformer, svc, pod, n
 		l.Error("Error adding endpoint slices event handler.", "err", err)
 	}
 
-	serviceUpdate := func(o any) {
+	serviceUpdate := func(o interface{}) {
 		svc, err := convertToService(o)
 		if err != nil {
 			e.logger.Error("converting to Service object failed", "err", err)
@@ -120,15 +118,15 @@ func NewEndpointSlice(l *slog.Logger, eps cache.SharedIndexInformer, svc, pod, n
 		}
 	}
 	_, err = e.serviceInf.AddEventHandler(cache.ResourceEventHandlerFuncs{
-		AddFunc: func(o any) {
+		AddFunc: func(o interface{}) {
 			svcAddCount.Inc()
 			serviceUpdate(o)
 		},
-		UpdateFunc: func(_, o any) {
+		UpdateFunc: func(_, o interface{}) {
 			svcUpdateCount.Inc()
 			serviceUpdate(o)
 		},
-		DeleteFunc: func(o any) {
+		DeleteFunc: func(o interface{}) {
 			svcDeleteCount.Inc()
 			serviceUpdate(o)
 		},
@@ -139,15 +137,15 @@ func NewEndpointSlice(l *slog.Logger, eps cache.SharedIndexInformer, svc, pod, n
 
 	if e.withNodeMetadata {
 		_, err = e.nodeInf.AddEventHandler(cache.ResourceEventHandlerFuncs{
-			AddFunc: func(o any) {
+			AddFunc: func(o interface{}) {
 				node := o.(*apiv1.Node)
 				e.enqueueNode(node.Name)
 			},
-			UpdateFunc: func(_, o any) {
+			UpdateFunc: func(_, o interface{}) {
 				node := o.(*apiv1.Node)
 				e.enqueueNode(node.Name)
 			},
-			DeleteFunc: func(o any) {
+			DeleteFunc: func(o interface{}) {
 				nodeName, err := nodeName(o)
 				if err != nil {
 					l.Error("Error getting Node name", "err", err)
@@ -162,7 +160,7 @@ func NewEndpointSlice(l *slog.Logger, eps cache.SharedIndexInformer, svc, pod, n
 
 	if e.withNamespaceMetadata {
 		_, err = e.namespaceInf.AddEventHandler(cache.ResourceEventHandlerFuncs{
-			UpdateFunc: func(_, o any) {
+			UpdateFunc: func(_, o interface{}) {
 				namespace := o.(*apiv1.Namespace)
 				e.enqueueNamespace(namespace.Name)
 			},
@@ -201,7 +199,7 @@ func (e *EndpointSlice) enqueueNamespace(namespace string) {
 	}
 }
 
-func (e *EndpointSlice) enqueue(obj any) {
+func (e *EndpointSlice) enqueue(obj interface{}) {
 	key, err := cache.DeletionHandlingMetaNamespaceKeyFunc(obj)
 	if err != nil {
 		return
@@ -238,11 +236,12 @@ func (e *EndpointSlice) Run(ctx context.Context, ch chan<- []*targetgroup.Group)
 }
 
 func (e *EndpointSlice) process(ctx context.Context, ch chan<- []*targetgroup.Group) bool {
-	key, quit := e.queue.Get()
+	keyObj, quit := e.queue.Get()
 	if quit {
 		return false
 	}
-	defer e.queue.Done(key)
+	defer e.queue.Done(keyObj)
+	key := keyObj.(string)
 
 	namespace, name, err := cache.SplitMetaNamespaceKey(key)
 	if err != nil {

@@ -48,11 +48,6 @@ func TestConcurrentRangeQueries(t *testing.T) {
 	}
 	// Enable experimental functions testing
 	parser.EnableExperimentalFunctions = true
-	parser.EnableExtendedRangeSelectors = true
-	t.Cleanup(func() {
-		parser.EnableExperimentalFunctions = false
-		parser.EnableExtendedRangeSelectors = false
-	})
 	engine := promqltest.NewTestEngineWithOpts(t, opts)
 
 	const interval = 10000 // 10s interval.
@@ -66,11 +61,12 @@ func TestConcurrentRangeQueries(t *testing.T) {
 	// Limit the number of queries running at the same time.
 	const numConcurrent = 4
 	sem := make(chan struct{}, numConcurrent)
-	for range numConcurrent {
+	for i := 0; i < numConcurrent; i++ {
 		sem <- struct{}{}
 	}
 	var g errgroup.Group
 	for _, c := range cases {
+		c := c
 		if strings.Contains(c.expr, "count_values") && c.steps > 10 {
 			continue // This test is too big to run with -race.
 		}

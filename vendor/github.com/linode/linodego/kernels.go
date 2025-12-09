@@ -27,7 +27,6 @@ func (i *LinodeKernel) UnmarshalJSON(b []byte) error {
 
 	p := struct {
 		*Mask
-
 		Built *parseabletime.ParseableTime `json:"built"`
 	}{
 		Mask: (*Mask)(i),

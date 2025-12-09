@@ -23,15 +23,12 @@ import (
 	"time"
 
 	"github.com/alecthomas/units"
-	"github.com/google/go-cmp/cmp"
-	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/grafana/regexp"
 	"github.com/prometheus/common/config"
 	"github.com/prometheus/common/model"
 	"github.com/prometheus/common/promslog"
-	"github.com/prometheus/otlptranslator"
 	"github.com/stretchr/testify/require"
-	"go.yaml.in/yaml/v2"
+	"gopkg.in/yaml.v2"
 
 	"github.com/prometheus/prometheus/discovery"
 	"github.com/prometheus/prometheus/discovery/aws"
@@ -108,7 +105,6 @@ var expectedConf = &Config{
 		ScrapeProtocols:                DefaultGlobalConfig.ScrapeProtocols,
 		AlwaysScrapeClassicHistograms:  false,
 		ConvertClassicHistogramsToNHCB: false,
-		MetricNameValidationScheme:     model.UTF8Validation,
 	},
 
 	Runtime: RuntimeConfig{
@@ -128,12 +124,11 @@ var expectedConf = &Config{
 			Name:            "drop_expensive",
 			WriteRelabelConfigs: []*relabel.Config{
 				{
-					SourceLabels:         model.LabelNames{"__name__"},
-					Separator:            ";",
-					Regex:                relabel.MustNewRegexp("expensive.*"),
-					Replacement:          "$1",
-					Action:               relabel.Drop,
-					NameValidationScheme: model.UTF8Validation,
+					SourceLabels: model.LabelNames{"__name__"},
+					Separator:    ";",
+					Regex:        relabel.MustNewRegexp("expensive.*"),
+					Replacement:  "$1",
+					Action:       relabel.Drop,
 				},
 			},
 			QueueConfig:    DefaultQueueConfig,
@@ -175,7 +170,7 @@ var expectedConf = &Config{
 		PromoteResourceAttributes: []string{
 			"k8s.cluster.name", "k8s.job.name", "k8s.namespace.name",
 		},
-		TranslationStrategy: otlptranslator.UnderscoreEscapingWithSuffixes,
+		TranslationStrategy: UnderscoreEscapingWithSuffixes,
 	},
 
 	RemoteReadConfigs: []*RemoteReadConfig{
@@ -283,56 +278,50 @@ var expectedConf = &Config{
 
 			RelabelConfigs: []*relabel.Config{
 				{
-					SourceLabels:         model.LabelNames{"job", "__meta_dns_name"},
-					TargetLabel:          "job",
-					Separator:            ";",
-					Regex:                relabel.MustNewRegexp("(.*)some-[regex]"),
-					Replacement:          "foo-${1}",
-					Action:               relabel.Replace,
-					NameValidationScheme: model.UTF8Validation,
+					SourceLabels: model.LabelNames{"job", "__meta_dns_name"},
+					TargetLabel:  "job",
+					Separator:    ";",
+					Regex:        relabel.MustNewRegexp("(.*)some-[regex]"),
+					Replacement:  "foo-${1}",
+					Action:       relabel.Replace,
 				},
 				{
-					SourceLabels:         model.LabelNames{"abc"},
-					TargetLabel:          "cde",
-					Separator:            ";",
-					Regex:                relabel.DefaultRelabelConfig.Regex,
-					Replacement:          relabel.DefaultRelabelConfig.Replacement,
-					Action:               relabel.Replace,
-					NameValidationScheme: model.UTF8Validation,
+					SourceLabels: model.LabelNames{"abc"},
+					TargetLabel:  "cde",
+					Separator:    ";",
+					Regex:        relabel.DefaultRelabelConfig.Regex,
+					Replacement:  relabel.DefaultRelabelConfig.Replacement,
+					Action:       relabel.Replace,
 				},
 				{
-					TargetLabel:          "abc",
-					Separator:            ";",
-					Regex:                relabel.DefaultRelabelConfig.Regex,
-					Replacement:          "static",
-					Action:               relabel.Replace,
-					NameValidationScheme: model.UTF8Validation,
+					TargetLabel: "abc",
+					Separator:   ";",
+					Regex:       relabel.DefaultRelabelConfig.Regex,
+					Replacement: "static",
+					Action:      relabel.Replace,
 				},
 				{
-					TargetLabel:          "abc",
-					Separator:            ";",
-					Regex:                relabel.MustNewRegexp(""),
-					Replacement:          "static",
-					Action:               relabel.Replace,
-					NameValidationScheme: model.UTF8Validation,
+					TargetLabel: "abc",
+					Separator:   ";",
+					Regex:       relabel.MustNewRegexp(""),
+					Replacement: "static",
+					Action:      relabel.Replace,
 				},
 				{
-					SourceLabels:         model.LabelNames{"foo"},
-					TargetLabel:          "abc",
-					Action:               relabel.KeepEqual,
-					Regex:                relabel.DefaultRelabelConfig.Regex,
-					Replacement:          relabel.DefaultRelabelConfig.Replacement,
-					Separator:            relabel.DefaultRelabelConfig.Separator,
-					NameValidationScheme: model.UTF8Validation,
+					SourceLabels: model.LabelNames{"foo"},
+					TargetLabel:  "abc",
+					Action:       relabel.KeepEqual,
+					Regex:        relabel.DefaultRelabelConfig.Regex,
+					Replacement:  relabel.DefaultRelabelConfig.Replacement,
+					Separator:    relabel.DefaultRelabelConfig.Separator,
 				},
 				{
-					SourceLabels:         model.LabelNames{"foo"},
-					TargetLabel:          "abc",
-					Action:               relabel.DropEqual,
-					Regex:                relabel.DefaultRelabelConfig.Regex,
-					Replacement:          relabel.DefaultRelabelConfig.Replacement,
-					Separator:            relabel.DefaultRelabelConfig.Separator,
-					NameValidationScheme: model.UTF8Validation,
+					SourceLabels: model.LabelNames{"foo"},
+					TargetLabel:  "abc",
+					Action:       relabel.DropEqual,
+					Regex:        relabel.DefaultRelabelConfig.Regex,
+					Replacement:  relabel.DefaultRelabelConfig.Replacement,
+					Separator:    relabel.DefaultRelabelConfig.Separator,
 				},
 			},
 		},
@@ -387,61 +376,54 @@ var expectedConf = &Config{
 
 			RelabelConfigs: []*relabel.Config{
 				{
-					SourceLabels:         model.LabelNames{"job"},
-					Regex:                relabel.MustNewRegexp("(.*)some-[regex]"),
-					Separator:            ";",
-					Replacement:          relabel.DefaultRelabelConfig.Replacement,
-					Action:               relabel.Drop,
-					NameValidationScheme: model.UTF8Validation,
+					SourceLabels: model.LabelNames{"job"},
+					Regex:        relabel.MustNewRegexp("(.*)some-[regex]"),
+					Separator:    ";",
+					Replacement:  relabel.DefaultRelabelConfig.Replacement,
+					Action:       relabel.Drop,
 				},
 				{
-					SourceLabels:         model.LabelNames{"__address__"},
-					TargetLabel:          "__tmp_hash",
-					Regex:                relabel.DefaultRelabelConfig.Regex,
-					Replacement:          relabel.DefaultRelabelConfig.Replacement,
-					Modulus:              8,
-					Separator:            ";",
-					Action:               relabel.HashMod,
-					NameValidationScheme: model.UTF8Validation,
+					SourceLabels: model.LabelNames{"__address__"},
+					TargetLabel:  "__tmp_hash",
+					Regex:        relabel.DefaultRelabelConfig.Regex,
+					Replacement:  relabel.DefaultRelabelConfig.Replacement,
+					Modulus:      8,
+					Separator:    ";",
+					Action:       relabel.HashMod,
 				},
 				{
-					SourceLabels:         model.LabelNames{"__tmp_hash"},
-					Regex:                relabel.MustNewRegexp("1"),
-					Separator:            ";",
-					Replacement:          relabel.DefaultRelabelConfig.Replacement,
-					Action:               relabel.Keep,
-					NameValidationScheme: model.UTF8Validation,
+					SourceLabels: model.LabelNames{"__tmp_hash"},
+					Regex:        relabel.MustNewRegexp("1"),
+					Separator:    ";",
+					Replacement:  relabel.DefaultRelabelConfig.Replacement,
+					Action:       relabel.Keep,
 				},
 				{
-					Regex:                relabel.MustNewRegexp("1"),
-					Separator:            ";",
-					Replacement:          relabel.DefaultRelabelConfig.Replacement,
-					Action:               relabel.LabelMap,
-					NameValidationScheme: model.UTF8Validation,
+					Regex:       relabel.MustNewRegexp("1"),
+					Separator:   ";",
+					Replacement: relabel.DefaultRelabelConfig.Replacement,
+					Action:      relabel.LabelMap,
 				},
 				{
-					Regex:                relabel.MustNewRegexp("d"),
-					Separator:            ";",
-					Replacement:          relabel.DefaultRelabelConfig.Replacement,
-					Action:               relabel.LabelDrop,
-					NameValidationScheme: model.UTF8Validation,
+					Regex:       relabel.MustNewRegexp("d"),
+					Separator:   ";",
+					Replacement: relabel.DefaultRelabelConfig.Replacement,
+					Action:      relabel.LabelDrop,
 				},
 				{
-					Regex:                relabel.MustNewRegexp("k"),
-					Separator:            ";",
-					Replacement:          relabel.DefaultRelabelConfig.Replacement,
-					Action:               relabel.LabelKeep,
-					NameValidationScheme: model.UTF8Validation,
+					Regex:       relabel.MustNewRegexp("k"),
+					Separator:   ";",
+					Replacement: relabel.DefaultRelabelConfig.Replacement,
+					Action:      relabel.LabelKeep,
 				},
 			},
 			MetricRelabelConfigs: []*relabel.Config{
 				{
-					SourceLabels:         model.LabelNames{"__name__"},
-					Regex:                relabel.MustNewRegexp("expensive_metric.*"),
-					Separator:            ";",
-					Replacement:          relabel.DefaultRelabelConfig.Replacement,
-					Action:               relabel.Drop,
-					NameValidationScheme: model.UTF8Validation,
+					SourceLabels: model.LabelNames{"__name__"},
+					Regex:        relabel.MustNewRegexp("expensive_metric.*"),
+					Separator:    ";",
+					Replacement:  relabel.DefaultRelabelConfig.Replacement,
+					Action:       relabel.Drop,
 				},
 			},
 		},
@@ -496,13 +478,12 @@ var expectedConf = &Config{
 
 			RelabelConfigs: []*relabel.Config{
 				{
-					SourceLabels:         model.LabelNames{"__meta_sd_consul_tags"},
-					Regex:                relabel.MustNewRegexp("label:([^=]+)=([^,]+)"),
-					Separator:            ",",
-					TargetLabel:          "${1}",
-					Replacement:          "${2}",
-					Action:               relabel.Replace,
-					NameValidationScheme: model.UTF8Validation,
+					SourceLabels: model.LabelNames{"__meta_sd_consul_tags"},
+					Regex:        relabel.MustNewRegexp("label:([^=]+)=([^,]+)"),
+					Separator:    ",",
+					TargetLabel:  "${1}",
+					Replacement:  "${2}",
+					Action:       relabel.Replace,
 				},
 			},
 		},
@@ -1294,13 +1275,12 @@ var expectedConf = &Config{
 
 			RelabelConfigs: []*relabel.Config{
 				{
-					Action:               relabel.Uppercase,
-					Regex:                relabel.DefaultRelabelConfig.Regex,
-					Replacement:          relabel.DefaultRelabelConfig.Replacement,
-					Separator:            relabel.DefaultRelabelConfig.Separator,
-					SourceLabels:         model.LabelNames{"instance"},
-					TargetLabel:          "instance",
-					NameValidationScheme: model.UTF8Validation,
+					Action:       relabel.Uppercase,
+					Regex:        relabel.DefaultRelabelConfig.Regex,
+					Replacement:  relabel.DefaultRelabelConfig.Replacement,
+					Separator:    relabel.DefaultRelabelConfig.Separator,
+					SourceLabels: model.LabelNames{"instance"},
+					TargetLabel:  "instance",
 				},
 			},
 
@@ -1848,7 +1828,7 @@ func TestOTLPAllowUTF8(t *testing.T) {
 		verify := func(t *testing.T, conf *Config, err error) {
 			t.Helper()
 			require.NoError(t, err)
-			require.Equal(t, otlptranslator.NoUTF8EscapingWithSuffixes, conf.OTLPConfig.TranslationStrategy)
+			require.Equal(t, NoUTF8EscapingWithSuffixes, conf.OTLPConfig.TranslationStrategy)
 		}
 
 		t.Run("LoadFile", func(t *testing.T) {
@@ -1888,7 +1868,7 @@ func TestOTLPAllowUTF8(t *testing.T) {
 		verify := func(t *testing.T, conf *Config, err error) {
 			t.Helper()
 			require.NoError(t, err)
-			require.Equal(t, otlptranslator.NoTranslation, conf.OTLPConfig.TranslationStrategy)
+			require.Equal(t, NoTranslation, conf.OTLPConfig.TranslationStrategy)
 		}
 
 		t.Run("LoadFile", func(t *testing.T) {
@@ -1947,7 +1927,7 @@ func TestOTLPAllowUTF8(t *testing.T) {
 		verify := func(t *testing.T, conf *Config, err error) {
 			t.Helper()
 			require.NoError(t, err)
-			require.Equal(t, otlptranslator.UnderscoreEscapingWithSuffixes, conf.OTLPConfig.TranslationStrategy)
+			require.Equal(t, UnderscoreEscapingWithSuffixes, conf.OTLPConfig.TranslationStrategy)
 		}
 
 		t.Run("LoadFile", func(t *testing.T) {
@@ -1972,14 +1952,7 @@ func TestLoadConfig(t *testing.T) {
 	c, err := LoadFile("testdata/conf.good.yml", false, promslog.NewNopLogger())
 
 	require.NoError(t, err)
-	testutil.RequireEqualWithOptions(t, expectedConf, c, []cmp.Option{
-		cmpopts.IgnoreUnexported(config.ProxyConfig{}),
-		cmpopts.IgnoreUnexported(ionos.SDConfig{}),
-		cmpopts.IgnoreUnexported(stackit.SDConfig{}),
-		cmpopts.IgnoreUnexported(regexp.Regexp{}),
-		cmpopts.IgnoreUnexported(hetzner.SDConfig{}),
-		cmpopts.IgnoreUnexported(Config{}),
-	})
+	require.Equal(t, expectedConf, c)
 }
 
 func TestScrapeIntervalLarger(t *testing.T) {
@@ -2827,40 +2800,29 @@ func TestScrapeConfigDisableCompression(t *testing.T) {
 
 func TestScrapeConfigNameValidationSettings(t *testing.T) {
 	tests := []struct {
-		name           string
-		inputFile      string
-		expectScheme   model.ValidationScheme
-		expectEscaping model.EscapingScheme
+		name         string
+		inputFile    string
+		expectScheme model.ValidationScheme
 	}{
 		{
-			name:           "blank config implies default",
-			inputFile:      "scrape_config_default_validation_mode",
-			expectScheme:   model.UTF8Validation,
-			expectEscaping: model.NoEscaping,
+			name:         "blank config implies default",
+			inputFile:    "scrape_config_default_validation_mode",
+			expectScheme: model.UTF8Validation,
 		},
 		{
-			name:           "global setting implies local settings",
-			inputFile:      "scrape_config_global_validation_mode",
-			expectScheme:   model.LegacyValidation,
-			expectEscaping: model.DotsEscaping,
+			name:         "global setting implies local settings",
+			inputFile:    "scrape_config_global_validation_mode",
+			expectScheme: model.LegacyValidation,
 		},
 		{
-			name:           "local setting",
-			inputFile:      "scrape_config_local_validation_mode",
-			expectScheme:   model.LegacyValidation,
-			expectEscaping: model.ValueEncodingEscaping,
+			name:         "local setting",
+			inputFile:    "scrape_config_local_validation_mode",
+			expectScheme: model.LegacyValidation,
 		},
 		{
-			name:           "local setting overrides global setting",
-			inputFile:      "scrape_config_local_global_validation_mode",
-			expectScheme:   model.UTF8Validation,
-			expectEscaping: model.DotsEscaping,
-		},
-		{
-			name:           "local validation implies underscores escaping",
-			inputFile:      "scrape_config_local_infer_escaping",
-			expectScheme:   model.LegacyValidation,
-			expectEscaping: model.UnderscoreEscaping,
+			name:         "local setting overrides global setting",
+			inputFile:    "scrape_config_local_global_validation_mode",
+			expectScheme: model.UTF8Validation,
 		},
 	}
 
@@ -2876,10 +2838,6 @@ func TestScrapeConfigNameValidationSettings(t *testing.T) {
 			require.NoError(t, yaml.UnmarshalStrict(out, got))
 
 			require.Equal(t, tc.expectScheme, got.ScrapeConfigs[0].MetricNameValidationScheme)
-
-			escaping, err := model.ToEscapingScheme(got.ScrapeConfigs[0].MetricNameEscapingScheme)
-			require.NoError(t, err)
-			require.Equal(t, tc.expectEscaping, escaping)
 		})
 	}
 }

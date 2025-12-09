@@ -72,7 +72,6 @@ type LKENodePool struct {
 	Tags    []string            `json:"tags"`
 	Labels  LKENodePoolLabels   `json:"labels"`
 	Taints  []LKENodePoolTaint  `json:"taints"`
-	Label   *string             `json:"label"`
 
 	Autoscaler LKENodePoolAutoscaler `json:"autoscaler"`
 
@@ -93,7 +92,6 @@ type LKENodePoolCreateOptions struct {
 	Tags   []string           `json:"tags"`
 	Labels LKENodePoolLabels  `json:"labels"`
 	Taints []LKENodePoolTaint `json:"taints"`
-	Label  *string            `json:"label,omitempty"`
 
 	Autoscaler *LKENodePoolAutoscaler `json:"autoscaler,omitempty"`
 
@@ -109,7 +107,6 @@ type LKENodePoolUpdateOptions struct {
 	Tags   *[]string           `json:"tags,omitempty"`
 	Labels *LKENodePoolLabels  `json:"labels,omitempty"`
 	Taints *[]LKENodePoolTaint `json:"taints,omitempty"`
-	Label  *string             `json:"label,omitempty"`
 
 	Autoscaler *LKENodePoolAutoscaler `json:"autoscaler,omitempty"`
 
@@ -130,9 +127,7 @@ func (l LKENodePool) GetCreateOptions() (o LKENodePoolCreateOptions) {
 	o.Autoscaler = &l.Autoscaler
 	o.K8sVersion = l.K8sVersion
 	o.UpdateStrategy = l.UpdateStrategy
-	o.Label = l.Label
-
-	return o
+	return
 }
 
 // GetUpdateOptions converts a LKENodePool to LKENodePoolUpdateOptions for use in UpdateLKENodePoolUpdate
@@ -144,9 +139,7 @@ func (l LKENodePool) GetUpdateOptions() (o LKENodePoolUpdateOptions) {
 	o.Autoscaler = &l.Autoscaler
 	o.K8sVersion = l.K8sVersion
 	o.UpdateStrategy = l.UpdateStrategy
-	o.Label = l.Label
-
-	return o
+	return
 }
 
 // ListLKENodePools lists LKENodePools

@@ -109,7 +109,7 @@ func getVpsList(client *ovh.Client) ([]string, error) {
 	return vpsListName, nil
 }
 
-func (*vpsDiscovery) getService() string {
+func (d *vpsDiscovery) getService() string {
 	return "vps"
 }
 

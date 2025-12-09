@@ -34,7 +34,7 @@ type Resource struct {
 	Parameters  Parameters `json:"parameters"`
 }
 
-type Parameters map[string]any
+type Parameters map[string]interface{}
 
 func (p *Parameters) toLabels() model.LabelSet {
 	labels := model.LabelSet{}
@@ -52,7 +52,7 @@ func (p *Parameters) toLabels() model.LabelSet {
 			labelValue = strconv.FormatFloat(value, 'g', -1, 64)
 		case []string:
 			labelValue = separator + strings.Join(value, separator) + separator
-		case []any:
+		case []interface{}:
 			if len(value) == 0 {
 				continue
 			}
@@ -72,7 +72,7 @@ func (p *Parameters) toLabels() model.LabelSet {
 				}
 			}
 			labelValue = strings.Join(values, separator)
-		case map[string]any:
+		case map[string]interface{}:
 			subParameter := Parameters(value)
 			prefix := strutil.SanitizeLabelName(k + "_")
 			for subk, subv := range subParameter.toLabels() {

@@ -389,23 +389,12 @@ func (f *FrameReader) Read(p []byte) (n int, err error) {
 		case <-unblock:
 			return 0, nil
 		case err := <-f.errCh:
-			// check for race with f.frames before returning error
-			select {
-			case frame, ok := <-f.frames:
-				if !ok {
-					return 0, io.EOF
-				}
-				f.frame = frame
-
-				// Store the total offset into the file
-				f.byteOffset = int(f.frame.Offset)
-			default:
-				return 0, err
-			}
+			return 0, err
 		case <-f.cancelCh:
 			return 0, io.EOF
 		}
 	}
+
 	// Copy the data out of the frame and update our offset
 	n = copy(p, f.frame.Data[f.frameOffset:])
 	f.frameOffset += n

@@ -8,15 +8,23 @@ import {
   Stack,
   Table,
   Text,
+  Tooltip,
 } from "@mantine/core";
 import { KVSearch } from "@nexucis/kvsearch";
 import {
   IconAlertTriangle,
+  IconHourglass,
   IconInfoCircle,
+  IconRefresh,
 } from "@tabler/icons-react";
 import { useSuspenseAPIQuery } from "../../api/api";
 import { Target, TargetsResult } from "../../api/responseTypes/targets";
 import React, { FC, memo, useMemo } from "react";
+import {
+  humanizeDurationRelative,
+  humanizeDuration,
+  now,
+} from "../../lib/formatTime";
 import { useLocalStorage } from "@mantine/hooks";
 import { useAppDispatch, useAppSelector } from "../../state/hooks";
 import {
@@ -29,8 +37,8 @@ import CustomInfiniteScroll from "../../components/CustomInfiniteScroll";
 import badgeClasses from "../../Badge.module.css";
 import panelClasses from "../../Panel.module.css";
 import TargetLabels from "./TargetLabels";
-import ScrapeTimingDetails from "./ScrapeTimingDetails";
 import { targetPoolDisplayLimit } from "./TargetsPage";
+import { badgeIconStyle } from "../../styles";
 
 type ScrapePool = {
   targets: Target[];
@@ -324,7 +332,52 @@ const ScrapePoolList: FC<ScrapePoolListProp> = memo(
                                     />
                                   </Table.Td>
                                   <Table.Td valign="top">
-                                    <ScrapeTimingDetails target={target} />
+                                    <Group gap="xs" wrap="wrap">
+                                      <Tooltip
+                                        label="Last target scrape"
+                                        withArrow
+                                      >
+                                        <Badge
+                                          variant="light"
+                                          className={badgeClasses.statsBadge}
+                                          styles={{
+                                            label: { textTransform: "none" },
+                                          }}
+                                          leftSection={
+                                            <IconRefresh
+                                              style={badgeIconStyle}
+                                            />
+                                          }
+                                        >
+                                          {humanizeDurationRelative(
+                                            target.lastScrape,
+                                            now()
+                                          )}
+                                        </Badge>
+                                      </Tooltip>
+
+                                      <Tooltip
+                                        label="Duration of last target scrape"
+                                        withArrow
+                                      >
+                                        <Badge
+                                          variant="light"
+                                          className={badgeClasses.statsBadge}
+                                          styles={{
+                                            label: { textTransform: "none" },
+                                          }}
+                                          leftSection={
+                                            <IconHourglass
+                                              style={badgeIconStyle}
+                                            />
+                                          }
+                                        >
+                                          {humanizeDuration(
+                                            target.lastScrapeDuration * 1000
+                                          )}
+                                        </Badge>
+                                      </Tooltip>
+                                    </Group>
                                   </Table.Td>
                                   <Table.Td valign="top">
                                     <Badge

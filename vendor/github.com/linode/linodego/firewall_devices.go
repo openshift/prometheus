@@ -13,9 +13,8 @@ type FirewallDeviceType string
 
 // FirewallDeviceType constants start with FirewallDevice
 const (
-	FirewallDeviceLinode          FirewallDeviceType = "linode"
-	FirewallDeviceNodeBalancer    FirewallDeviceType = "nodebalancer"
-	FirewallDeviceLinodeInterface FirewallDeviceType = "linode_interface"
+	FirewallDeviceLinode       FirewallDeviceType = "linode"
+	FirewallDeviceNodeBalancer FirewallDeviceType = "nodebalancer"
 )
 
 // FirewallDevice represents a device governed by a Firewall
@@ -38,7 +37,6 @@ func (device *FirewallDevice) UnmarshalJSON(b []byte) error {
 
 	p := struct {
 		*Mask
-
 		Created *parseabletime.ParseableTime `json:"created"`
 		Updated *parseabletime.ParseableTime `json:"updated"`
 	}{
@@ -51,7 +49,6 @@ func (device *FirewallDevice) UnmarshalJSON(b []byte) error {
 
 	device.Created = (*time.Time)(p.Created)
 	device.Updated = (*time.Time)(p.Updated)
-
 	return nil
 }
 
@@ -74,7 +71,7 @@ func (c *Client) GetFirewallDevice(ctx context.Context, firewallID, deviceID int
 	return doGETRequest[FirewallDevice](ctx, c, e)
 }
 
-// CreateFirewallDevice associates a Device with a given Firewall
+// AddFirewallDevice associates a Device with a given Firewall
 func (c *Client) CreateFirewallDevice(ctx context.Context, firewallID int, opts FirewallDeviceCreateOptions) (*FirewallDevice, error) {
 	e := formatAPIPath("networking/firewalls/%d/devices", firewallID)
 	return doPOSTRequest[FirewallDevice](ctx, c, e, opts)

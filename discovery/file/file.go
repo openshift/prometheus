@@ -20,7 +20,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -33,7 +32,7 @@ import (
 	"github.com/prometheus/common/config"
 	"github.com/prometheus/common/model"
 	"github.com/prometheus/common/promslog"
-	"go.yaml.in/yaml/v2"
+	"gopkg.in/yaml.v2"
 
 	"github.com/prometheus/prometheus/discovery"
 	"github.com/prometheus/prometheus/discovery/targetgroup"
@@ -79,7 +78,7 @@ func (c *SDConfig) SetDirectory(dir string) {
 }
 
 // UnmarshalYAML implements the yaml.Unmarshaler interface.
-func (c *SDConfig) UnmarshalYAML(unmarshal func(any) error) error {
+func (c *SDConfig) UnmarshalYAML(unmarshal func(interface{}) error) error {
 	*c = DefaultSDConfig
 	type plain SDConfig
 	err := unmarshal((*plain)(c))
@@ -121,7 +120,9 @@ func (t *TimestampCollector) Collect(ch chan<- prometheus.Metric) {
 	t.lock.RLock()
 	for fileSD := range t.discoverers {
 		fileSD.lock.RLock()
-		maps.Copy(uniqueFiles, fileSD.timestamps)
+		for filename, timestamp := range fileSD.timestamps {
+			uniqueFiles[filename] = timestamp
+		}
 		fileSD.lock.RUnlock()
 	}
 	t.lock.RUnlock()

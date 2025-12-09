@@ -99,7 +99,7 @@ type klogv1Writer struct{}
 // This is a hack to support klogv1 without use of go-kit/log. It is inspired
 // by klog's upstream klogv1/v2 coexistence example:
 // https://github.com/kubernetes/klog/blob/main/examples/coexist_klog_v1_and_v2/coexist_klog_v1_and_v2.go
-func (klogv1Writer) Write(p []byte) (n int, err error) {
+func (kw klogv1Writer) Write(p []byte) (n int, err error) {
 	if len(p) < klogv1DefaultPrefixLength {
 		klogv2.InfoDepth(klogv1OutputCallDepth, string(p))
 		return len(p), nil
@@ -157,7 +157,7 @@ func init() {
 // serverOnlyFlag creates server-only kingpin flag.
 func serverOnlyFlag(app *kingpin.Application, name, help string) *kingpin.FlagClause {
 	return app.Flag(name, fmt.Sprintf("%s Use with server mode only.", help)).
-		PreAction(func(*kingpin.ParseContext) error {
+		PreAction(func(_ *kingpin.ParseContext) error {
 			// This will be invoked only if flag is actually provided by user.
 			serverOnlyFlags = append(serverOnlyFlags, "--"+name)
 			return nil
@@ -167,7 +167,7 @@ func serverOnlyFlag(app *kingpin.Application, name, help string) *kingpin.FlagCl
 // agentOnlyFlag creates agent-only kingpin flag.
 func agentOnlyFlag(app *kingpin.Application, name, help string) *kingpin.FlagClause {
 	return app.Flag(name, fmt.Sprintf("%s Use with agent mode only.", help)).
-		PreAction(func(*kingpin.ParseContext) error {
+		PreAction(func(_ *kingpin.ParseContext) error {
 			// This will be invoked only if flag is actually provided by user.
 			agentOnlyFlags = append(agentOnlyFlags, "--"+name)
 			return nil
@@ -275,9 +275,6 @@ func (c *flagConfig) setFeatureListOptions(logger *slog.Logger) error {
 			case "promql-delayed-name-removal":
 				c.promqlEnableDelayedNameRemoval = true
 				logger.Info("Experimental PromQL delayed name removal enabled.")
-			case "promql-extended-range-selectors":
-				parser.EnableExtendedRangeSelectors = true
-				logger.Info("Experimental PromQL extended range selectors enabled.")
 			case "":
 				continue
 			case "old-ui":
@@ -564,14 +561,14 @@ func main() {
 	a.Flag("scrape.discovery-reload-interval", "Interval used by scrape manager to throttle target groups updates.").
 		Hidden().Default("5s").SetValue(&cfg.scrape.DiscoveryReloadInterval)
 
-	a.Flag("enable-feature", "Comma separated feature names to enable. Valid options: exemplar-storage, expand-external-labels, memory-snapshot-on-shutdown, promql-per-step-stats, promql-experimental-functions, extra-scrape-metrics, auto-gomaxprocs, native-histograms, created-timestamp-zero-ingestion, concurrent-rule-eval, delayed-compaction, old-ui, otlp-deltatocumulative, promql-duration-expr, use-uncached-io, promql-extended-range-selectors. See https://prometheus.io/docs/prometheus/latest/feature_flags/ for more details.").
+	a.Flag("enable-feature", "Comma separated feature names to enable. Valid options: exemplar-storage, expand-external-labels, memory-snapshot-on-shutdown, promql-per-step-stats, promql-experimental-functions, extra-scrape-metrics, auto-gomaxprocs, native-histograms, created-timestamp-zero-ingestion, concurrent-rule-eval, delayed-compaction, old-ui, otlp-deltatocumulative, promql-duration-expr, use-uncached-io. See https://prometheus.io/docs/prometheus/latest/feature_flags/ for more details.").
 		Default("").StringsVar(&cfg.featureList)
 
 	a.Flag("agent", "Run Prometheus in 'Agent mode'.").BoolVar(&agentMode)
 
 	promslogflag.AddFlags(a, &cfg.promslogConfig)
 
-	a.Flag("write-documentation", "Generate command line documentation. Internal use.").Hidden().Action(func(*kingpin.ParseContext) error {
+	a.Flag("write-documentation", "Generate command line documentation. Internal use.").Hidden().Action(func(_ *kingpin.ParseContext) error {
 		if err := documentcli.GenerateMarkdown(a.Model(), os.Stdout); err != nil {
 			os.Exit(1)
 			return err
@@ -657,7 +654,7 @@ func main() {
 	}
 
 	// Parse rule files to verify they exist and contain valid rules.
-	if err := rules.ParseFiles(cfgFile.RuleFiles, cfgFile.GlobalConfig.MetricNameValidationScheme); err != nil {
+	if err := rules.ParseFiles(cfgFile.RuleFiles); err != nil {
 		absPath, pathErr := filepath.Abs(cfg.configFile)
 		if pathErr != nil {
 			absPath = cfg.configFile
@@ -679,7 +676,7 @@ func main() {
 	// Set Go runtime parameters before we get too far into initialization.
 	updateGoGC(cfgFile, logger)
 	if cfg.maxprocsEnable {
-		l := func(format string, a ...any) {
+		l := func(format string, a ...interface{}) {
 			logger.Info(fmt.Sprintf(strings.TrimPrefix(format, "maxprocs: "), a...), "component", "automaxprocs")
 		}
 		if _, err := maxprocs.Set(maxprocs.Logger(l)); err != nil {
@@ -788,7 +785,7 @@ func main() {
 	var (
 		localStorage  = &readyStorage{stats: tsdb.NewDBStats()}
 		scraper       = &readyScrapeManager{}
-		remoteStorage = remote.NewStorage(logger.With("component", "remote"), prometheus.DefaultRegisterer, localStorage.StartTime, localStoragePath, time.Duration(cfg.RemoteFlushDeadline), scraper, cfg.scrape.EnableTypeAndUnitLabels)
+		remoteStorage = remote.NewStorage(logger.With("component", "remote"), prometheus.DefaultRegisterer, localStorage.StartTime, localStoragePath, time.Duration(cfg.RemoteFlushDeadline), scraper)
 		fanoutStorage = storage.NewFanout(logger, localStorage, remoteStorage)
 	)
 
@@ -796,7 +793,7 @@ func main() {
 		ctxWeb, cancelWeb = context.WithCancel(context.Background())
 		ctxRule           = context.Background()
 
-		notifierManager = notifier.NewManager(&cfg.notifier, cfgFile.GlobalConfig.MetricNameValidationScheme, logger.With("component", "notifier"))
+		notifierManager = notifier.NewManager(&cfg.notifier, logger.With("component", "notifier"))
 
 		ctxScrape, cancelScrape = context.WithCancel(context.Background())
 		ctxNotify, cancelNotify = context.WithCancel(context.Background())
@@ -873,7 +870,6 @@ func main() {
 		queryEngine = promql.NewEngine(opts)
 
 		ruleManager = rules.NewManager(&rules.ManagerOptions{
-			NameValidationScheme:   cfgFile.GlobalConfig.MetricNameValidationScheme,
 			Appendable:             fanoutStorage,
 			Queryable:              localStorage,
 			QueryFunc:              rules.EngineQueryFunc(queryEngine, fanoutStorage),
@@ -1089,7 +1085,7 @@ func main() {
 				}
 				return nil
 			},
-			func(error) {
+			func(_ error) {
 				close(cancel)
 				webHandler.SetReady(web.Stopping)
 				notifs.AddNotification(notifications.ShuttingDown)
@@ -1104,7 +1100,7 @@ func main() {
 				logger.Info("Scrape discovery manager stopped")
 				return err
 			},
-			func(error) {
+			func(_ error) {
 				logger.Info("Stopping scrape discovery manager...")
 				cancelScrape()
 			},
@@ -1118,7 +1114,7 @@ func main() {
 				logger.Info("Notify discovery manager stopped")
 				return err
 			},
-			func(error) {
+			func(_ error) {
 				logger.Info("Stopping notify discovery manager...")
 				cancelNotify()
 			},
@@ -1132,7 +1128,7 @@ func main() {
 				ruleManager.Run()
 				return nil
 			},
-			func(error) {
+			func(_ error) {
 				ruleManager.Stop()
 			},
 		)
@@ -1151,7 +1147,7 @@ func main() {
 				logger.Info("Scrape manager stopped")
 				return err
 			},
-			func(error) {
+			func(_ error) {
 				// Scrape manager needs to be stopped before closing the local TSDB
 				// so that it doesn't try to write samples to a closed storage.
 				// We should also wait for rule manager to be fully stopped to ensure
@@ -1169,7 +1165,7 @@ func main() {
 				tracingManager.Run()
 				return nil
 			},
-			func(error) {
+			func(_ error) {
 				tracingManager.Stop()
 			},
 		)
@@ -1250,7 +1246,7 @@ func main() {
 					}
 				}
 			},
-			func(error) {
+			func(_ error) {
 				// Wait for any in-progress reloads to complete to avoid
 				// reloading things after they have been shutdown.
 				cancel <- struct{}{}
@@ -1282,7 +1278,7 @@ func main() {
 				<-cancel
 				return nil
 			},
-			func(error) {
+			func(_ error) {
 				close(cancel)
 			},
 		)
@@ -1335,7 +1331,7 @@ func main() {
 				<-cancel
 				return nil
 			},
-			func(error) {
+			func(_ error) {
 				if err := fanoutStorage.Close(); err != nil {
 					logger.Error("Error stopping storage", "err", err)
 				}
@@ -1390,7 +1386,7 @@ func main() {
 				<-cancel
 				return nil
 			},
-			func(error) {
+			func(_ error) {
 				if err := fanoutStorage.Close(); err != nil {
 					logger.Error("Error stopping storage", "err", err)
 				}
@@ -1407,7 +1403,7 @@ func main() {
 				}
 				return nil
 			},
-			func(error) {
+			func(_ error) {
 				cancelWeb()
 			},
 		)
@@ -1429,7 +1425,7 @@ func main() {
 				logger.Info("Notifier manager stopped")
 				return nil
 			},
-			func(error) {
+			func(_ error) {
 				notifierManager.Stop()
 			},
 		)
@@ -1710,35 +1706,35 @@ func (s *readyStorage) Appender(ctx context.Context) storage.Appender {
 type notReadyAppender struct{}
 
 // SetOptions does nothing in this appender implementation.
-func (notReadyAppender) SetOptions(*storage.AppendOptions) {}
+func (n notReadyAppender) SetOptions(_ *storage.AppendOptions) {}
 
-func (notReadyAppender) Append(storage.SeriesRef, labels.Labels, int64, float64) (storage.SeriesRef, error) {
+func (n notReadyAppender) Append(_ storage.SeriesRef, _ labels.Labels, _ int64, _ float64) (storage.SeriesRef, error) {
 	return 0, tsdb.ErrNotReady
 }
 
-func (notReadyAppender) AppendExemplar(storage.SeriesRef, labels.Labels, exemplar.Exemplar) (storage.SeriesRef, error) {
+func (n notReadyAppender) AppendExemplar(_ storage.SeriesRef, _ labels.Labels, _ exemplar.Exemplar) (storage.SeriesRef, error) {
 	return 0, tsdb.ErrNotReady
 }
 
-func (notReadyAppender) AppendHistogram(storage.SeriesRef, labels.Labels, int64, *histogram.Histogram, *histogram.FloatHistogram) (storage.SeriesRef, error) {
+func (n notReadyAppender) AppendHistogram(_ storage.SeriesRef, _ labels.Labels, _ int64, _ *histogram.Histogram, _ *histogram.FloatHistogram) (storage.SeriesRef, error) {
 	return 0, tsdb.ErrNotReady
 }
 
-func (notReadyAppender) AppendHistogramCTZeroSample(storage.SeriesRef, labels.Labels, int64, int64, *histogram.Histogram, *histogram.FloatHistogram) (storage.SeriesRef, error) {
+func (n notReadyAppender) AppendHistogramCTZeroSample(_ storage.SeriesRef, _ labels.Labels, _, _ int64, _ *histogram.Histogram, _ *histogram.FloatHistogram) (storage.SeriesRef, error) {
 	return 0, tsdb.ErrNotReady
 }
 
-func (notReadyAppender) UpdateMetadata(storage.SeriesRef, labels.Labels, metadata.Metadata) (storage.SeriesRef, error) {
+func (n notReadyAppender) UpdateMetadata(_ storage.SeriesRef, _ labels.Labels, _ metadata.Metadata) (storage.SeriesRef, error) {
 	return 0, tsdb.ErrNotReady
 }
 
-func (notReadyAppender) AppendCTZeroSample(storage.SeriesRef, labels.Labels, int64, int64) (storage.SeriesRef, error) {
+func (n notReadyAppender) AppendCTZeroSample(_ storage.SeriesRef, _ labels.Labels, _, _ int64) (storage.SeriesRef, error) {
 	return 0, tsdb.ErrNotReady
 }
 
-func (notReadyAppender) Commit() error { return tsdb.ErrNotReady }
+func (n notReadyAppender) Commit() error { return tsdb.ErrNotReady }
 
-func (notReadyAppender) Rollback() error { return tsdb.ErrNotReady }
+func (n notReadyAppender) Rollback() error { return tsdb.ErrNotReady }
 
 // Close implements the Storage interface.
 func (s *readyStorage) Close() error {
@@ -1948,7 +1944,7 @@ func rwProtoMsgFlagValue(msgs *[]config.RemoteWriteProtoMsg) kingpin.Value {
 }
 
 // IsCumulative is used by kingpin to tell if it's an array or not.
-func (*rwProtoMsgFlagParser) IsCumulative() bool {
+func (p *rwProtoMsgFlagParser) IsCumulative() bool {
 	return true
 }
 

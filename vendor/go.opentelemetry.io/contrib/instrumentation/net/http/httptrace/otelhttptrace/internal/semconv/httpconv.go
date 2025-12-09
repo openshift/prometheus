@@ -17,7 +17,9 @@ import (
 	"strings"
 
 	"go.opentelemetry.io/otel/attribute"
-	semconvNew "go.opentelemetry.io/otel/semconv/v1.37.0"
+	"go.opentelemetry.io/otel/metric"
+	"go.opentelemetry.io/otel/metric/noop"
+	semconvNew "go.opentelemetry.io/otel/semconv/v1.26.0"
 )
 
 type RequestTraceAttrsOpts struct {
@@ -194,7 +196,7 @@ func (n CurrentHTTPServer) method(method string) (attribute.KeyValue, attribute.
 	return semconvNew.HTTPRequestMethodGet, orig
 }
 
-func (n CurrentHTTPServer) scheme(https bool) attribute.KeyValue { //nolint:revive // ignore linter
+func (n CurrentHTTPServer) scheme(https bool) attribute.KeyValue { // nolint:revive
 	if https {
 		return semconvNew.URLScheme("https")
 	}
@@ -243,6 +245,36 @@ func (n CurrentHTTPServer) ResponseTraceAttrs(resp ResponseTelemetry) []attribut
 // Route returns the attribute for the route.
 func (n CurrentHTTPServer) Route(route string) attribute.KeyValue {
 	return semconvNew.HTTPRoute(route)
+}
+
+func (n CurrentHTTPServer) createMeasures(meter metric.Meter) (metric.Int64Histogram, metric.Int64Histogram, metric.Float64Histogram) {
+	if meter == nil {
+		return noop.Int64Histogram{}, noop.Int64Histogram{}, noop.Float64Histogram{}
+	}
+
+	var err error
+	requestBodySizeHistogram, err := meter.Int64Histogram(
+		semconvNew.HTTPServerRequestBodySizeName,
+		metric.WithUnit(semconvNew.HTTPServerRequestBodySizeUnit),
+		metric.WithDescription(semconvNew.HTTPServerRequestBodySizeDescription),
+	)
+	handleErr(err)
+
+	responseBodySizeHistogram, err := meter.Int64Histogram(
+		semconvNew.HTTPServerResponseBodySizeName,
+		metric.WithUnit(semconvNew.HTTPServerResponseBodySizeUnit),
+		metric.WithDescription(semconvNew.HTTPServerResponseBodySizeDescription),
+	)
+	handleErr(err)
+	requestDurationHistogram, err := meter.Float64Histogram(
+		semconvNew.HTTPServerRequestDurationName,
+		metric.WithUnit(semconvNew.HTTPServerRequestDurationUnit),
+		metric.WithDescription(semconvNew.HTTPServerRequestDurationDescription),
+		metric.WithExplicitBucketBoundaries(0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.25, 0.5, 0.75, 1, 2.5, 5, 7.5, 10),
+	)
+	handleErr(err)
+
+	return requestBodySizeHistogram, responseBodySizeHistogram, requestDurationHistogram
 }
 
 func (n CurrentHTTPServer) MetricAttributes(server string, req *http.Request, statusCode int, additionalAttributes []attribute.KeyValue) []attribute.KeyValue {
@@ -438,6 +470,30 @@ func (n CurrentHTTPClient) method(method string) (attribute.KeyValue, attribute.
 		return attr, orig
 	}
 	return semconvNew.HTTPRequestMethodGet, orig
+}
+
+func (n CurrentHTTPClient) createMeasures(meter metric.Meter) (metric.Int64Histogram, metric.Float64Histogram) {
+	if meter == nil {
+		return noop.Int64Histogram{}, noop.Float64Histogram{}
+	}
+
+	var err error
+	requestBodySize, err := meter.Int64Histogram(
+		semconvNew.HTTPClientRequestBodySizeName,
+		metric.WithUnit(semconvNew.HTTPClientRequestBodySizeUnit),
+		metric.WithDescription(semconvNew.HTTPClientRequestBodySizeDescription),
+	)
+	handleErr(err)
+
+	requestDuration, err := meter.Float64Histogram(
+		semconvNew.HTTPClientRequestDurationName,
+		metric.WithUnit(semconvNew.HTTPClientRequestDurationUnit),
+		metric.WithDescription(semconvNew.HTTPClientRequestDurationDescription),
+		metric.WithExplicitBucketBoundaries(0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.25, 0.5, 0.75, 1, 2.5, 5, 7.5, 10),
+	)
+	handleErr(err)
+
+	return requestBodySize, requestDuration
 }
 
 func (n CurrentHTTPClient) MetricAttributes(req *http.Request, statusCode int, additionalAttributes []attribute.KeyValue) []attribute.KeyValue {

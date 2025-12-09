@@ -33,7 +33,7 @@ func (s *API) WaitForImage(req *WaitForImageRequest, opts ...scw.RequestOption) 
 	}
 
 	image, err := async.WaitSync(&async.WaitSyncConfig{
-		Get: func() (any, bool, error) {
+		Get: func() (interface{}, bool, error) {
 			res, err := s.GetImage(&GetImageRequest{
 				ImageID: req.ImageID,
 				Zone:    req.Zone,

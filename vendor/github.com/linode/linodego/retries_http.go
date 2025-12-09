@@ -47,7 +47,6 @@ func httpcheckRetryConditionals(c *httpClient) httpRetryConditional {
 				return true
 			}
 		}
-
 		return false
 	}
 }
@@ -66,7 +65,6 @@ func httpRespectRetryAfter(resp *http.Response) (time.Duration, error) {
 
 	duration := time.Duration(retryAfter) * time.Second
 	log.Printf("[INFO] Respecting Retry-After Header of %d (%s)", retryAfter, duration)
-
 	return duration, nil
 }
 
@@ -77,7 +75,6 @@ func httpLinodeBusyRetryCondition(resp *http.Response, _ error) bool {
 	apiError, ok := getAPIError(resp)
 	linodeBusy := ok && apiError.Error() == "Linode busy."
 	retry := resp.StatusCode == http.StatusBadRequest && linodeBusy
-
 	return retry
 }
 
@@ -122,11 +119,9 @@ func httpRequestNGINXRetryCondition(resp *http.Response, _ error) bool {
 // nolint:unused
 func getAPIError(resp *http.Response) (*APIError, bool) {
 	var apiError APIError
-
 	err := json.NewDecoder(resp.Body).Decode(&apiError)
 	if err != nil {
 		return nil, false
 	}
-
 	return &apiError, true
 }

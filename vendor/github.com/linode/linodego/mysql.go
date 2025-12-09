@@ -377,7 +377,6 @@ func (d *MySQLDatabase) UnmarshalJSON(b []byte) error {
 
 	p := struct {
 		*Mask
-
 		Created           *parseabletime.ParseableTime `json:"created"`
 		Updated           *parseabletime.ParseableTime `json:"updated"`
 		OldestRestoreTime *parseabletime.ParseableTime `json:"oldest_restore_time"`
@@ -392,7 +391,6 @@ func (d *MySQLDatabase) UnmarshalJSON(b []byte) error {
 	d.Created = (*time.Time)(p.Created)
 	d.Updated = (*time.Time)(p.Updated)
 	d.OldestRestoreTime = (*time.Time)(p.OldestRestoreTime)
-
 	return nil
 }
 
@@ -450,7 +448,6 @@ func (d *MySQLDatabaseBackup) UnmarshalJSON(b []byte) error {
 
 	p := struct {
 		*Mask
-
 		Created *parseabletime.ParseableTime `json:"created"`
 	}{
 		Mask: (*Mask)(d),
@@ -461,7 +458,6 @@ func (d *MySQLDatabaseBackup) UnmarshalJSON(b []byte) error {
 	}
 
 	d.Created = (*time.Time)(p.Created)
-
 	return nil
 }
 

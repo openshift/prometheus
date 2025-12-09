@@ -17,7 +17,6 @@ package errors
 import (
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"strings"
 )
 
@@ -33,12 +32,12 @@ const (
 	patternFail               = "%s in %s should match '%s'"
 	enumFail                  = "%s in %s should be one of %v"
 	multipleOfFail            = "%s in %s should be a multiple of %v"
-	maximumIncFail            = "%s in %s should be less than or equal to %v"
-	maximumExcFail            = "%s in %s should be less than %v"
+	maxIncFail                = "%s in %s should be less than or equal to %v"
+	maxExcFail                = "%s in %s should be less than %v"
 	minIncFail                = "%s in %s should be greater than or equal to %v"
 	minExcFail                = "%s in %s should be greater than %v"
 	uniqueFail                = "%s in %s shouldn't contain duplicates"
-	maximumItemsFail          = "%s in %s should have at most %d items"
+	maxItemsFail              = "%s in %s should have at most %d items"
 	minItemsFail              = "%s in %s should have at least %d items"
 	typeFailNoIn              = "%s must be of type %s"
 	typeFailWithDataNoIn      = "%s must be of type %s: %q"
@@ -50,12 +49,12 @@ const (
 	patternFailNoIn           = "%s should match '%s'"
 	enumFailNoIn              = "%s should be one of %v"
 	multipleOfFailNoIn        = "%s should be a multiple of %v"
-	maximumIncFailNoIn        = "%s should be less than or equal to %v"
-	maximumExcFailNoIn        = "%s should be less than %v"
+	maxIncFailNoIn            = "%s should be less than or equal to %v"
+	maxExcFailNoIn            = "%s should be less than %v"
 	minIncFailNoIn            = "%s should be greater than or equal to %v"
 	minExcFailNoIn            = "%s should be greater than %v"
 	uniqueFailNoIn            = "%s shouldn't contain duplicates"
-	maximumItemsFailNoIn      = "%s should have at most %d items"
+	maxItemsFailNoIn          = "%s should have at most %d items"
 	minItemsFailNoIn          = "%s should have at least %d items"
 	noAdditionalItems         = "%s in %s can't have additional items"
 	noAdditionalItemsNoIn     = "%s can't have additional items"
@@ -70,17 +69,14 @@ const (
 	multipleOfMustBePositive  = "factor MultipleOf declared for %s must be positive: %v"
 )
 
-const maximumValidHTTPCode = 600
-
 // All code responses can be used to differentiate errors for different handling
 // by the consuming program
 const (
 	// CompositeErrorCode remains 422 for backwards-compatibility
 	// and to separate it from validation errors with cause
-	CompositeErrorCode = http.StatusUnprocessableEntity
-
+	CompositeErrorCode = 422
 	// InvalidTypeCode is used for any subclass of invalid types
-	InvalidTypeCode = maximumValidHTTPCode + iota
+	InvalidTypeCode = 600 + iota
 	RequiredFailCode
 	TooLongFailCode
 	TooShortFailCode
@@ -302,10 +298,10 @@ func DuplicateItems(name, in string) *Validation {
 }
 
 // TooManyItems error for when an array contains too many items
-func TooManyItems(name, in string, maximum int64, value interface{}) *Validation {
-	msg := fmt.Sprintf(maximumItemsFail, name, in, maximum)
+func TooManyItems(name, in string, max int64, value interface{}) *Validation {
+	msg := fmt.Sprintf(maxItemsFail, name, in, max)
 	if in == "" {
-		msg = fmt.Sprintf(maximumItemsFailNoIn, name, maximum)
+		msg = fmt.Sprintf(maxItemsFailNoIn, name, max)
 	}
 
 	return &Validation{
@@ -318,10 +314,10 @@ func TooManyItems(name, in string, maximum int64, value interface{}) *Validation
 }
 
 // TooFewItems error for when an array contains too few items
-func TooFewItems(name, in string, minimum int64, value interface{}) *Validation {
-	msg := fmt.Sprintf(minItemsFail, name, in, minimum)
+func TooFewItems(name, in string, min int64, value interface{}) *Validation {
+	msg := fmt.Sprintf(minItemsFail, name, in, min)
 	if in == "" {
-		msg = fmt.Sprintf(minItemsFailNoIn, name, minimum)
+		msg = fmt.Sprintf(minItemsFailNoIn, name, min)
 	}
 	return &Validation{
 		code:    MinItemsFailCode,
@@ -332,21 +328,21 @@ func TooFewItems(name, in string, minimum int64, value interface{}) *Validation 
 	}
 }
 
-// ExceedsMaximumInt error for when maximumimum validation fails
-func ExceedsMaximumInt(name, in string, maximum int64, exclusive bool, value interface{}) *Validation {
+// ExceedsMaximumInt error for when maximum validation fails
+func ExceedsMaximumInt(name, in string, max int64, exclusive bool, value interface{}) *Validation {
 	var message string
 	if in == "" {
-		m := maximumIncFailNoIn
+		m := maxIncFailNoIn
 		if exclusive {
-			m = maximumExcFailNoIn
+			m = maxExcFailNoIn
 		}
-		message = fmt.Sprintf(m, name, maximum)
+		message = fmt.Sprintf(m, name, max)
 	} else {
-		m := maximumIncFail
+		m := maxIncFail
 		if exclusive {
-			m = maximumExcFail
+			m = maxExcFail
 		}
-		message = fmt.Sprintf(m, name, in, maximum)
+		message = fmt.Sprintf(m, name, in, max)
 	}
 	return &Validation{
 		code:    MaxFailCode,
@@ -357,21 +353,21 @@ func ExceedsMaximumInt(name, in string, maximum int64, exclusive bool, value int
 	}
 }
 
-// ExceedsMaximumUint error for when maximumimum validation fails
-func ExceedsMaximumUint(name, in string, maximum uint64, exclusive bool, value interface{}) *Validation {
+// ExceedsMaximumUint error for when maximum validation fails
+func ExceedsMaximumUint(name, in string, max uint64, exclusive bool, value interface{}) *Validation {
 	var message string
 	if in == "" {
-		m := maximumIncFailNoIn
+		m := maxIncFailNoIn
 		if exclusive {
-			m = maximumExcFailNoIn
+			m = maxExcFailNoIn
 		}
-		message = fmt.Sprintf(m, name, maximum)
+		message = fmt.Sprintf(m, name, max)
 	} else {
-		m := maximumIncFail
+		m := maxIncFail
 		if exclusive {
-			m = maximumExcFail
+			m = maxExcFail
 		}
-		message = fmt.Sprintf(m, name, in, maximum)
+		message = fmt.Sprintf(m, name, in, max)
 	}
 	return &Validation{
 		code:    MaxFailCode,
@@ -382,21 +378,21 @@ func ExceedsMaximumUint(name, in string, maximum uint64, exclusive bool, value i
 	}
 }
 
-// ExceedsMaximum error for when maximumimum validation fails
-func ExceedsMaximum(name, in string, maximum float64, exclusive bool, value interface{}) *Validation {
+// ExceedsMaximum error for when maximum validation fails
+func ExceedsMaximum(name, in string, max float64, exclusive bool, value interface{}) *Validation {
 	var message string
 	if in == "" {
-		m := maximumIncFailNoIn
+		m := maxIncFailNoIn
 		if exclusive {
-			m = maximumExcFailNoIn
+			m = maxExcFailNoIn
 		}
-		message = fmt.Sprintf(m, name, maximum)
+		message = fmt.Sprintf(m, name, max)
 	} else {
-		m := maximumIncFail
+		m := maxIncFail
 		if exclusive {
-			m = maximumExcFail
+			m = maxExcFail
 		}
-		message = fmt.Sprintf(m, name, in, maximum)
+		message = fmt.Sprintf(m, name, in, max)
 	}
 	return &Validation{
 		code:    MaxFailCode,
@@ -408,20 +404,20 @@ func ExceedsMaximum(name, in string, maximum float64, exclusive bool, value inte
 }
 
 // ExceedsMinimumInt error for when minimum validation fails
-func ExceedsMinimumInt(name, in string, minimum int64, exclusive bool, value interface{}) *Validation {
+func ExceedsMinimumInt(name, in string, min int64, exclusive bool, value interface{}) *Validation {
 	var message string
 	if in == "" {
 		m := minIncFailNoIn
 		if exclusive {
 			m = minExcFailNoIn
 		}
-		message = fmt.Sprintf(m, name, minimum)
+		message = fmt.Sprintf(m, name, min)
 	} else {
 		m := minIncFail
 		if exclusive {
 			m = minExcFail
 		}
-		message = fmt.Sprintf(m, name, in, minimum)
+		message = fmt.Sprintf(m, name, in, min)
 	}
 	return &Validation{
 		code:    MinFailCode,
@@ -433,20 +429,20 @@ func ExceedsMinimumInt(name, in string, minimum int64, exclusive bool, value int
 }
 
 // ExceedsMinimumUint error for when minimum validation fails
-func ExceedsMinimumUint(name, in string, minimum uint64, exclusive bool, value interface{}) *Validation {
+func ExceedsMinimumUint(name, in string, min uint64, exclusive bool, value interface{}) *Validation {
 	var message string
 	if in == "" {
 		m := minIncFailNoIn
 		if exclusive {
 			m = minExcFailNoIn
 		}
-		message = fmt.Sprintf(m, name, minimum)
+		message = fmt.Sprintf(m, name, min)
 	} else {
 		m := minIncFail
 		if exclusive {
 			m = minExcFail
 		}
-		message = fmt.Sprintf(m, name, in, minimum)
+		message = fmt.Sprintf(m, name, in, min)
 	}
 	return &Validation{
 		code:    MinFailCode,
@@ -458,20 +454,20 @@ func ExceedsMinimumUint(name, in string, minimum uint64, exclusive bool, value i
 }
 
 // ExceedsMinimum error for when minimum validation fails
-func ExceedsMinimum(name, in string, minimum float64, exclusive bool, value interface{}) *Validation {
+func ExceedsMinimum(name, in string, min float64, exclusive bool, value interface{}) *Validation {
 	var message string
 	if in == "" {
 		m := minIncFailNoIn
 		if exclusive {
 			m = minExcFailNoIn
 		}
-		message = fmt.Sprintf(m, name, minimum)
+		message = fmt.Sprintf(m, name, min)
 	} else {
 		m := minIncFail
 		if exclusive {
 			m = minExcFail
 		}
-		message = fmt.Sprintf(m, name, in, minimum)
+		message = fmt.Sprintf(m, name, in, min)
 	}
 	return &Validation{
 		code:    MinFailCode,
@@ -553,12 +549,12 @@ func ReadOnly(name, in string, value interface{}) *Validation {
 }
 
 // TooLong error for when a string is too long
-func TooLong(name, in string, maximum int64, value interface{}) *Validation {
+func TooLong(name, in string, max int64, value interface{}) *Validation {
 	var msg string
 	if in == "" {
-		msg = fmt.Sprintf(tooLongMessageNoIn, name, maximum)
+		msg = fmt.Sprintf(tooLongMessageNoIn, name, max)
 	} else {
-		msg = fmt.Sprintf(tooLongMessage, name, in, maximum)
+		msg = fmt.Sprintf(tooLongMessage, name, in, max)
 	}
 	return &Validation{
 		code:    TooLongFailCode,
@@ -570,12 +566,12 @@ func TooLong(name, in string, maximum int64, value interface{}) *Validation {
 }
 
 // TooShort error for when a string is too short
-func TooShort(name, in string, minimum int64, value interface{}) *Validation {
+func TooShort(name, in string, min int64, value interface{}) *Validation {
 	var msg string
 	if in == "" {
-		msg = fmt.Sprintf(tooShortMessageNoIn, name, minimum)
+		msg = fmt.Sprintf(tooShortMessageNoIn, name, min)
 	} else {
-		msg = fmt.Sprintf(tooShortMessage, name, in, minimum)
+		msg = fmt.Sprintf(tooShortMessage, name, in, min)
 	}
 
 	return &Validation{

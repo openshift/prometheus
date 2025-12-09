@@ -93,8 +93,8 @@ func (s *testMetaStore) GetMetadata(metric string) (scrape.MetricMetadata, bool)
 	return scrape.MetricMetadata{}, false
 }
 
-func (*testMetaStore) SizeMetadata() int   { return 0 }
-func (*testMetaStore) LengthMetadata() int { return 0 }
+func (s *testMetaStore) SizeMetadata() int   { return 0 }
+func (s *testMetaStore) LengthMetadata() int { return 0 }
 
 // testTargetRetriever represents a list of targets to scrape.
 // It is used to represent targets as part of test cases.
@@ -190,7 +190,7 @@ func (t *testTargetRetriever) toFactory() func(context.Context) TargetRetriever 
 
 type testAlertmanagerRetriever struct{}
 
-func (testAlertmanagerRetriever) Alertmanagers() []*url.URL {
+func (t testAlertmanagerRetriever) Alertmanagers() []*url.URL {
 	return []*url.URL{
 		{
 			Scheme: "http",
@@ -200,7 +200,7 @@ func (testAlertmanagerRetriever) Alertmanagers() []*url.URL {
 	}
 }
 
-func (testAlertmanagerRetriever) DroppedAlertmanagers() []*url.URL {
+func (t testAlertmanagerRetriever) DroppedAlertmanagers() []*url.URL {
 	return []*url.URL{
 		{
 			Scheme: "http",
@@ -315,7 +315,7 @@ func (m *rulesRetrieverMock) CreateRuleGroups() {
 		Appendable: storage,
 		Context:    context.Background(),
 		Logger:     promslog.NewNopLogger(),
-		NotifyFunc: func(context.Context, string, ...*rules.Alert) {},
+		NotifyFunc: func(_ context.Context, _ string, _ ...*rules.Alert) {},
 	}
 
 	var r []rules.Rule
@@ -496,7 +496,7 @@ func TestEndpoints(t *testing.T) {
 
 		remote := remote.NewStorage(promslog.New(&promslogConfig), prometheus.DefaultRegisterer, func() (int64, error) {
 			return 0, nil
-		}, dbDir, 1*time.Second, nil, false)
+		}, dbDir, 1*time.Second, nil)
 
 		err = remote.ApplyConfig(&config.Config{
 			RemoteReadConfigs: []*config.RemoteReadConfig{
@@ -909,12 +909,12 @@ func TestStats(t *testing.T) {
 		name     string
 		renderer StatsRenderer
 		param    string
-		expected func(*testing.T, any)
+		expected func(*testing.T, interface{})
 	}{
 		{
 			name:  "stats is blank",
 			param: "",
-			expected: func(t *testing.T, i any) {
+			expected: func(t *testing.T, i interface{}) {
 				require.IsType(t, &QueryData{}, i)
 				qd := i.(*QueryData)
 				require.Nil(t, qd.Stats)
@@ -923,7 +923,7 @@ func TestStats(t *testing.T) {
 		{
 			name:  "stats is true",
 			param: "true",
-			expected: func(t *testing.T, i any) {
+			expected: func(t *testing.T, i interface{}) {
 				require.IsType(t, &QueryData{}, i)
 				qd := i.(*QueryData)
 				require.NotNil(t, qd.Stats)
@@ -938,7 +938,7 @@ func TestStats(t *testing.T) {
 		{
 			name:  "stats is all",
 			param: "all",
-			expected: func(t *testing.T, i any) {
+			expected: func(t *testing.T, i interface{}) {
 				require.IsType(t, &QueryData{}, i)
 				qd := i.(*QueryData)
 				require.NotNil(t, qd.Stats)
@@ -959,7 +959,7 @@ func TestStats(t *testing.T) {
 				return nil
 			},
 			param: "known",
-			expected: func(t *testing.T, i any) {
+			expected: func(t *testing.T, i interface{}) {
 				require.IsType(t, &QueryData{}, i)
 				qd := i.(*QueryData)
 				require.NotNil(t, qd.Stats)
@@ -980,11 +980,11 @@ func TestStats(t *testing.T) {
 				req, err := request(method, tc.param)
 				require.NoError(t, err)
 				res := api.query(req.WithContext(ctx))
-				assertAPIError(t, res.err, errorNone)
+				assertAPIError(t, res.err, "")
 				tc.expected(t, res.data)
 
 				res = api.queryRange(req.WithContext(ctx))
-				assertAPIError(t, res.err, errorNone)
+				assertAPIError(t, res.err, "")
 				tc.expected(t, res.data)
 			}
 		})
@@ -1108,19 +1108,19 @@ func testEndpoints(t *testing.T, api *API, tr *testTargetRetriever, es storage.E
 		endpoint              apiFunc
 		params                map[string]string
 		query                 url.Values
-		response              any
+		response              interface{}
 		responseLen           int // If nonzero, check only the length; `response` is ignored.
 		responseMetadataTotal int
 		responseAsJSON        string
 		warningsCount         int
 		errType               errorType
-		sorter                func(any)
+		sorter                func(interface{})
 		metadata              []targetMetadata
 		exemplars             []exemplar.QueryResult
-		zeroFunc              func(any)
+		zeroFunc              func(interface{})
 	}
 
-	rulesZeroFunc := func(i any) {
+	rulesZeroFunc := func(i interface{}) {
 		if i != nil {
 			v := i.(*RuleDiscovery)
 			for _, ruleGroup := range v.RuleGroups {
@@ -1991,7 +1991,7 @@ func testEndpoints(t *testing.T, api *API, tr *testTargetRetriever, es storage.E
 					Unit:         "",
 				},
 			},
-			sorter: func(m any) {
+			sorter: func(m interface{}) {
 				sort.Slice(m.([]metricMetadata), func(i, j int) bool {
 					s := m.([]metricMetadata)
 					return s[i].MetricFamily < s[j].MetricFamily
@@ -2120,7 +2120,7 @@ func testEndpoints(t *testing.T, api *API, tr *testTargetRetriever, es storage.E
 			responseAsJSON: `{"go_threads": [{"type":"gauge","unit":"",
 "help":"Number of OS threads created"},{"type":"gauge","unit":"",
 "help":"Number of OS threads that were created."}]}`,
-			sorter: func(m any) {
+			sorter: func(m interface{}) {
 				v := m.(map[string][]metadata.Metadata)["go_threads"]
 
 				sort.Slice(v, func(i, j int) bool {
@@ -2328,7 +2328,7 @@ func testEndpoints(t *testing.T, api *API, tr *testTargetRetriever, es storage.E
 				},
 			},
 			responseAsJSON: `{"go_threads": [{"type":"gauge","unit":"","help":"Number of OS threads created"},{"type":"gauge","unit":"","help":"Number of OS threads that were created."}]}`,
-			sorter: func(m any) {
+			sorter: func(m interface{}) {
 				v := m.(map[string][]metadata.Metadata)["go_threads"]
 
 				sort.Slice(v, func(i, j int) bool {
@@ -2382,7 +2382,7 @@ func testEndpoints(t *testing.T, api *API, tr *testTargetRetriever, es storage.E
 					},
 				},
 			},
-			zeroFunc: func(i any) {
+			zeroFunc: func(i interface{}) {
 				if i != nil {
 					v := i.(*AlertDiscovery)
 					for _, alert := range v.Alerts {
@@ -3700,7 +3700,7 @@ func testEndpoints(t *testing.T, api *API, tr *testTargetRetriever, es storage.E
 					// Build a context with the correct request params.
 					ctx := context.Background()
 					for p, v := range test.params {
-						ctx = route.WithParam(ctx, p, v) //nolint:fatcontext // This is intentional to provide the route params.
+						ctx = route.WithParam(ctx, p, v)
 					}
 
 					req, err := request(method, test.query)
@@ -3761,7 +3761,7 @@ func describeAPIFunc(f apiFunc) string {
 func assertAPIError(t *testing.T, got *apiError, exp errorType) {
 	t.Helper()
 
-	if exp.num == ErrorNone {
+	if exp == errorNone {
 		require.Nil(t, got)
 	} else {
 		require.NotNil(t, got)
@@ -3769,20 +3769,20 @@ func assertAPIError(t *testing.T, got *apiError, exp errorType) {
 	}
 }
 
-func assertAPIResponse(t *testing.T, got, exp any) {
+func assertAPIResponse(t *testing.T, got, exp interface{}) {
 	t.Helper()
 
 	testutil.RequireEqual(t, exp, got)
 }
 
-func assertAPIResponseLength(t *testing.T, got any, expLen int) {
+func assertAPIResponseLength(t *testing.T, got interface{}, expLen int) {
 	t.Helper()
 
 	gotLen := reflect.ValueOf(got).Len()
 	require.Equal(t, expLen, gotLen, "Response length does not match")
 }
 
-func assertAPIResponseMetadataLen(t *testing.T, got any, expLen int) {
+func assertAPIResponseMetadataLen(t *testing.T, got interface{}, expLen int) {
 	t.Helper()
 
 	var gotLen int
@@ -3806,7 +3806,7 @@ func (f *fakeDB) BlockMetas() ([]tsdb.BlockMeta, error) {
 }
 func (f *fakeDB) Delete(context.Context, int64, int64, ...*labels.Matcher) error { return f.err }
 func (f *fakeDB) Snapshot(string, bool) error                                    { return f.err }
-func (*fakeDB) Stats(statsByLabelName string, limit int) (_ *tsdb.Stats, retErr error) {
+func (f *fakeDB) Stats(statsByLabelName string, limit int) (_ *tsdb.Stats, retErr error) {
 	dbDir, err := os.MkdirTemp("", "tsdb-api-ready")
 	if err != nil {
 		return nil, err
@@ -3823,7 +3823,7 @@ func (*fakeDB) Stats(statsByLabelName string, limit int) (_ *tsdb.Stats, retErr 
 	return h.Stats(statsByLabelName, limit), nil
 }
 
-func (*fakeDB) WALReplayStatus() (tsdb.WALReplayStatus, error) {
+func (f *fakeDB) WALReplayStatus() (tsdb.WALReplayStatus, error) {
 	return tsdb.WALReplayStatus{}, nil
 }
 
@@ -3988,6 +3988,7 @@ func TestAdminEndpoints(t *testing.T) {
 			errType: errorUnavailable,
 		},
 	} {
+		tc := tc
 		t.Run("", func(t *testing.T) {
 			dir := t.TempDir()
 
@@ -4410,6 +4411,7 @@ func TestTSDBStatus(t *testing.T) {
 			errType:  errorBadData,
 		},
 	} {
+		tc := tc
 		t.Run(strconv.Itoa(i), func(t *testing.T) {
 			api := &API{db: tc.db, gatherer: prometheus.DefaultGatherer}
 			endpoint := tc.endpoint(api)
@@ -4465,11 +4467,11 @@ var testResponseWriter = httptest.ResponseRecorder{}
 
 func BenchmarkRespond(b *testing.B) {
 	points := []promql.FPoint{}
-	for i := range 10000 {
+	for i := 0; i < 10000; i++ {
 		points = append(points, promql.FPoint{F: float64(i * 1000000), T: int64(i)})
 	}
 	matrix := promql.Matrix{}
-	for i := range 1000 {
+	for i := 0; i < 1000; i++ {
 		matrix = append(matrix, promql.Series{
 			Metric: labels.FromStrings("__name__", fmt.Sprintf("series%v", i),
 				"label", fmt.Sprintf("series%v", i),
@@ -4478,7 +4480,7 @@ func BenchmarkRespond(b *testing.B) {
 		})
 	}
 	series := []labels.Labels{}
-	for i := range 1000 {
+	for i := 0; i < 1000; i++ {
 		series = append(series, labels.FromStrings("__name__", fmt.Sprintf("series%v", i),
 			"label", fmt.Sprintf("series%v", i),
 			"label2", fmt.Sprintf("series%v", i)))
@@ -4486,7 +4488,7 @@ func BenchmarkRespond(b *testing.B) {
 
 	cases := []struct {
 		name     string
-		response any
+		response interface{}
 	}{
 		{name: "10000 points no labels", response: &QueryData{
 			ResultType: parser.ValueTypeMatrix,
@@ -4635,12 +4637,12 @@ func (t *testCodec) ContentType() MIMEType {
 	return t.contentType
 }
 
-func (t *testCodec) CanEncode(*Response) bool {
+func (t *testCodec) CanEncode(_ *Response) bool {
 	return t.canEncode
 }
 
-func (t *testCodec) Encode(*Response) ([]byte, error) {
-	return fmt.Appendf(nil, "response from %v codec", t.contentType), nil
+func (t *testCodec) Encode(_ *Response) ([]byte, error) {
+	return []byte(fmt.Sprintf("response from %v codec", t.contentType)), nil
 }
 
 func TestExtractQueryOpts(t *testing.T) {
@@ -4763,11 +4765,11 @@ type fakeEngine struct {
 	query fakeQuery
 }
 
-func (e *fakeEngine) NewInstantQuery(context.Context, storage.Queryable, promql.QueryOpts, string, time.Time) (promql.Query, error) {
+func (e *fakeEngine) NewInstantQuery(_ context.Context, _ storage.Queryable, _ promql.QueryOpts, _ string, _ time.Time) (promql.Query, error) {
 	return &e.query, nil
 }
 
-func (e *fakeEngine) NewRangeQuery(context.Context, storage.Queryable, promql.QueryOpts, string, time.Time, time.Time, time.Duration) (promql.Query, error) {
+func (e *fakeEngine) NewRangeQuery(_ context.Context, _ storage.Queryable, _ promql.QueryOpts, _ string, _, _ time.Time, _ time.Duration) (promql.Query, error) {
 	return &e.query, nil
 }
 
@@ -4786,17 +4788,17 @@ func (q *fakeQuery) Exec(ctx context.Context) *promql.Result {
 	}
 }
 
-func (*fakeQuery) Close() {}
+func (q *fakeQuery) Close() {}
 
-func (*fakeQuery) Statement() parser.Statement {
+func (q *fakeQuery) Statement() parser.Statement {
 	return nil
 }
 
-func (*fakeQuery) Stats() *stats.Statistics {
+func (q *fakeQuery) Stats() *stats.Statistics {
 	return nil
 }
 
-func (*fakeQuery) Cancel() {}
+func (q *fakeQuery) Cancel() {}
 
 func (q *fakeQuery) String() string {
 	return q.query

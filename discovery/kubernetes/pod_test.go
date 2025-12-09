@@ -16,7 +16,6 @@ package kubernetes
 import (
 	"context"
 	"fmt"
-	"maps"
 	"testing"
 
 	"github.com/prometheus/common/model"
@@ -438,7 +437,9 @@ func TestPodDiscoveryNamespaces(t *testing.T) {
 	n, c := makeDiscovery(RolePod, NamespaceDiscovery{Names: []string{"ns1", "ns2"}})
 
 	expected := expectedPodTargetGroups("ns1")
-	maps.Copy(expected, expectedPodTargetGroups("ns2"))
+	for k, v := range expectedPodTargetGroups("ns2") {
+		expected[k] = v
+	}
 	k8sDiscoveryTest{
 		discovery: n,
 		beforeRun: func() {

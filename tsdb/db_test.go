@@ -248,7 +248,7 @@ func TestNoPanicAfterWALCorruption(t *testing.T) {
 	ctx := context.Background()
 	{
 		// Appending 121 samples because on the 121st a new chunk will be created.
-		for range 121 {
+		for i := 0; i < 121; i++ {
 			app := db.Appender(ctx)
 			_, err := app.Append(0, labels.FromStrings("foo", "bar"), maxt, 0)
 			expSamples = append(expSamples, sample{t: maxt, f: 0})
@@ -300,87 +300,19 @@ func TestDataNotAvailableAfterRollback(t *testing.T) {
 	}()
 
 	app := db.Appender(context.Background())
-	_, err := app.Append(0, labels.FromStrings("type", "float"), 0, 0)
-	require.NoError(t, err)
-
-	_, err = app.AppendHistogram(
-		0, labels.FromStrings("type", "histogram"), 0,
-		&histogram.Histogram{Count: 42, Sum: math.NaN()}, nil,
-	)
-	require.NoError(t, err)
-
-	_, err = app.AppendHistogram(
-		0, labels.FromStrings("type", "floathistogram"), 0,
-		nil, &histogram.FloatHistogram{Count: 42, Sum: math.NaN()},
-	)
+	_, err := app.Append(0, labels.FromStrings("foo", "bar"), 0, 0)
 	require.NoError(t, err)
 
 	err = app.Rollback()
 	require.NoError(t, err)
 
-	for _, typ := range []string{"float", "histogram", "floathistogram"} {
-		querier, err := db.Querier(0, 1)
-		require.NoError(t, err)
-		seriesSet := query(t, querier, labels.MustNewMatcher(labels.MatchEqual, "type", typ))
-		require.Equal(t, map[string][]chunks.Sample{}, seriesSet)
-	}
-
-	sr, err := wlog.NewSegmentsReader(db.head.wal.Dir())
+	querier, err := db.Querier(0, 1)
 	require.NoError(t, err)
-	defer func() {
-		require.NoError(t, sr.Close())
-	}()
+	defer querier.Close()
 
-	// Read records from WAL and check for expected count of series and samples.
-	var (
-		r   = wlog.NewReader(sr)
-		dec = record.NewDecoder(labels.NewSymbolTable(), promslog.NewNopLogger())
+	seriesSet := query(t, querier, labels.MustNewMatcher(labels.MatchEqual, "foo", "bar"))
 
-		walSeriesCount, walSamplesCount, walHistogramCount, walFloatHistogramCount, walExemplarsCount int
-	)
-	for r.Next() {
-		rec := r.Record()
-		switch dec.Type(rec) {
-		case record.Series:
-			var series []record.RefSeries
-			series, err = dec.Series(rec, series)
-			require.NoError(t, err)
-			walSeriesCount += len(series)
-
-		case record.Samples:
-			var samples []record.RefSample
-			samples, err = dec.Samples(rec, samples)
-			require.NoError(t, err)
-			walSamplesCount += len(samples)
-
-		case record.Exemplars:
-			var exemplars []record.RefExemplar
-			exemplars, err = dec.Exemplars(rec, exemplars)
-			require.NoError(t, err)
-			walExemplarsCount += len(exemplars)
-
-		case record.HistogramSamples, record.CustomBucketsHistogramSamples:
-			var histograms []record.RefHistogramSample
-			histograms, err = dec.HistogramSamples(rec, histograms)
-			require.NoError(t, err)
-			walHistogramCount += len(histograms)
-
-		case record.FloatHistogramSamples, record.CustomBucketsFloatHistogramSamples:
-			var floatHistograms []record.RefFloatHistogramSample
-			floatHistograms, err = dec.FloatHistogramSamples(rec, floatHistograms)
-			require.NoError(t, err)
-			walFloatHistogramCount += len(floatHistograms)
-
-		default:
-		}
-	}
-
-	// Check that only series get stored after calling Rollback.
-	require.Equal(t, 3, walSeriesCount, "series should have been written to WAL")
-	require.Equal(t, 0, walSamplesCount, "samples should not have been written to WAL")
-	require.Equal(t, 0, walExemplarsCount, "exemplars should not have been written to WAL")
-	require.Equal(t, 0, walHistogramCount, "histograms should not have been written to WAL")
-	require.Equal(t, 0, walFloatHistogramCount, "float histograms should not have been written to WAL")
+	require.Equal(t, map[string][]chunks.Sample{}, seriesSet)
 }
 
 func TestDBAppenderAddRef(t *testing.T) {
@@ -504,7 +436,7 @@ func TestDeleteSimple(t *testing.T) {
 			app := db.Appender(ctx)
 
 			smpls := make([]float64, numSamples)
-			for i := range numSamples {
+			for i := int64(0); i < numSamples; i++ {
 				smpls[i] = rand.Float64()
 				app.Append(0, labels.FromStrings("a", "b"), i, smpls[i])
 			}
@@ -713,7 +645,7 @@ func TestDB_Snapshot(t *testing.T) {
 	ctx := context.Background()
 	app := db.Appender(ctx)
 	mint := int64(1414141414000)
-	for i := range 1000 {
+	for i := 0; i < 1000; i++ {
 		_, err := app.Append(0, labels.FromStrings("foo", "bar"), mint+int64(i), 1.0)
 		require.NoError(t, err)
 	}
@@ -759,7 +691,7 @@ func TestDB_Snapshot_ChunksOutsideOfCompactedRange(t *testing.T) {
 	ctx := context.Background()
 	app := db.Appender(ctx)
 	mint := int64(1414141414000)
-	for i := range 1000 {
+	for i := 0; i < 1000; i++ {
 		_, err := app.Append(0, labels.FromStrings("foo", "bar"), mint+int64(i), 1.0)
 		require.NoError(t, err)
 	}
@@ -811,7 +743,7 @@ func TestDB_SnapshotWithDelete(t *testing.T) {
 	app := db.Appender(ctx)
 
 	smpls := make([]float64, numSamples)
-	for i := range numSamples {
+	for i := int64(0); i < numSamples; i++ {
 		smpls[i] = rand.Float64()
 		app.Append(0, labels.FromStrings("a", "b"), i, smpls[i])
 	}
@@ -957,7 +889,7 @@ func TestDB_e2e(t *testing.T) {
 		series := []chunks.Sample{}
 
 		ts := rand.Int63n(300)
-		for range numDatapoints {
+		for i := 0; i < numDatapoints; i++ {
 			v := rand.Float64()
 
 			series = append(series, sample{ts, v, nil, nil})
@@ -1008,7 +940,7 @@ func TestDB_e2e(t *testing.T) {
 
 		sort.Sort(matched)
 
-		for range numRanges {
+		for i := 0; i < numRanges; i++ {
 			mint := rand.Int63n(300)
 			maxt := mint + rand.Int63n(timeInterval*int64(numDatapoints))
 
@@ -1133,7 +1065,7 @@ func TestWALSegmentSizeOptions(t *testing.T) {
 			opts.WALSegmentSize = segmentSize
 			db := openTestDB(t, opts, nil)
 
-			for i := range int64(155) {
+			for i := int64(0); i < 155; i++ {
 				app := db.Appender(context.Background())
 				ref, err := app.Append(0, labels.FromStrings("wal"+strconv.Itoa(int(i)), "size"), i, rand.Float64())
 				require.NoError(t, err)
@@ -1181,7 +1113,7 @@ func testWALReplayRaceOnSamplesLoggedBeforeSeries(t *testing.T, numSamplesBefore
 		var enc record.Encoder
 		var samples []record.RefSample
 
-		for ts := range numSamplesBeforeSeriesCreation {
+		for ts := 0; ts < numSamplesBeforeSeriesCreation; ts++ {
 			samples = append(samples, record.RefSample{
 				Ref: chunks.HeadSeriesRef(uint64(seriesRef)),
 				T:   int64(ts),
@@ -1239,7 +1171,6 @@ func testWALReplayRaceOnSamplesLoggedBeforeSeries(t *testing.T, numSamplesBefore
 }
 
 func TestTombstoneClean(t *testing.T) {
-	t.Parallel()
 	const numSamples int64 = 10
 
 	db := openTestDB(t, nil, nil)
@@ -1248,7 +1179,7 @@ func TestTombstoneClean(t *testing.T) {
 	app := db.Appender(ctx)
 
 	smpls := make([]float64, numSamples)
-	for i := range numSamples {
+	for i := int64(0); i < numSamples; i++ {
 		smpls[i] = rand.Float64()
 		app.Append(0, labels.FromStrings("a", "b"), i, smpls[i])
 	}
@@ -1334,7 +1265,6 @@ func TestTombstoneClean(t *testing.T) {
 // TestTombstoneCleanResultEmptyBlock tests that a TombstoneClean that results in empty blocks (no timeseries)
 // will also delete the resultant block.
 func TestTombstoneCleanResultEmptyBlock(t *testing.T) {
-	t.Parallel()
 	numSamples := int64(10)
 
 	db := openTestDB(t, nil, nil)
@@ -1343,7 +1273,7 @@ func TestTombstoneCleanResultEmptyBlock(t *testing.T) {
 	app := db.Appender(ctx)
 
 	smpls := make([]float64, numSamples)
-	for i := range numSamples {
+	for i := int64(0); i < numSamples; i++ {
 		smpls[i] = rand.Float64()
 		app.Append(0, labels.FromStrings("a", "b"), i, smpls[i])
 	}
@@ -1379,7 +1309,6 @@ func TestTombstoneCleanResultEmptyBlock(t *testing.T) {
 // When TombstoneClean errors the original block that should be rebuilt doesn't get deleted so
 // if TombstoneClean leaves any blocks behind these will overlap.
 func TestTombstoneCleanFail(t *testing.T) {
-	t.Parallel()
 	db := openTestDB(t, nil, nil)
 	defer func() {
 		require.NoError(t, db.Close())
@@ -1390,7 +1319,7 @@ func TestTombstoneCleanFail(t *testing.T) {
 	// Create some blocks pending for compaction.
 	// totalBlocks should be >=2 so we have enough blocks to trigger compaction failure.
 	totalBlocks := 2
-	for i := range totalBlocks {
+	for i := 0; i < totalBlocks; i++ {
 		blockDir := createBlock(t, db.Dir(), genSeries(1, 1, int64(i), int64(i)+1))
 		block, err := OpenBlock(nil, blockDir, nil, nil)
 		require.NoError(t, err)
@@ -1481,7 +1410,6 @@ func (*mockCompactorFailing) CompactOOO(string, *OOOCompactionHead) (result []ul
 }
 
 func TestTimeRetention(t *testing.T) {
-	t.Parallel()
 	testCases := []struct {
 		name              string
 		blocks            []*BlockMeta
@@ -1558,7 +1486,6 @@ func TestRetentionDurationMetric(t *testing.T) {
 }
 
 func TestSizeRetention(t *testing.T) {
-	t.Parallel()
 	opts := DefaultOptions()
 	opts.OutOfOrderTimeWindow = 100
 	db := openTestDB(t, opts, []int64{100})
@@ -1625,7 +1552,7 @@ func TestSizeRetention(t *testing.T) {
 	// Create a WAL checkpoint, and compare sizes.
 	first, last, err := wlog.Segments(db.Head().wal.Dir())
 	require.NoError(t, err)
-	_, err = wlog.Checkpoint(promslog.NewNopLogger(), db.Head().wal, first, last-1, func(chunks.HeadSeriesRef) bool { return false }, 0)
+	_, err = wlog.Checkpoint(promslog.NewNopLogger(), db.Head().wal, first, last-1, func(_ chunks.HeadSeriesRef, _ int) bool { return false }, 0)
 	require.NoError(t, err)
 	blockSize = int64(prom_testutil.ToFloat64(db.metrics.blocksBytes)) // Use the actual internal metrics.
 	walSize, err = db.Head().wal.Size()
@@ -1908,7 +1835,6 @@ func TestOverlappingBlocksDetectsAllOverlaps(t *testing.T) {
 
 // Regression test for https://github.com/prometheus/tsdb/issues/347
 func TestChunkAtBlockBoundary(t *testing.T) {
-	t.Parallel()
 	db := openTestDB(t, nil, nil)
 	defer func() {
 		require.NoError(t, db.Close())
@@ -1920,7 +1846,7 @@ func TestChunkAtBlockBoundary(t *testing.T) {
 	blockRange := db.compactor.(*LeveledCompactor).ranges[0]
 	label := labels.FromStrings("foo", "bar")
 
-	for i := range int64(3) {
+	for i := int64(0); i < 3; i++ {
 		_, err := app.Append(0, label, i*blockRange, 0)
 		require.NoError(t, err)
 		_, err = app.Append(0, label, i*blockRange+1000, 0)
@@ -1965,7 +1891,6 @@ func TestChunkAtBlockBoundary(t *testing.T) {
 }
 
 func TestQuerierWithBoundaryChunks(t *testing.T) {
-	t.Parallel()
 	db := openTestDB(t, nil, nil)
 	defer func() {
 		require.NoError(t, db.Close())
@@ -1977,7 +1902,7 @@ func TestQuerierWithBoundaryChunks(t *testing.T) {
 	blockRange := db.compactor.(*LeveledCompactor).ranges[0]
 	label := labels.FromStrings("foo", "bar")
 
-	for i := range int64(5) {
+	for i := int64(0); i < 5; i++ {
 		_, err := app.Append(0, label, i*blockRange, 0)
 		require.NoError(t, err)
 		_, err = app.Append(0, labels.FromStrings("blockID", strconv.FormatInt(i, 10)), i*blockRange, 0)
@@ -2010,7 +1935,6 @@ func TestQuerierWithBoundaryChunks(t *testing.T) {
 //   - with blocks no WAL: set to the last block maxT
 //   - with blocks with WAL: same as above
 func TestInitializeHeadTimestamp(t *testing.T) {
-	t.Parallel()
 	t.Run("clean", func(t *testing.T) {
 		dir := t.TempDir()
 
@@ -2113,7 +2037,6 @@ func TestInitializeHeadTimestamp(t *testing.T) {
 }
 
 func TestNoEmptyBlocks(t *testing.T) {
-	t.Parallel()
 	db := openTestDB(t, nil, []int64{100})
 	ctx := context.Background()
 	defer func() {
@@ -2322,7 +2245,6 @@ func TestDB_LabelNames(t *testing.T) {
 }
 
 func TestCorrectNumTombstones(t *testing.T) {
-	t.Parallel()
 	db := openTestDB(t, nil, nil)
 	defer func() {
 		require.NoError(t, db.Close())
@@ -2335,8 +2257,8 @@ func TestCorrectNumTombstones(t *testing.T) {
 
 	ctx := context.Background()
 	app := db.Appender(ctx)
-	for i := range int64(3) {
-		for j := range int64(15) {
+	for i := int64(0); i < 3; i++ {
+		for j := int64(0); j < 15; j++ {
 			_, err := app.Append(0, defaultLabel, i*blockRange+j, 0)
 			require.NoError(t, err)
 		}
@@ -2373,7 +2295,6 @@ func TestCorrectNumTombstones(t *testing.T) {
 // This ensures that a snapshot that includes the head and creates a block with a custom time range
 // will not overlap with the first block created by the next compaction.
 func TestBlockRanges(t *testing.T) {
-	t.Parallel()
 	logger := promslog.New(&promslog.Config{})
 	ctx := context.Background()
 
@@ -2401,7 +2322,7 @@ func TestBlockRanges(t *testing.T) {
 
 	require.NoError(t, err)
 	require.NoError(t, app.Commit())
-	for range 100 {
+	for x := 0; x < 100; x++ {
 		if len(db.Blocks()) == 2 {
 			break
 		}
@@ -2441,7 +2362,7 @@ func TestBlockRanges(t *testing.T) {
 	_, err = app.Append(0, lbl, thirdBlockMaxt+rangeToTriggerCompaction, rand.Float64()) // Trigger a compaction
 	require.NoError(t, err)
 	require.NoError(t, app.Commit())
-	for range 100 {
+	for x := 0; x < 100; x++ {
 		if len(db.Blocks()) == 4 {
 			break
 		}
@@ -2457,7 +2378,6 @@ func TestBlockRanges(t *testing.T) {
 // TestDBReadOnly ensures that opening a DB in readonly mode doesn't modify any files on the disk.
 // It also checks that the API calls return equivalent results as a normal db.Open() mode.
 func TestDBReadOnly(t *testing.T) {
-	t.Parallel()
 	var (
 		dbDir     string
 		logger    = promslog.New(&promslog.Config{})
@@ -2577,7 +2497,6 @@ func TestDBReadOnly(t *testing.T) {
 // TestDBReadOnlyClosing ensures that after closing the db
 // all api methods return an ErrClosed.
 func TestDBReadOnlyClosing(t *testing.T) {
-	t.Parallel()
 	sandboxDir := t.TempDir()
 	db, err := OpenDBReadOnly(t.TempDir(), sandboxDir, promslog.New(&promslog.Config{}))
 	require.NoError(t, err)
@@ -2594,7 +2513,6 @@ func TestDBReadOnlyClosing(t *testing.T) {
 }
 
 func TestDBReadOnly_FlushWAL(t *testing.T) {
-	t.Parallel()
 	var (
 		dbDir  string
 		logger = promslog.New(&promslog.Config{})
@@ -2697,7 +2615,7 @@ func TestDBReadOnly_Querier_NoAlteration(t *testing.T) {
 		}()
 
 		// Append until the first mmapped head chunk.
-		for i := range 121 {
+		for i := 0; i < 121; i++ {
 			app := db.Appender(context.Background())
 			_, err := app.Append(0, labels.FromStrings("foo", "bar"), int64(i), 0)
 			require.NoError(t, err)
@@ -2755,7 +2673,7 @@ func TestDBCannotSeePartialCommits(t *testing.T) {
 		for {
 			app := db.Appender(ctx)
 
-			for j := range 100 {
+			for j := 0; j < 100; j++ {
 				_, err := app.Append(0, labels.FromStrings("foo", "bar", "a", strconv.Itoa(j)), int64(iter), float64(iter))
 				require.NoError(t, err)
 			}
@@ -2780,7 +2698,7 @@ func TestDBCannotSeePartialCommits(t *testing.T) {
 	// This is a race condition, so do a few tests to tickle it.
 	// Usually most will fail.
 	inconsistencies := 0
-	for range 10 {
+	for i := 0; i < 10; i++ {
 		func() {
 			querier, err := db.Querier(0, 1000000)
 			require.NoError(t, err)
@@ -3085,7 +3003,6 @@ func TestRangeForTimestamp(t *testing.T) {
 // TestChunkReader_ConcurrentReads checks that the chunk result can be read concurrently.
 // Regression test for https://github.com/prometheus/prometheus/pull/6514.
 func TestChunkReader_ConcurrentReads(t *testing.T) {
-	t.Parallel()
 	chks := []chunks.Meta{
 		assureChunkFromSamples(t, []chunks.Sample{sample{1, 1, nil, nil}}),
 		assureChunkFromSamples(t, []chunks.Sample{sample{1, 2, nil, nil}}),
@@ -3107,7 +3024,7 @@ func TestChunkReader_ConcurrentReads(t *testing.T) {
 
 	var wg sync.WaitGroup
 	for _, chk := range chks {
-		for range 100 {
+		for i := 0; i < 100; i++ {
 			wg.Add(1)
 			go func(chunk chunks.Meta) {
 				defer wg.Done()
@@ -3132,7 +3049,6 @@ func TestChunkReader_ConcurrentReads(t *testing.T) {
 // * compacts the head; and
 // * queries the db to ensure the samples are present from the compacted head.
 func TestCompactHead(t *testing.T) {
-	t.Parallel()
 	dbDir := t.TempDir()
 
 	// Open a DB and append data to the WAL.
@@ -3150,7 +3066,7 @@ func TestCompactHead(t *testing.T) {
 	app := db.Appender(ctx)
 	var expSamples []sample
 	maxt := 100
-	for i := range maxt {
+	for i := 0; i < maxt; i++ {
 		val := rand.Float64()
 		_, err := app.Append(0, labels.FromStrings("a", "b"), int64(i), val)
 		require.NoError(t, err)
@@ -3350,7 +3266,6 @@ func TestOpen_VariousBlockStates(t *testing.T) {
 }
 
 func TestOneCheckpointPerCompactCall(t *testing.T) {
-	t.Parallel()
 	blockRange := int64(1000)
 	tsdbCfg := &Options{
 		RetentionDuration: blockRange * 1000,
@@ -3374,7 +3289,7 @@ func TestOneCheckpointPerCompactCall(t *testing.T) {
 	lbls := labels.FromStrings("foo_d", "choco_bar")
 	// Append samples spanning 59 block ranges.
 	app := db.Appender(context.Background())
-	for i := range int64(60) {
+	for i := int64(0); i < 60; i++ {
 		_, err := app.Append(0, lbls, blockRange*i, rand.Float64())
 		require.NoError(t, err)
 		_, err = app.Append(0, lbls, (blockRange*i)+blockRange/2, rand.Float64())
@@ -3528,7 +3443,7 @@ func testQuerierShouldNotPanicIfHeadChunkIsTruncatedWhileReadingQueriedChunks(t 
 
 	// Generate the metrics we're going to append.
 	metrics := make([]labels.Labels, 0, numSeries)
-	for i := range numSeries {
+	for i := 0; i < numSeries; i++ {
 		metrics = append(metrics, labels.FromStrings(labels.MetricName, fmt.Sprintf("test_%d", i)))
 	}
 
@@ -3602,7 +3517,7 @@ func testQuerierShouldNotPanicIfHeadChunkIsTruncatedWhileReadingQueriedChunks(t 
 	// Stress the memory and call GC. This is required to increase the chances
 	// the chunk memory area is released to the kernel.
 	var buf []byte
-	for i := range numStressIterations {
+	for i := 0; i < numStressIterations; i++ {
 		//nolint:staticcheck
 		buf = append(buf, make([]byte, minStressAllocationBytes+rand.Int31n(maxStressAllocationBytes-minStressAllocationBytes))...)
 		if i%1000 == 0 {
@@ -3664,7 +3579,7 @@ func testChunkQuerierShouldNotPanicIfHeadChunkIsTruncatedWhileReadingQueriedChun
 
 	// Generate the metrics we're going to append.
 	metrics := make([]labels.Labels, 0, numSeries)
-	for i := range numSeries {
+	for i := 0; i < numSeries; i++ {
 		metrics = append(metrics, labels.FromStrings(labels.MetricName, fmt.Sprintf("test_%d", i)))
 	}
 
@@ -3736,7 +3651,7 @@ func testChunkQuerierShouldNotPanicIfHeadChunkIsTruncatedWhileReadingQueriedChun
 	// Stress the memory and call GC. This is required to increase the chances
 	// the chunk memory area is released to the kernel.
 	var buf []byte
-	for i := range numStressIterations {
+	for i := 0; i < numStressIterations; i++ {
 		//nolint:staticcheck
 		buf = append(buf, make([]byte, minStressAllocationBytes+rand.Int31n(maxStressAllocationBytes-minStressAllocationBytes))...)
 		if i%1000 == 0 {
@@ -4038,8 +3953,8 @@ func TestOOOWALWrite(t *testing.T) {
 
 	scenarios := map[string]struct {
 		appendSample       func(app storage.Appender, l labels.Labels, mins int64) (storage.SeriesRef, error)
-		expectedOOORecords []any
-		expectedInORecords []any
+		expectedOOORecords []interface{}
+		expectedInORecords []interface{}
 	}{
 		"float": {
 			appendSample: func(app storage.Appender, l labels.Labels, mins int64) (storage.SeriesRef, error) {
@@ -4047,7 +3962,7 @@ func TestOOOWALWrite(t *testing.T) {
 				require.NoError(t, err)
 				return seriesRef, nil
 			},
-			expectedOOORecords: []any{
+			expectedOOORecords: []interface{}{
 				// The MmapRef in this are not hand calculated, and instead taken from the test run.
 				// What is important here is the order of records, and that MmapRef increases for each record.
 				[]record.RefMmapMarker{
@@ -4099,7 +4014,7 @@ func TestOOOWALWrite(t *testing.T) {
 					{Ref: 2, T: minutes(53), V: 53},
 				},
 			},
-			expectedInORecords: []any{
+			expectedInORecords: []interface{}{
 				[]record.RefSeries{
 					{Ref: 1, Labels: s1},
 					{Ref: 2, Labels: s2},
@@ -4138,7 +4053,7 @@ func TestOOOWALWrite(t *testing.T) {
 				require.NoError(t, err)
 				return seriesRef, nil
 			},
-			expectedOOORecords: []any{
+			expectedOOORecords: []interface{}{
 				// The MmapRef in this are not hand calculated, and instead taken from the test run.
 				// What is important here is the order of records, and that MmapRef increases for each record.
 				[]record.RefMmapMarker{
@@ -4190,7 +4105,7 @@ func TestOOOWALWrite(t *testing.T) {
 					{Ref: 2, T: minutes(53), H: tsdbutil.GenerateTestHistogram(53)},
 				},
 			},
-			expectedInORecords: []any{
+			expectedInORecords: []interface{}{
 				[]record.RefSeries{
 					{Ref: 1, Labels: s1},
 					{Ref: 2, Labels: s2},
@@ -4229,7 +4144,7 @@ func TestOOOWALWrite(t *testing.T) {
 				require.NoError(t, err)
 				return seriesRef, nil
 			},
-			expectedOOORecords: []any{
+			expectedOOORecords: []interface{}{
 				// The MmapRef in this are not hand calculated, and instead taken from the test run.
 				// What is important here is the order of records, and that MmapRef increases for each record.
 				[]record.RefMmapMarker{
@@ -4281,7 +4196,7 @@ func TestOOOWALWrite(t *testing.T) {
 					{Ref: 2, T: minutes(53), FH: tsdbutil.GenerateTestFloatHistogram(53)},
 				},
 			},
-			expectedInORecords: []any{
+			expectedInORecords: []interface{}{
 				[]record.RefSeries{
 					{Ref: 1, Labels: s1},
 					{Ref: 2, Labels: s2},
@@ -4320,7 +4235,7 @@ func TestOOOWALWrite(t *testing.T) {
 				require.NoError(t, err)
 				return seriesRef, nil
 			},
-			expectedOOORecords: []any{
+			expectedOOORecords: []interface{}{
 				// The MmapRef in this are not hand calculated, and instead taken from the test run.
 				// What is important here is the order of records, and that MmapRef increases for each record.
 				[]record.RefMmapMarker{
@@ -4372,7 +4287,7 @@ func TestOOOWALWrite(t *testing.T) {
 					{Ref: 2, T: minutes(53), H: tsdbutil.GenerateTestCustomBucketsHistogram(53)},
 				},
 			},
-			expectedInORecords: []any{
+			expectedInORecords: []interface{}{
 				[]record.RefSeries{
 					{Ref: 1, Labels: s1},
 					{Ref: 2, Labels: s2},
@@ -4411,7 +4326,7 @@ func TestOOOWALWrite(t *testing.T) {
 				require.NoError(t, err)
 				return seriesRef, nil
 			},
-			expectedOOORecords: []any{
+			expectedOOORecords: []interface{}{
 				// The MmapRef in this are not hand calculated, and instead taken from the test run.
 				// What is important here is the order of records, and that MmapRef increases for each record.
 				[]record.RefMmapMarker{
@@ -4463,7 +4378,7 @@ func TestOOOWALWrite(t *testing.T) {
 					{Ref: 2, T: minutes(53), FH: tsdbutil.GenerateTestCustomBucketsFloatHistogram(53)},
 				},
 			},
-			expectedInORecords: []any{
+			expectedInORecords: []interface{}{
 				[]record.RefSeries{
 					{Ref: 1, Labels: s1},
 					{Ref: 2, Labels: s2},
@@ -4506,8 +4421,8 @@ func TestOOOWALWrite(t *testing.T) {
 
 func testOOOWALWrite(t *testing.T,
 	appendSample func(app storage.Appender, l labels.Labels, mins int64) (storage.SeriesRef, error),
-	expectedOOORecords []any,
-	expectedInORecords []any,
+	expectedOOORecords []interface{},
+	expectedInORecords []interface{},
 ) {
 	dir := t.TempDir()
 
@@ -4563,7 +4478,7 @@ func testOOOWALWrite(t *testing.T,
 	appendSample(app, s2, 53)
 	require.NoError(t, app.Commit())
 
-	getRecords := func(walDir string) []any {
+	getRecords := func(walDir string) []interface{} {
 		sr, err := wlog.NewSegmentsReader(walDir)
 		require.NoError(t, err)
 		r := wlog.NewReader(sr)
@@ -4571,8 +4486,8 @@ func testOOOWALWrite(t *testing.T,
 			require.NoError(t, sr.Close())
 		}()
 
-		var records []any
-		dec := record.NewDecoder(nil, promslog.NewNopLogger())
+		var records []interface{}
+		dec := record.NewDecoder(nil)
 		for r.Next() {
 			rec := r.Record()
 			switch typ := dec.Type(rec); typ {
@@ -4630,7 +4545,7 @@ func TestDBPanicOnMmappingHeadChunk(t *testing.T) {
 		app := db.Appender(context.Background())
 		var ref storage.SeriesRef
 		lbls := labels.FromStrings("__name__", "testing", "foo", "bar")
-		for i := range numSamples {
+		for i := 0; i < numSamples; i++ {
 			ref, err = app.Append(ref, lbls, lastTs, float64(lastTs))
 			require.NoError(t, err)
 			lastTs += itvl
@@ -4806,7 +4721,7 @@ func TestMetadataCheckpointingOnlyKeepsLatestEntry(t *testing.T) {
 	// Let's create a checkpoint.
 	first, last, err := wlog.Segments(w.Dir())
 	require.NoError(t, err)
-	keep := func(id chunks.HeadSeriesRef) bool {
+	keep := func(id chunks.HeadSeriesRef, _ int) bool {
 		return id != 3
 	}
 	_, err = wlog.Checkpoint(promslog.NewNopLogger(), w, first, last-1, keep, 0)
@@ -4924,7 +4839,10 @@ func TestMetadataAssertInMemoryData(t *testing.T) {
 }
 
 // TestMultipleEncodingsCommitOrder mainly serves to demonstrate when happens when committing a batch of samples for the
-// same series when there are multiple encodings. With issue #15177 fixed, this now all works as expected.
+// same series when there are multiple encodings. Commit() will process all float samples before histogram samples. This
+// means that if histograms are appended before floats, the histograms could be marked as OOO when they are committed.
+// While possible, this shouldn't happen very often - you need the same series to be ingested as both a float and a
+// histogram in a single write request.
 func TestMultipleEncodingsCommitOrder(t *testing.T) {
 	opts := DefaultOptions()
 	opts.OutOfOrderCapMax = 30
@@ -4998,19 +4916,26 @@ func TestMultipleEncodingsCommitOrder(t *testing.T) {
 		s := addSample(app, int64(i), chunkenc.ValFloat)
 		expSamples = append(expSamples, s)
 	}
+	// These samples will be marked as OOO as their timestamps are less than the max timestamp for float samples in the
+	// same batch.
 	for i := 110; i < 120; i++ {
 		s := addSample(app, int64(i), chunkenc.ValHistogram)
 		expSamples = append(expSamples, s)
 	}
+	// These samples will be marked as OOO as their timestamps are less than the max timestamp for float samples in the
+	// same batch.
 	for i := 120; i < 130; i++ {
 		s := addSample(app, int64(i), chunkenc.ValFloatHistogram)
 		expSamples = append(expSamples, s)
 	}
+	// These samples will be marked as in-order as their timestamps are greater than the max timestamp for float
+	// samples in the same batch.
 	for i := 140; i < 150; i++ {
 		s := addSample(app, int64(i), chunkenc.ValFloatHistogram)
 		expSamples = append(expSamples, s)
 	}
-	// These samples will be marked as out-of-order.
+	// These samples will be marked as in-order, even though they're appended after the float histograms from ts 140-150
+	// because float samples are processed first and these samples are in-order wrt to the float samples in the batch.
 	for i := 130; i < 135; i++ {
 		s := addSample(app, int64(i), chunkenc.ValFloat)
 		expSamples = append(expSamples, s)
@@ -5022,8 +4947,8 @@ func TestMultipleEncodingsCommitOrder(t *testing.T) {
 		return expSamples[i].T() < expSamples[j].T()
 	})
 
-	// oooCount = 5 for the samples 130 to 134.
-	verifySamples(100, 150, expSamples, 5)
+	// oooCount = 20 because the histograms from 120 - 130 and float histograms from 120 - 130 are detected as OOO.
+	verifySamples(100, 150, expSamples, 20)
 
 	// Append and commit some in-order histograms by themselves.
 	app = db.Appender(context.Background())
@@ -5033,8 +4958,8 @@ func TestMultipleEncodingsCommitOrder(t *testing.T) {
 	}
 	require.NoError(t, app.Commit())
 
-	// oooCount remains at 5.
-	verifySamples(100, 160, expSamples, 5)
+	// oooCount remains at 20 as no new OOO samples have been added.
+	verifySamples(100, 160, expSamples, 20)
 
 	// Append and commit samples for all encoding types. This time all samples will be treated as OOO because samples
 	// with newer timestamps have already been committed.
@@ -5062,8 +4987,8 @@ func TestMultipleEncodingsCommitOrder(t *testing.T) {
 		return expSamples[i].T() < expSamples[j].T()
 	})
 
-	// oooCount = 35 as we've added 30 more OOO samples.
-	verifySamples(50, 160, expSamples, 35)
+	// oooCount = 50 as we've added 30 more OOO samples.
+	verifySamples(50, 160, expSamples, 50)
 }
 
 // TODO(codesome): test more samples incoming once compaction has started. To verify new samples after the start
@@ -5275,7 +5200,6 @@ func testOOOCompaction(t *testing.T, scenario sampleTypeScenario, addExtraSample
 // TestOOOCompactionWithNormalCompaction tests if OOO compaction is performed
 // when the normal head's compaction is done.
 func TestOOOCompactionWithNormalCompaction(t *testing.T) {
-	t.Parallel()
 	for name, scenario := range sampleTypeScenarios {
 		t.Run(name, func(t *testing.T) {
 			testOOOCompactionWithNormalCompaction(t, scenario)
@@ -5284,7 +5208,6 @@ func TestOOOCompactionWithNormalCompaction(t *testing.T) {
 }
 
 func testOOOCompactionWithNormalCompaction(t *testing.T, scenario sampleTypeScenario) {
-	t.Parallel()
 	dir := t.TempDir()
 	ctx := context.Background()
 
@@ -5386,7 +5309,6 @@ func testOOOCompactionWithNormalCompaction(t *testing.T, scenario sampleTypeScen
 // configured to not have wal and wbl but its able to compact both the in-order
 // and out-of-order head.
 func TestOOOCompactionWithDisabledWriteLog(t *testing.T) {
-	t.Parallel()
 	for name, scenario := range sampleTypeScenarios {
 		t.Run(name, func(t *testing.T) {
 			testOOOCompactionWithDisabledWriteLog(t, scenario)
@@ -5395,7 +5317,6 @@ func TestOOOCompactionWithDisabledWriteLog(t *testing.T) {
 }
 
 func testOOOCompactionWithDisabledWriteLog(t *testing.T, scenario sampleTypeScenario) {
-	t.Parallel()
 	dir := t.TempDir()
 	ctx := context.Background()
 
@@ -5499,7 +5420,6 @@ func testOOOCompactionWithDisabledWriteLog(t *testing.T, scenario sampleTypeScen
 // missing after a restart while snapshot was enabled, but the query still returns the right
 // data from the mmap chunks.
 func TestOOOQueryAfterRestartWithSnapshotAndRemovedWBL(t *testing.T) {
-	t.Parallel()
 	for name, scenario := range sampleTypeScenarios {
 		t.Run(name, func(t *testing.T) {
 			testOOOQueryAfterRestartWithSnapshotAndRemovedWBL(t, scenario)
@@ -5682,7 +5602,7 @@ func testQuerierOOOQuery(t *testing.T,
 	series1 := labels.FromStrings("foo", "bar1")
 
 	type filterFunc func(t int64) bool
-	defaultFilterFunc := func(int64) bool { return true }
+	defaultFilterFunc := func(_ int64) bool { return true }
 
 	minutes := func(m int64) int64 { return m * time.Minute.Milliseconds() }
 	addSample := func(db *DB, fromMins, toMins, queryMinT, queryMaxT int64, expSamples []chunks.Sample, filter filterFunc, counterReset bool) ([]chunks.Sample, int) {
@@ -6012,7 +5932,7 @@ func testChunkQuerierOOOQuery(t *testing.T,
 	series1 := labels.FromStrings("foo", "bar1")
 
 	type filterFunc func(t int64) bool
-	defaultFilterFunc := func(int64) bool { return true }
+	defaultFilterFunc := func(_ int64) bool { return true }
 
 	minutes := func(m int64) int64 { return m * time.Minute.Milliseconds() }
 	addSample := func(db *DB, fromMins, toMins, queryMinT, queryMaxT int64, expSamples []chunks.Sample, filter filterFunc, counterReset bool) ([]chunks.Sample, int) {
@@ -6291,7 +6211,7 @@ func testOOONativeHistogramsWithCounterResets(t *testing.T, scenario sampleTypeS
 	opts.OutOfOrderTimeWindow = 24 * time.Hour.Milliseconds()
 
 	type resetFunc func(v int64) bool
-	defaultResetFunc := func(int64) bool { return false }
+	defaultResetFunc := func(_ int64) bool { return false }
 
 	lbls := labels.FromStrings("foo", "bar1")
 	minutes := func(m int64) int64 { return m * time.Minute.Milliseconds() }
@@ -7088,7 +7008,7 @@ func testWBLAndMmapReplay(t *testing.T, scenario sampleTypeScenario) {
 		require.NoError(t, err)
 		sr, err := wlog.NewSegmentsReader(originalWblDir)
 		require.NoError(t, err)
-		dec := record.NewDecoder(labels.NewSymbolTable(), promslog.NewNopLogger())
+		dec := record.NewDecoder(labels.NewSymbolTable())
 		r, markers, addedRecs := wlog.NewReader(sr), 0, 0
 		for r.Next() {
 			rec := r.Record()
@@ -7585,7 +7505,6 @@ func copyWithCounterReset(s sample, hint histogram.CounterResetHint) sample {
 }
 
 func TestOOOCompactionFailure(t *testing.T) {
-	t.Parallel()
 	for name, scenario := range sampleTypeScenarios {
 		t.Run(name, func(t *testing.T) {
 			testOOOCompactionFailure(t, scenario)
@@ -7658,7 +7577,7 @@ func testOOOCompactionFailure(t *testing.T, scenario sampleTypeScenario) {
 	// OOO compaction fails 5 times.
 	originalCompactor := db.compactor
 	db.compactor = &mockCompactorFailing{t: t}
-	for range 5 {
+	for i := 0; i < 5; i++ {
 		require.Error(t, db.CompactOOOHead(ctx))
 	}
 	require.Empty(t, db.Blocks())
@@ -8011,7 +7930,6 @@ func testOOOMmapCorruption(t *testing.T, scenario sampleTypeScenario) {
 }
 
 func TestOutOfOrderRuntimeConfig(t *testing.T) {
-	t.Parallel()
 	for name, scenario := range sampleTypeScenarios {
 		t.Run(name, func(t *testing.T) {
 			testOutOfOrderRuntimeConfig(t, scenario)
@@ -8252,7 +8170,6 @@ func testOutOfOrderRuntimeConfig(t *testing.T, scenario sampleTypeScenario) {
 }
 
 func TestNoGapAfterRestartWithOOO(t *testing.T) {
-	t.Parallel()
 	for name, scenario := range sampleTypeScenarios {
 		t.Run(name, func(t *testing.T) {
 			testNoGapAfterRestartWithOOO(t, scenario)
@@ -8494,7 +8411,6 @@ func testPanicOnApplyConfig(t *testing.T, scenario sampleTypeScenario) {
 }
 
 func TestDiskFillingUpAfterDisablingOOO(t *testing.T) {
-	t.Parallel()
 	for name, scenario := range sampleTypeScenarios {
 		t.Run(name, func(t *testing.T) {
 			testDiskFillingUpAfterDisablingOOO(t, scenario)
@@ -8503,7 +8419,6 @@ func TestDiskFillingUpAfterDisablingOOO(t *testing.T) {
 }
 
 func testDiskFillingUpAfterDisablingOOO(t *testing.T, scenario sampleTypeScenario) {
-	t.Parallel()
 	dir := t.TempDir()
 	ctx := context.Background()
 
@@ -8865,7 +8780,6 @@ func testHistogramAppendAndQueryHelper(t *testing.T, floatHistogram bool) {
 }
 
 func TestQueryHistogramFromBlocksWithCompaction(t *testing.T) {
-	t.Parallel()
 	minute := func(m int) int64 { return int64(m) * time.Minute.Milliseconds() }
 
 	testBlockQuerying := func(t *testing.T, blockSeries ...[]storage.Series) {
@@ -9217,7 +9131,6 @@ func compareSeries(t require.TestingT, expected, actual map[string][]chunks.Samp
 // can be read in parallel and we should be able to make a copy of the chunk without
 // worrying about the parallel write.
 func TestChunkQuerierReadWriteRace(t *testing.T) {
-	t.Parallel()
 	db := openTestDB(t, nil, nil)
 	defer func() {
 		require.NoError(t, db.Close())
@@ -9228,9 +9141,9 @@ func TestChunkQuerierReadWriteRace(t *testing.T) {
 	writer := func() error {
 		<-time.After(5 * time.Millisecond) // Initial pause while readers start.
 		ts := 0
-		for range 500 {
+		for i := 0; i < 500; i++ {
 			app := db.Appender(context.Background())
-			for range 10 {
+			for j := 0; j < 10; j++ {
 				ts++
 				_, err := app.Append(0, lbls, int64(ts), float64(ts*100))
 				if err != nil {
@@ -9292,15 +9205,15 @@ type mockCompactorFn struct {
 	writeFn   func() ([]ulid.ULID, error)
 }
 
-func (c *mockCompactorFn) Plan(string) ([]string, error) {
+func (c *mockCompactorFn) Plan(_ string) ([]string, error) {
 	return c.planFn()
 }
 
-func (c *mockCompactorFn) Compact(string, []string, []*Block) ([]ulid.ULID, error) {
+func (c *mockCompactorFn) Compact(_ string, _ []string, _ []*Block) ([]ulid.ULID, error) {
 	return c.compactFn()
 }
 
-func (c *mockCompactorFn) Write(string, BlockReader, int64, int64, *BlockMeta) ([]ulid.ULID, error) {
+func (c *mockCompactorFn) Write(_ string, _ BlockReader, _, _ int64, _ *BlockMeta) ([]ulid.ULID, error) {
 	return c.writeFn()
 }
 
@@ -9350,7 +9263,7 @@ func TestNewCompactorFunc(t *testing.T) {
 	opts := DefaultOptions()
 	block1 := ulid.MustNew(1, nil)
 	block2 := ulid.MustNew(2, nil)
-	opts.NewCompactorFunc = func(context.Context, prometheus.Registerer, *slog.Logger, []int64, chunkenc.Pool, *Options) (Compactor, error) {
+	opts.NewCompactorFunc = func(_ context.Context, _ prometheus.Registerer, _ *slog.Logger, _ []int64, _ chunkenc.Pool, _ *Options) (Compactor, error) {
 		return &mockCompactorFn{
 			planFn: func() ([]string, error) {
 				return []string{block1.String(), block2.String()}, nil
@@ -9492,7 +9405,7 @@ func TestGenerateCompactionDelay(t *testing.T) {
 		// The offset is generated and changed while opening.
 		assertDelay(db.opts.CompactionDelay, c.compactionDelayPercent)
 
-		for range 1000 {
+		for i := 0; i < 1000; i++ {
 			assertDelay(db.generateCompactionDelay(), c.compactionDelayPercent)
 		}
 	}

@@ -70,7 +70,7 @@ func (p *queryLogTest) skip(t *testing.T) {
 // waitForPrometheus waits for Prometheus to be ready.
 func (p *queryLogTest) waitForPrometheus() error {
 	var err error
-	for range 20 {
+	for x := 0; x < 20; x++ {
 		var r *http.Response
 		if r, err = http.Get(fmt.Sprintf("http://%s:%d%s/-/ready", p.host, p.port, p.prefix)); err == nil && r.StatusCode == http.StatusOK {
 			break

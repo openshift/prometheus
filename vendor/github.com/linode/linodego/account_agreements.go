@@ -22,7 +22,7 @@ func (i AccountAgreements) GetUpdateOptions() (o AccountAgreementsUpdateOptions)
 	o.MasterServiceAgreement = i.MasterServiceAgreement
 	o.PrivacyPolicy = i.PrivacyPolicy
 
-	return o
+	return
 }
 
 // GetAccountAgreements gets all agreements and their acceptance status for the Account.

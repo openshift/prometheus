@@ -18,7 +18,6 @@ func (p *ProfilePreferences) UnmarshalJSON(b []byte) error {
 	}
 
 	*p = data
-
 	return nil
 }
 

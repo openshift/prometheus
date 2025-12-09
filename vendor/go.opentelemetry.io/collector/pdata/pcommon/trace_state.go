@@ -14,7 +14,8 @@ import (
 type TraceState internal.TraceState
 
 func NewTraceState() TraceState {
-	return TraceState(internal.NewTraceState(new(string), internal.NewState()))
+	state := internal.StateMutable
+	return TraceState(internal.NewTraceState(new(string), &state))
 }
 
 func (ms TraceState) getOrig() *string {

@@ -27,7 +27,6 @@ func (i *Login) UnmarshalJSON(b []byte) error {
 
 	l := struct {
 		*Mask
-
 		Datetime *parseabletime.ParseableTime `json:"datetime"`
 	}{
 		Mask: (*Mask)(i),

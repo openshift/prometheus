@@ -72,7 +72,6 @@ type NodeBalancerCreateOptions struct {
 	FirewallID int                                `json:"firewall_id,omitempty"`
 	Type       NodeBalancerPlanType               `json:"type,omitempty"`
 	VPCs       []NodeBalancerVPCOptions           `json:"vpcs,omitempty"`
-	IPv4       *string                            `json:"ipv4,omitempty"`
 }
 
 // NodeBalancerUpdateOptions are the options permitted for UpdateNodeBalancer
@@ -101,7 +100,6 @@ func (i *NodeBalancer) UnmarshalJSON(b []byte) error {
 
 	p := struct {
 		*Mask
-
 		Created *parseabletime.ParseableTime `json:"created"`
 		Updated *parseabletime.ParseableTime `json:"updated"`
 	}{

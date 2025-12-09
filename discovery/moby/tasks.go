@@ -16,7 +16,6 @@ package moby
 import (
 	"context"
 	"fmt"
-	"maps"
 	"net"
 	"strconv"
 
@@ -82,9 +81,13 @@ func (d *Discovery) refreshTasks(ctx context.Context) ([]*targetgroup.Group, err
 			}
 		}
 
-		maps.Copy(commonLabels, serviceLabels[s.ServiceID])
+		for k, v := range serviceLabels[s.ServiceID] {
+			commonLabels[k] = v
+		}
 
-		maps.Copy(commonLabels, nodeLabels[s.NodeID])
+		for k, v := range nodeLabels[s.NodeID] {
+			commonLabels[k] = v
+		}
 
 		for _, p := range s.Status.PortStatus.Ports {
 			if p.Protocol != swarm.PortConfigProtocolTCP {

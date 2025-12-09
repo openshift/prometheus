@@ -35,7 +35,6 @@ func (i *Payment) UnmarshalJSON(b []byte) error {
 
 	p := struct {
 		*Mask
-
 		Date *parseabletime.ParseableTime `json:"date"`
 	}{
 		Mask: (*Mask)(i),
@@ -53,7 +52,7 @@ func (i *Payment) UnmarshalJSON(b []byte) error {
 // GetCreateOptions converts a Payment to PaymentCreateOptions for use in CreatePayment
 func (i Payment) GetCreateOptions() (o PaymentCreateOptions) {
 	o.USD = i.USD
-	return o
+	return
 }
 
 // ListPayments lists Payments

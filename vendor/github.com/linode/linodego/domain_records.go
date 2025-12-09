@@ -56,7 +56,7 @@ type DomainRecordUpdateOptions struct {
 // DomainRecordType constants start with RecordType and include Linode API Domain Record Types
 type DomainRecordType string
 
-// DomainRecordType constants are the DNS record types a DomainRecord can assign
+// DomainRecordType contants are the DNS record types a DomainRecord can assign
 const (
 	RecordTypeA     DomainRecordType = "A"
 	RecordTypeAAAA  DomainRecordType = "AAAA"
@@ -75,7 +75,6 @@ func (d *DomainRecord) UnmarshalJSON(b []byte) error {
 
 	p := struct {
 		*Mask
-
 		Created *parseabletime.ParseableTime `json:"created"`
 		Updated *parseabletime.ParseableTime `json:"updated"`
 	}{
@@ -88,7 +87,6 @@ func (d *DomainRecord) UnmarshalJSON(b []byte) error {
 
 	d.Created = (*time.Time)(p.Created)
 	d.Updated = (*time.Time)(p.Updated)
-
 	return nil
 }
 
@@ -105,7 +103,7 @@ func (d DomainRecord) GetUpdateOptions() (du DomainRecordUpdateOptions) {
 	du.TTLSec = d.TTLSec
 	du.Tag = copyString(d.Tag)
 
-	return du
+	return
 }
 
 // ListDomainRecords lists DomainRecords

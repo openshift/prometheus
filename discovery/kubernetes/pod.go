@@ -47,7 +47,7 @@ type Pod struct {
 	withNamespaceMetadata bool
 	store                 cache.Store
 	logger                *slog.Logger
-	queue                 *workqueue.Typed[string]
+	queue                 *workqueue.Type
 }
 
 // NewPod creates a new pod discovery.
@@ -68,20 +68,18 @@ func NewPod(l *slog.Logger, pods cache.SharedIndexInformer, nodes, namespace cac
 		withNamespaceMetadata: namespace != nil,
 		store:                 pods.GetStore(),
 		logger:                l,
-		queue: workqueue.NewTypedWithConfig(workqueue.TypedQueueConfig[string]{
-			Name: RolePod.String(),
-		}),
+		queue:                 workqueue.NewNamed(RolePod.String()),
 	}
 	_, err := p.podInf.AddEventHandler(cache.ResourceEventHandlerFuncs{
-		AddFunc: func(o any) {
+		AddFunc: func(o interface{}) {
 			podAddCount.Inc()
 			p.enqueue(o)
 		},
-		DeleteFunc: func(o any) {
+		DeleteFunc: func(o interface{}) {
 			podDeleteCount.Inc()
 			p.enqueue(o)
 		},
-		UpdateFunc: func(_, o any) {
+		UpdateFunc: func(_, o interface{}) {
 			podUpdateCount.Inc()
 			p.enqueue(o)
 		},
@@ -92,15 +90,15 @@ func NewPod(l *slog.Logger, pods cache.SharedIndexInformer, nodes, namespace cac
 
 	if p.withNodeMetadata {
 		_, err = p.nodeInf.AddEventHandler(cache.ResourceEventHandlerFuncs{
-			AddFunc: func(o any) {
+			AddFunc: func(o interface{}) {
 				node := o.(*apiv1.Node)
 				p.enqueuePodsForNode(node.Name)
 			},
-			UpdateFunc: func(_, o any) {
+			UpdateFunc: func(_, o interface{}) {
 				node := o.(*apiv1.Node)
 				p.enqueuePodsForNode(node.Name)
 			},
-			DeleteFunc: func(o any) {
+			DeleteFunc: func(o interface{}) {
 				nodeName, err := nodeName(o)
 				if err != nil {
 					l.Error("Error getting Node name", "err", err)
@@ -115,7 +113,7 @@ func NewPod(l *slog.Logger, pods cache.SharedIndexInformer, nodes, namespace cac
 
 	if p.withNamespaceMetadata {
 		_, err = p.namespaceInf.AddEventHandler(cache.ResourceEventHandlerFuncs{
-			UpdateFunc: func(_, o any) {
+			UpdateFunc: func(_, o interface{}) {
 				namespace := o.(*apiv1.Namespace)
 				p.enqueuePodsForNamespace(namespace.Name)
 			},
@@ -130,7 +128,7 @@ func NewPod(l *slog.Logger, pods cache.SharedIndexInformer, nodes, namespace cac
 	return p
 }
 
-func (p *Pod) enqueue(obj any) {
+func (p *Pod) enqueue(obj interface{}) {
 	key, err := cache.DeletionHandlingMetaNamespaceKeyFunc(obj)
 	if err != nil {
 		return
@@ -168,11 +166,12 @@ func (p *Pod) Run(ctx context.Context, ch chan<- []*targetgroup.Group) {
 }
 
 func (p *Pod) process(ctx context.Context, ch chan<- []*targetgroup.Group) bool {
-	key, quit := p.queue.Get()
+	keyObj, quit := p.queue.Get()
 	if quit {
 		return false
 	}
-	defer p.queue.Done(key)
+	defer p.queue.Done(keyObj)
+	key := keyObj.(string)
 
 	namespace, name, err := cache.SplitMetaNamespaceKey(key)
 	if err != nil {
@@ -196,7 +195,7 @@ func (p *Pod) process(ctx context.Context, ch chan<- []*targetgroup.Group) bool 
 	return true
 }
 
-func convertToPod(o any) (*apiv1.Pod, error) {
+func convertToPod(o interface{}) (*apiv1.Pod, error) {
 	pod, ok := o.(*apiv1.Pod)
 	if ok {
 		return pod, nil
@@ -259,7 +258,7 @@ func podLabels(pod *apiv1.Pod) model.LabelSet {
 	return ls
 }
 
-func (*Pod) findPodContainerStatus(statuses *[]apiv1.ContainerStatus, containerName string) (*apiv1.ContainerStatus, error) {
+func (p *Pod) findPodContainerStatus(statuses *[]apiv1.ContainerStatus, containerName string) (*apiv1.ContainerStatus, error) {
 	for _, s := range *statuses {
 		if s.Name == containerName {
 			return &s, nil

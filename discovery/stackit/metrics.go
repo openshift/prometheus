@@ -24,9 +24,9 @@ type stackitMetrics struct {
 }
 
 // Register implements discovery.DiscovererMetrics.
-func (*stackitMetrics) Register() error {
+func (m *stackitMetrics) Register() error {
 	return nil
 }
 
 // Unregister implements discovery.DiscovererMetrics.
-func (*stackitMetrics) Unregister() {}
+func (m *stackitMetrics) Unregister() {}

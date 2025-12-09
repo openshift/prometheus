@@ -24,14 +24,14 @@ import (
 // for the tree view in the UI.
 // TODO: Could it make sense to do this via the normal JSON marshalling methods? Maybe
 // too UI-specific though.
-func translateAST(node parser.Expr) any {
+func translateAST(node parser.Expr) interface{} {
 	if node == nil {
 		return nil
 	}
 
 	switch n := node.(type) {
 	case *parser.AggregateExpr:
-		return map[string]any{
+		return map[string]interface{}{
 			"type":     "aggregation",
 			"op":       n.Op.String(),
 			"expr":     translateAST(n.Expr),
@@ -40,9 +40,9 @@ func translateAST(node parser.Expr) any {
 			"without":  n.Without,
 		}
 	case *parser.BinaryExpr:
-		var matching any
+		var matching interface{}
 		if m := n.VectorMatching; m != nil {
-			matching = map[string]any{
+			matching = map[string]interface{}{
 				"card":    m.Card.String(),
 				"labels":  sanitizeList(m.MatchingLabels),
 				"on":      m.On,
@@ -50,7 +50,7 @@ func translateAST(node parser.Expr) any {
 			}
 		}
 
-		return map[string]any{
+		return map[string]interface{}{
 			"type":     "binaryExpr",
 			"op":       n.Op.String(),
 			"lhs":      translateAST(n.LHS),
@@ -59,14 +59,14 @@ func translateAST(node parser.Expr) any {
 			"bool":     n.ReturnBool,
 		}
 	case *parser.Call:
-		args := []any{}
+		args := []interface{}{}
 		for _, arg := range n.Args {
 			args = append(args, translateAST(arg))
 		}
 
-		return map[string]any{
+		return map[string]interface{}{
 			"type": "call",
-			"func": map[string]any{
+			"func": map[string]interface{}{
 				"name":       n.Func.Name,
 				"argTypes":   n.Func.ArgTypes,
 				"variadic":   n.Func.Variadic,
@@ -76,7 +76,7 @@ func translateAST(node parser.Expr) any {
 		}
 	case *parser.MatrixSelector:
 		vs := n.VectorSelector.(*parser.VectorSelector)
-		return map[string]any{
+		return map[string]interface{}{
 			"type":       "matrixSelector",
 			"name":       vs.Name,
 			"range":      n.Range.Milliseconds(),
@@ -86,7 +86,7 @@ func translateAST(node parser.Expr) any {
 			"startOrEnd": getStartOrEnd(vs.StartOrEnd),
 		}
 	case *parser.SubqueryExpr:
-		return map[string]any{
+		return map[string]interface{}{
 			"type":       "subquery",
 			"expr":       translateAST(n.Expr),
 			"range":      n.Range.Milliseconds(),
@@ -101,23 +101,23 @@ func translateAST(node parser.Expr) any {
 			"val":  strconv.FormatFloat(n.Val, 'f', -1, 64),
 		}
 	case *parser.ParenExpr:
-		return map[string]any{
+		return map[string]interface{}{
 			"type": "parenExpr",
 			"expr": translateAST(n.Expr),
 		}
 	case *parser.StringLiteral:
-		return map[string]any{
+		return map[string]interface{}{
 			"type": "stringLiteral",
 			"val":  n.Val,
 		}
 	case *parser.UnaryExpr:
-		return map[string]any{
+		return map[string]interface{}{
 			"type": "unaryExpr",
 			"op":   n.Op.String(),
 			"expr": translateAST(n.Expr),
 		}
 	case *parser.VectorSelector:
-		return map[string]any{
+		return map[string]interface{}{
 			"type":       "vectorSelector",
 			"name":       n.Name,
 			"offset":     n.OriginalOffset.Milliseconds(),
@@ -136,10 +136,10 @@ func sanitizeList(l []string) []string {
 	return l
 }
 
-func translateMatchers(in []*labels.Matcher) any {
-	out := []map[string]any{}
+func translateMatchers(in []*labels.Matcher) interface{} {
+	out := []map[string]interface{}{}
 	for _, m := range in {
-		out = append(out, map[string]any{
+		out = append(out, map[string]interface{}{
 			"name":  m.Name,
 			"value": m.Value,
 			"type":  m.Type.String(),
@@ -148,7 +148,7 @@ func translateMatchers(in []*labels.Matcher) any {
 	return out
 }
 
-func getStartOrEnd(startOrEnd parser.ItemType) any {
+func getStartOrEnd(startOrEnd parser.ItemType) interface{} {
 	if startOrEnd == 0 {
 		return nil
 	}

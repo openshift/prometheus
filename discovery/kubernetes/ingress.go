@@ -35,7 +35,7 @@ type Ingress struct {
 	logger                *slog.Logger
 	informer              cache.SharedIndexInformer
 	store                 cache.Store
-	queue                 *workqueue.Typed[string]
+	queue                 *workqueue.Type
 	namespaceInf          cache.SharedInformer
 	withNamespaceMetadata bool
 }
@@ -47,26 +47,24 @@ func NewIngress(l *slog.Logger, inf cache.SharedIndexInformer, namespace cache.S
 	ingressDeleteCount := eventCount.WithLabelValues(RoleIngress.String(), MetricLabelRoleDelete)
 
 	s := &Ingress{
-		logger:   l,
-		informer: inf,
-		store:    inf.GetStore(),
-		queue: workqueue.NewTypedWithConfig(workqueue.TypedQueueConfig[string]{
-			Name: RoleIngress.String(),
-		}),
+		logger:                l,
+		informer:              inf,
+		store:                 inf.GetStore(),
+		queue:                 workqueue.NewNamed(RoleIngress.String()),
 		namespaceInf:          namespace,
 		withNamespaceMetadata: namespace != nil,
 	}
 
 	_, err := s.informer.AddEventHandler(cache.ResourceEventHandlerFuncs{
-		AddFunc: func(o any) {
+		AddFunc: func(o interface{}) {
 			ingressAddCount.Inc()
 			s.enqueue(o)
 		},
-		DeleteFunc: func(o any) {
+		DeleteFunc: func(o interface{}) {
 			ingressDeleteCount.Inc()
 			s.enqueue(o)
 		},
-		UpdateFunc: func(_, o any) {
+		UpdateFunc: func(_, o interface{}) {
 			ingressUpdateCount.Inc()
 			s.enqueue(o)
 		},
@@ -77,7 +75,7 @@ func NewIngress(l *slog.Logger, inf cache.SharedIndexInformer, namespace cache.S
 
 	if s.withNamespaceMetadata {
 		_, err = s.namespaceInf.AddEventHandler(cache.ResourceEventHandlerFuncs{
-			UpdateFunc: func(_, o any) {
+			UpdateFunc: func(_, o interface{}) {
 				namespace := o.(*apiv1.Namespace)
 				s.enqueueNamespace(namespace.Name)
 			},
@@ -92,7 +90,7 @@ func NewIngress(l *slog.Logger, inf cache.SharedIndexInformer, namespace cache.S
 	return s
 }
 
-func (i *Ingress) enqueue(obj any) {
+func (i *Ingress) enqueue(obj interface{}) {
 	key, err := cache.DeletionHandlingMetaNamespaceKeyFunc(obj)
 	if err != nil {
 		return
@@ -139,11 +137,12 @@ func (i *Ingress) Run(ctx context.Context, ch chan<- []*targetgroup.Group) {
 }
 
 func (i *Ingress) process(ctx context.Context, ch chan<- []*targetgroup.Group) bool {
-	key, quit := i.queue.Get()
+	keyObj, quit := i.queue.Get()
 	if quit {
 		return false
 	}
-	defer i.queue.Done(key)
+	defer i.queue.Done(keyObj)
+	key := keyObj.(string)
 
 	namespace, name, err := cache.SplitMetaNamespaceKey(key)
 	if err != nil {

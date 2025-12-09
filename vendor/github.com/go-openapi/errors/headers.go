@@ -21,7 +21,7 @@ import (
 )
 
 // Validation represents a failure of a precondition
-type Validation struct { //nolint: errname
+type Validation struct {
 	code    int32
 	Name    string
 	In      string

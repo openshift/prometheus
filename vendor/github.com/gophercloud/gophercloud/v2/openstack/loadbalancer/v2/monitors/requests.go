@@ -2,7 +2,6 @@ package monitors
 
 import (
 	"context"
-	"strconv"
 
 	"github.com/gophercloud/gophercloud/v2"
 	"github.com/gophercloud/gophercloud/v2/pagination"
@@ -154,25 +153,7 @@ type CreateOpts struct {
 
 // ToMonitorCreateMap builds a request body from CreateOpts.
 func (opts CreateOpts) ToMonitorCreateMap() (map[string]any, error) {
-	b, err := gophercloud.BuildRequestBody(opts, "healthmonitor")
-	if err != nil {
-		return nil, err
-	}
-
-	if v, ok := b["healthmonitor"]; ok {
-		if m, ok := v.(map[string]any); ok {
-			if v, ok := m["http_version"]; ok {
-				if v, ok := v.(string); ok {
-					m["http_version"], err = strconv.ParseFloat(v, 64)
-					if err != nil {
-						return nil, err
-					}
-				}
-			}
-		}
-	}
-
-	return b, nil
+	return gophercloud.BuildRequestBody(opts, "healthmonitor")
 }
 
 /*
@@ -266,25 +247,7 @@ type UpdateOpts struct {
 
 // ToMonitorUpdateMap builds a request body from UpdateOpts.
 func (opts UpdateOpts) ToMonitorUpdateMap() (map[string]any, error) {
-	b, err := gophercloud.BuildRequestBody(opts, "healthmonitor")
-	if err != nil {
-		return nil, err
-	}
-
-	if v, ok := b["healthmonitor"]; ok {
-		if m, ok := v.(map[string]any); ok {
-			if v, ok := m["http_version"]; ok {
-				if v, ok := v.(string); ok {
-					m["http_version"], err = strconv.ParseFloat(v, 64)
-					if err != nil {
-						return nil, err
-					}
-				}
-			}
-		}
-	}
-
-	return b, nil
+	return gophercloud.BuildRequestBody(opts, "healthmonitor")
 }
 
 // Update is an operation which modifies the attributes of the specified

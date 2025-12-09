@@ -11,7 +11,7 @@ import (
 )
 
 // AddToQuery add a key/value pair to an URL query
-func AddToQuery(query url.Values, key string, value any) {
+func AddToQuery(query url.Values, key string, value interface{}) {
 	elemValue := reflect.ValueOf(value)
 
 	if elemValue.Kind() == reflect.Invalid || elemValue.Kind() == reflect.Ptr && elemValue.IsNil() {

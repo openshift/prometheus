@@ -46,7 +46,7 @@ func (s *API) WaitForSnapshot(req *WaitForSnapshotRequest, opts ...scw.RequestOp
 	}
 
 	snapshot, err := async.WaitSync(&async.WaitSyncConfig{
-		Get: func() (any, bool, error) {
+		Get: func() (interface{}, bool, error) {
 			res, err := s.GetSnapshot(&GetSnapshotRequest{
 				SnapshotID: req.SnapshotID,
 				Zone:       req.Zone,

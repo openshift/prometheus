@@ -24,18 +24,11 @@ func (s *API) CreateServer(req *CreateServerRequest, opts ...scw.RequestOption) 
 	// If image is not a UUID we try to fetch it from marketplace.
 	if req.Image != nil && !validation.IsUUID(*req.Image) {
 		apiMarketplace := marketplace.NewAPI(s.client)
-
-		getLocalImageByLabelRequest := &marketplace.GetLocalImageByLabelRequest{
+		image, err := apiMarketplace.GetLocalImageByLabel(&marketplace.GetLocalImageByLabelRequest{
 			ImageLabel:     *req.Image,
 			Zone:           req.Zone,
 			CommercialType: req.CommercialType,
-		}
-
-		if bootVolumeType := getBootVolumeType(req.Volumes); bootVolumeType != nil {
-			getLocalImageByLabelRequest.Type = *bootVolumeType
-		}
-
-		image, err := apiMarketplace.GetLocalImageByLabel(getLocalImageByLabelRequest)
+		})
 		if err != nil {
 			return nil, err
 		}
@@ -43,36 +36,6 @@ func (s *API) CreateServer(req *CreateServerRequest, opts ...scw.RequestOption) 
 	}
 
 	return s.createServer(req, opts...)
-}
-
-func getBootVolumeType(volumes map[string]*VolumeServerTemplate) *marketplace.LocalImageType {
-	var bootVolumeType marketplace.LocalImageType
-	foundBootVolume := false
-
-	for _, volume := range volumes {
-		if volume.Boot == nil {
-			continue
-		}
-		if *volume.Boot {
-			foundBootVolume = true
-			switch volume.VolumeType {
-			case VolumeVolumeTypeSbsVolume:
-				bootVolumeType = marketplace.LocalImageTypeInstanceSbs
-			case VolumeVolumeTypeLSSD:
-				bootVolumeType = marketplace.LocalImageTypeInstanceLocal
-			}
-		}
-	}
-
-	if !foundBootVolume && len(volumes) > 0 {
-		switch volumes["0"].VolumeType {
-		case VolumeVolumeTypeSbsVolume:
-			bootVolumeType = marketplace.LocalImageTypeInstanceSbs
-		case VolumeVolumeTypeLSSD:
-			bootVolumeType = marketplace.LocalImageTypeInstanceLocal
-		}
-	}
-	return &bootVolumeType
 }
 
 // UpdateServer updates a server.
@@ -111,7 +74,7 @@ func (s *API) WaitForServer(req *WaitForServerRequest, opts ...scw.RequestOption
 	}
 
 	server, err := async.WaitSync(&async.WaitSyncConfig{
-		Get: func() (any, bool, error) {
+		Get: func() (interface{}, bool, error) {
 			res, err := s.GetServer(&GetServerRequest{
 				ServerID: req.ServerID,
 				Zone:     req.Zone,

@@ -17,7 +17,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"maps"
 	"reflect"
 	"sync"
 	"time"
@@ -38,7 +37,7 @@ type poolKey struct {
 type Provider struct {
 	name   string
 	d      Discoverer
-	config any
+	config interface{}
 
 	cancel context.CancelFunc
 	// done should be called after cleaning up resources associated with cancelled provider.
@@ -63,7 +62,7 @@ func (p *Provider) IsStarted() bool {
 	return p.cancel != nil
 }
 
-func (p *Provider) Config() any {
+func (p *Provider) Config() interface{} {
 	return p.config
 }
 
@@ -256,7 +255,9 @@ func (m *Manager) ApplyConfig(cfg map[string]Configs) error {
 			}
 			if l := len(refTargets); l > 0 {
 				m.targets[poolKey{s, prov.name}] = make(map[string]*targetgroup.Group, l)
-				maps.Copy(m.targets[poolKey{s, prov.name}], refTargets)
+				for k, v := range refTargets {
+					m.targets[poolKey{s, prov.name}][k] = v
+				}
 			}
 		}
 		m.targetsMtx.Unlock()

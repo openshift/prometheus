@@ -46,16 +46,15 @@ type NetworkSettings = container.NetworkSettings
 
 // NetworkSettingsBase holds networking state for a container when inspecting it.
 //
-// Deprecated: [container.NetworkSettingsBase] will be removed in v29. Prefer
-// accessing the fields it contains through [container.NetworkSettings].
-type NetworkSettingsBase = container.NetworkSettingsBase //nolint:staticcheck // ignore SA1019: NetworkSettingsBase is deprecated in v28.4.
+// Deprecated: use [container.NetworkSettingsBase].
+type NetworkSettingsBase = container.NetworkSettingsBase
 
 // DefaultNetworkSettings holds network information
 // during the 2 release deprecation period.
 // It will be removed in Docker 1.11.
 //
 // Deprecated: use [container.DefaultNetworkSettings].
-type DefaultNetworkSettings = container.DefaultNetworkSettings //nolint:staticcheck // ignore SA1019: DefaultNetworkSettings is deprecated in v28.4.
+type DefaultNetworkSettings = container.DefaultNetworkSettings
 
 // SummaryNetworkSettings provides a summary of container's networks
 // in /containers/json.

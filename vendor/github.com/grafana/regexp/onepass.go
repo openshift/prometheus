@@ -465,20 +465,12 @@ func compileOnePass(prog *syntax.Prog) (p *onePassProg) {
 		syntax.EmptyOp(prog.Inst[prog.Start].Arg)&syntax.EmptyBeginText != syntax.EmptyBeginText {
 		return nil
 	}
-	hasAlt := false
-	for _, inst := range prog.Inst {
-		if inst.Op == syntax.InstAlt || inst.Op == syntax.InstAltMatch {
-			hasAlt = true
-			break
-		}
-	}
-	// If we have alternates, every instruction leading to InstMatch must be EmptyEndText.
-	// Also, any match on empty text must be $.
+	// every instruction leading to InstMatch must be EmptyEndText
 	for _, inst := range prog.Inst {
 		opOut := prog.Inst[inst.Out].Op
 		switch inst.Op {
 		default:
-			if opOut == syntax.InstMatch && hasAlt {
+			if opOut == syntax.InstMatch {
 				return nil
 			}
 		case syntax.InstAlt, syntax.InstAltMatch:

@@ -108,7 +108,7 @@ func (c *Configs) SetDirectory(dir string) {
 }
 
 // UnmarshalYAML implements yaml.Unmarshaler.
-func (c *Configs) UnmarshalYAML(unmarshal func(any) error) error {
+func (c *Configs) UnmarshalYAML(unmarshal func(interface{}) error) error {
 	cfgTyp := reflect.StructOf(configFields)
 	cfgPtr := reflect.New(cfgTyp)
 	cfgVal := cfgPtr.Elem()
@@ -123,7 +123,7 @@ func (c *Configs) UnmarshalYAML(unmarshal func(any) error) error {
 }
 
 // MarshalYAML implements yaml.Marshaler.
-func (c Configs) MarshalYAML() (any, error) {
+func (c Configs) MarshalYAML() (interface{}, error) {
 	cfgTyp := reflect.StructOf(configFields)
 	cfgPtr := reflect.New(cfgTyp)
 	cfgVal := cfgPtr.Elem()
@@ -148,7 +148,7 @@ func (c StaticConfig) NewDiscoverer(DiscovererOptions) (Discoverer, error) {
 
 // NewDiscovererMetrics returns NoopDiscovererMetrics because no metrics are
 // needed for this service discovery mechanism.
-func (StaticConfig) NewDiscovererMetrics(prometheus.Registerer, RefreshMetricsInstantiator) DiscovererMetrics {
+func (c StaticConfig) NewDiscovererMetrics(prometheus.Registerer, RefreshMetricsInstantiator) DiscovererMetrics {
 	return &NoopDiscovererMetrics{}
 }
 

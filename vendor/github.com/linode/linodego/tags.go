@@ -47,7 +47,7 @@ type TagCreateOptions struct {
 // GetCreateOptions converts a Tag to TagCreateOptions for use in CreateTag
 func (i Tag) GetCreateOptions() (o TagCreateOptions) {
 	o.Label = i.Label
-	return o
+	return
 }
 
 // ListTags lists Tags
@@ -63,35 +63,30 @@ func (i *TaggedObject) fixData() (*TaggedObject, error) {
 		if err := json.Unmarshal(i.RawData, &obj); err != nil {
 			return nil, err
 		}
-
 		i.Data = obj
 	case "lke_cluster":
 		obj := LKECluster{}
 		if err := json.Unmarshal(i.RawData, &obj); err != nil {
 			return nil, err
 		}
-
 		i.Data = obj
 	case "nodebalancer":
 		obj := NodeBalancer{}
 		if err := json.Unmarshal(i.RawData, &obj); err != nil {
 			return nil, err
 		}
-
 		i.Data = obj
 	case "domain":
 		obj := Domain{}
 		if err := json.Unmarshal(i.RawData, &obj); err != nil {
 			return nil, err
 		}
-
 		i.Data = obj
 	case "volume":
 		obj := Volume{}
 		if err := json.Unmarshal(i.RawData, &obj); err != nil {
 			return nil, err
 		}
-
 		i.Data = obj
 	}
 
@@ -110,7 +105,6 @@ func (c *Client) ListTaggedObjects(ctx context.Context, label string, opts *List
 			return nil, err
 		}
 	}
-
 	return response, nil
 }
 
@@ -152,7 +146,6 @@ func (t TaggedObjectList) SortedObjects() (SortedObjects, error) {
 			}
 		}
 	}
-
 	return so, nil
 }
 

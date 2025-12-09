@@ -86,14 +86,12 @@ type Head struct {
 	exemplarMetrics     *ExemplarMetrics
 	exemplars           ExemplarStorage
 	logger              *slog.Logger
-	refSeriesPool       zeropool.Pool[[]record.RefSeries]
-	floatsPool          zeropool.Pool[[]record.RefSample]
+	appendPool          zeropool.Pool[[]record.RefSample]
 	exemplarsPool       zeropool.Pool[[]exemplarWithSeriesRef]
 	histogramsPool      zeropool.Pool[[]record.RefHistogramSample]
 	floatHistogramsPool zeropool.Pool[[]record.RefFloatHistogramSample]
 	metadataPool        zeropool.Pool[[]record.RefMetadata]
 	seriesPool          zeropool.Pool[[]*memSeries]
-	typeMapPool         zeropool.Pool[map[chunks.HeadSeriesRef]sampleType]
 	bytesPool           zeropool.Pool[[]byte]
 	memChunkPool        sync.Pool
 
@@ -112,7 +110,7 @@ type Head struct {
 	series *stripeSeries
 
 	walExpiriesMtx sync.Mutex
-	walExpiries    map[chunks.HeadSeriesRef]int64 // Series no longer in the head, and what time they must be kept until.
+	walExpiries    map[chunks.HeadSeriesRef]int // Series no longer in the head, and what WAL segment they must be kept until.
 
 	// TODO(codesome): Extend MemPostings to return only OOOPostings, Set OOOStatus, ... Like an additional map of ooo postings.
 	postings *index.MemPostings // Postings lists for terms.
@@ -270,7 +268,7 @@ func NewHead(r prometheus.Registerer, l *slog.Logger, wal, wbl *wlog.WL, opts *H
 		logger: l,
 		opts:   opts,
 		memChunkPool: sync.Pool{
-			New: func() any {
+			New: func() interface{} {
 				return &memChunk{}
 			},
 		},
@@ -339,7 +337,7 @@ func (h *Head) resetInMemoryState() error {
 	h.exemplars = es
 	h.postings = index.NewUnorderedMemPostings()
 	h.tombstones = tombstones.NewMemTombstones()
-	h.walExpiries = map[chunks.HeadSeriesRef]int64{}
+	h.walExpiries = map[chunks.HeadSeriesRef]int{}
 	h.chunkRange.Store(h.opts.ChunkRange)
 	h.minTime.Store(math.MaxInt64)
 	h.maxTime.Store(math.MinInt64)
@@ -706,7 +704,8 @@ func (h *Head) Init(minValidTime int64) error {
 				snapshotLoaded = true
 				chunkSnapshotLoadDuration = time.Since(start)
 				h.logger.Info("Chunk snapshot loading time", "duration", chunkSnapshotLoadDuration.String())
-			} else {
+			}
+			if err != nil {
 				snapIdx, snapOffset = -1, 0
 				refSeries = make(map[chunks.HeadSeriesRef]*memSeries)
 
@@ -792,7 +791,7 @@ func (h *Head) Init(minValidTime int64) error {
 
 		// A corrupted checkpoint is a hard error for now and requires user
 		// intervention. There's likely little data that can be recovered anyway.
-		if err := h.loadWAL(wlog.NewReader(sr), syms, multiRef, mmappedChunks, oooMmappedChunks); err != nil {
+		if err := h.loadWAL(wlog.NewReader(sr), syms, multiRef, mmappedChunks, oooMmappedChunks, endAt); err != nil {
 			return fmt.Errorf("backfill checkpoint: %w", err)
 		}
 		h.updateWALReplayStatusRead(startFrom)
@@ -826,7 +825,7 @@ func (h *Head) Init(minValidTime int64) error {
 		if err != nil {
 			return fmt.Errorf("segment reader (offset=%d): %w", offset, err)
 		}
-		err = h.loadWAL(wlog.NewReader(sr), syms, multiRef, mmappedChunks, oooMmappedChunks)
+		err = h.loadWAL(wlog.NewReader(sr), syms, multiRef, mmappedChunks, oooMmappedChunks, endAt)
 		if err := sr.Close(); err != nil {
 			h.logger.Warn("Error while closing the wal segments reader", "err", err)
 		}
@@ -1283,7 +1282,7 @@ func (h *Head) IsQuerierCollidingWithTruncation(querierMint, querierMaxt int64) 
 	return false, false, 0
 }
 
-func (h *Head) getWALExpiry(id chunks.HeadSeriesRef) (int64, bool) {
+func (h *Head) getWALExpiry(id chunks.HeadSeriesRef) (int, bool) {
 	h.walExpiriesMtx.Lock()
 	defer h.walExpiriesMtx.Unlock()
 
@@ -1291,27 +1290,24 @@ func (h *Head) getWALExpiry(id chunks.HeadSeriesRef) (int64, bool) {
 	return keepUntil, ok
 }
 
-// updateWALExpiry updates the WAL expiry for a series, keeping the higher of the current value and keepUntil.
-func (h *Head) updateWALExpiry(id chunks.HeadSeriesRef, keepUntil int64) {
+func (h *Head) setWALExpiry(id chunks.HeadSeriesRef, keepUntil int) {
 	h.walExpiriesMtx.Lock()
 	defer h.walExpiriesMtx.Unlock()
 
-	h.walExpiries[id] = max(keepUntil, h.walExpiries[id])
+	h.walExpiries[id] = keepUntil
 }
 
-// keepSeriesInWALCheckpointFn returns a function that is used to determine whether a series record should be kept in the checkpoint.
-// mint is the time before which data in the WAL is being truncated.
-func (h *Head) keepSeriesInWALCheckpointFn(mint int64) func(id chunks.HeadSeriesRef) bool {
-	return func(id chunks.HeadSeriesRef) bool {
-		// Keep the record if the series exists in the head.
-		if h.series.getByID(id) != nil {
-			return true
-		}
-
-		// Keep the record if the series has an expiry set.
-		keepUntil, ok := h.getWALExpiry(id)
-		return ok && keepUntil >= mint
+// keepSeriesInWALCheckpoint is used to determine whether a series record should be kept in the checkpoint
+// last is the last WAL segment that was considered for checkpointing.
+func (h *Head) keepSeriesInWALCheckpoint(id chunks.HeadSeriesRef, last int) bool {
+	// Keep the record if the series exists in the head.
+	if h.series.getByID(id) != nil {
+		return true
 	}
+
+	// Keep the record if the series has an expiry set.
+	keepUntil, ok := h.getWALExpiry(id)
+	return ok && keepUntil > last
 }
 
 // truncateWAL removes old data before mint from the WAL.
@@ -1348,7 +1344,7 @@ func (h *Head) truncateWAL(mint int64) error {
 	}
 
 	h.metrics.checkpointCreationTotal.Inc()
-	if _, err = wlog.Checkpoint(h.logger, h.wal, first, last, h.keepSeriesInWALCheckpointFn(mint), mint); err != nil {
+	if _, err = wlog.Checkpoint(h.logger, h.wal, first, last, h.keepSeriesInWALCheckpoint, mint); err != nil {
 		h.metrics.checkpointCreationFail.Inc()
 		var cerr *chunks.CorruptionErr
 		if errors.As(err, &cerr) {
@@ -1363,10 +1359,11 @@ func (h *Head) truncateWAL(mint int64) error {
 		h.logger.Error("truncating segments failed", "err", err)
 	}
 
-	// The checkpoint is written and data before mint is truncated, so stop tracking expired series.
+	// The checkpoint is written and segments before it is truncated, so stop
+	// tracking expired series.
 	h.walExpiriesMtx.Lock()
-	for ref, keepUntil := range h.walExpiries {
-		if keepUntil < mint {
+	for ref, segment := range h.walExpiries {
+		if segment <= last {
 			delete(h.walExpiries, ref)
 		}
 	}
@@ -1417,7 +1414,6 @@ func (h *Head) truncateOOO(lastWBLFile int, newMinOOOMmapRef chunks.ChunkDiskMap
 // truncateSeriesAndChunkDiskMapper is a helper function for truncateMemory and truncateOOO.
 // It runs GC on the Head and truncates the ChunkDiskMapper accordingly.
 func (h *Head) truncateSeriesAndChunkDiskMapper(caller string) error {
-	h.logger.Info("Head GC started", "caller", caller)
 	start := time.Now()
 	headMaxt := h.MaxTime()
 	actualMint, minOOOTime, minMmapFile := h.gc()
@@ -1637,13 +1633,16 @@ func (h *Head) gc() (actualInOrderMint, minOOOTime int64, minMmapFile int) {
 	h.tombstones.TruncateBefore(mint)
 
 	if h.wal != nil {
+		_, last, _ := wlog.Segments(h.wal.Dir())
 		h.walExpiriesMtx.Lock()
-		// Samples for deleted series are likely still in the WAL, so flag that the deleted series records should be kept during
-		// WAL checkpointing while the WAL contains data through actualInOrderMint.
-		// If we didn't keep these series records then on start up when we replay the WAL, or any other code that reads the WAL,
-		// wouldn't be able to use those samples since we would have no labels for that ref ID.
+		// Keep series records until we're past segment 'last'
+		// because the WAL will still have samples records with
+		// this ref ID. If we didn't keep these series records then
+		// on start up when we replay the WAL, or any other code
+		// that reads the WAL, wouldn't be able to use those
+		// samples since we would have no labels for that ref ID.
 		for ref := range deleted {
-			h.walExpiries[chunks.HeadSeriesRef(ref)] = actualInOrderMint
+			h.walExpiries[chunks.HeadSeriesRef(ref)] = last
 		}
 		h.walExpiriesMtx.Unlock()
 	}
@@ -1746,7 +1745,7 @@ func (h *Head) Close() error {
 // String returns an human readable representation of the TSDB head. It's important to
 // keep this function in order to avoid the struct dump when the head is stringified in
 // errors or logs.
-func (*Head) String() string {
+func (h *Head) String() string {
 	return "head"
 }
 

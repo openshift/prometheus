@@ -21,7 +21,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"maps"
 	"math"
 	"reflect"
 	"runtime"
@@ -125,8 +124,6 @@ var _ QueryLogger = (*logging.JSONFileLogger)(nil)
 
 // QueryLogger is an interface that can be used to log all the queries logged
 // by the engine.
-// logging.JSONFileLogger implements this interface, downstream users may use
-// different implementations.
 type QueryLogger interface {
 	slog.Handler
 	io.Closer
@@ -636,7 +633,7 @@ func (ng *Engine) exec(ctx context.Context, q *query) (v parser.Value, ws annota
 			logger := slog.New(l)
 			f := make([]slog.Attr, 0, 16) // Probably enough up front to not need to reallocate on append.
 
-			params := make(map[string]any, 4)
+			params := make(map[string]interface{}, 4)
 			params["query"] = q.q
 			if eq, ok := q.Statement().(*parser.EvalStmt); ok {
 				params["start"] = formatDate(eq.Start)
@@ -653,7 +650,7 @@ func (ng *Engine) exec(ctx context.Context, q *query) (v parser.Value, ws annota
 				f = append(f, slog.Any("spanID", span.SpanContext().SpanID()))
 			}
 			if origin := ctx.Value(QueryOrigin{}); origin != nil {
-				for k, v := range origin.(map[string]any) {
+				for k, v := range origin.(map[string]interface{}) {
 					f = append(f, slog.Any(k, v))
 				}
 			}
@@ -929,27 +926,13 @@ func getTimeRangesForSelector(s *parser.EvalStmt, n *parser.VectorSelector, path
 		// because wo want to exclude samples that are precisely the
 		// lookback delta before the eval time.
 		start -= durationMilliseconds(s.LookbackDelta) - 1
-		if n.Smoothed {
-			end += durationMilliseconds(s.LookbackDelta)
-		}
 	} else {
-		// For matrix queries, adjust the start and end times to ensure the
-		// correct range of data is selected. For "anchored" selectors, extend
-		// the start time backwards by the lookback delta plus the evaluation
-		// range.  For "smoothed" selectors, extend both the start and end times
-		// by the lookback delta, and also extend the start time by the
-		// evaluation range to cover the smoothing window. For standard range
-		// queries, extend the start time backwards by the range (minus one
-		// millisecond) to exclude samples exactly at the lower boundary.
-		switch {
-		case n.Anchored:
-			start -= durationMilliseconds(s.LookbackDelta+evalRange) - 1
-		case n.Smoothed:
-			start -= durationMilliseconds(s.LookbackDelta+evalRange) - 1
-			end += durationMilliseconds(s.LookbackDelta)
-		default:
-			start -= durationMilliseconds(evalRange) - 1
-		}
+		// For all matrix queries we want to ensure that we have
+		// (end-start) + range selected this way we have `range` data
+		// before the start time. We subtract one from the range to
+		// exclude samples positioned directly at the lower boundary of
+		// the range.
+		start -= durationMilliseconds(evalRange) - 1
 	}
 
 	offsetMilliseconds := durationMilliseconds(n.OriginalOffset)
@@ -996,6 +979,7 @@ func (ng *Engine) populateSeries(ctx context.Context, querier storage.Querier, s
 			evalRange = 0
 			hints.By, hints.Grouping = extractGroupsFromPath(path)
 			n.UnexpandedSeriesSet = querier.Select(ctx, false, hints, n.LabelMatchers...)
+
 		case *parser.MatrixSelector:
 			evalRange = n.Range
 		}
@@ -1098,12 +1082,12 @@ type evaluator struct {
 }
 
 // errorf causes a panic with the input formatted into an error.
-func (ev *evaluator) errorf(format string, args ...any) {
+func (ev *evaluator) errorf(format string, args ...interface{}) {
 	ev.error(fmt.Errorf(format, args...))
 }
 
 // error causes a panic with the given error.
-func (*evaluator) error(err error) {
+func (ev *evaluator) error(err error) {
 	panic(err)
 }
 
@@ -1206,11 +1190,7 @@ func (enh *EvalNodeHelper) resetHistograms(inVec Vector, arg parser.Expr) annota
 			sample.Metric.Get(model.BucketLabel), 64,
 		)
 		if err != nil {
-			if enh.enableDelayedNameRemoval {
-				annos.Add(annotations.NewBadBucketLabelWarning(sample.Metric.Get(labels.MetricName), sample.Metric.Get(model.BucketLabel), arg.PositionRange()))
-			} else {
-				annos.Add(annotations.NewBadBucketLabelWarning("", sample.Metric.Get(model.BucketLabel), arg.PositionRange()))
-			}
+			annos.Add(annotations.NewBadBucketLabelWarning(sample.Metric.Get(labels.MetricName), sample.Metric.Get(model.BucketLabel), arg.PositionRange()))
 			continue
 		}
 		enh.lblBuf = sample.Metric.BytesWithoutLabels(enh.lblBuf, labels.BucketLabel)
@@ -1233,11 +1213,7 @@ func (enh *EvalNodeHelper) resetHistograms(inVec Vector, arg parser.Expr) annota
 			// At this data point, we have classic histogram
 			// buckets and a native histogram with the same name and
 			// labels. Do not evaluate anything.
-			if enh.enableDelayedNameRemoval {
-				annos.Add(annotations.NewMixedClassicNativeHistogramsWarning(sample.Metric.Get(labels.MetricName), arg.PositionRange()))
-			} else {
-				annos.Add(annotations.NewMixedClassicNativeHistogramsWarning("", arg.PositionRange()))
-			}
+			annos.Add(annotations.NewMixedClassicNativeHistogramsWarning(sample.Metric.Get(labels.MetricName), arg.PositionRange()))
 			delete(enh.signatureToMetricWithBuckets, string(enh.lblBuf))
 			enh.nativeHistogramSamples[idx].H = nil
 			continue
@@ -1540,76 +1516,6 @@ func (ev *evaluator) rangeEvalAgg(ctx context.Context, aggExpr *parser.Aggregate
 	return result, annos
 }
 
-// smoothSeries is a helper function that smooths the series by interpolating the values
-// based on values before and after the timestamp.
-func (ev *evaluator) smoothSeries(series []storage.Series, offset time.Duration) Matrix {
-	dur := ev.endTimestamp - ev.startTimestamp
-
-	it := storage.NewBuffer(dur + 2*durationMilliseconds(ev.lookbackDelta))
-
-	offMS := offset.Milliseconds()
-	start := ev.startTimestamp - offMS
-	end := ev.endTimestamp - offMS
-	step := ev.interval
-	lb := durationMilliseconds(ev.lookbackDelta)
-
-	var chkIter chunkenc.Iterator
-	mat := make(Matrix, 0, len(series))
-
-	for _, s := range series {
-		ss := Series{Metric: s.Labels()}
-
-		chkIter = s.Iterator(chkIter)
-		it.Reset(chkIter)
-
-		var floats []FPoint
-		var hists []HPoint
-
-		for ts := start; ts <= end; ts += step {
-			matrixStart := ts - lb
-			matrixEnd := ts + lb
-
-			floats, hists = ev.matrixIterSlice(it, matrixStart, matrixEnd, floats, hists)
-			if len(floats) == 0 && len(hists) == 0 {
-				continue
-			}
-
-			if len(hists) > 0 {
-				// TODO: support native histograms.
-				ev.errorf("smoothed and anchored modifiers do not work with native histograms")
-			}
-
-			// Binary search for the first index with T >= ts.
-			i := sort.Search(len(floats), func(i int) bool { return floats[i].T >= ts })
-
-			switch {
-			case i < len(floats) && floats[i].T == ts:
-				// Exact match.
-				ss.Floats = append(ss.Floats, floats[i])
-
-			case i > 0 && i < len(floats):
-				// Interpolate between prev and next.
-				// TODO: detect if the sample is a counter, based on __type__ or metadata.
-				prev, next := floats[i-1], floats[i]
-				val := interpolate(prev, next, ts, false, false)
-				ss.Floats = append(ss.Floats, FPoint{F: val, T: ts})
-
-			case i > 0:
-				// No next point yet; carry forward previous value.
-				prev := floats[i-1]
-				ss.Floats = append(ss.Floats, FPoint{F: prev.F, T: ts})
-
-			default:
-				// i == 0 and floats[0].T > ts: there is no previous data yet; skip.
-			}
-		}
-
-		mat = append(mat, ss)
-	}
-
-	return mat
-}
-
 // evalSeries generates a Matrix between ev.startTimestamp and ev.endTimestamp (inclusive), each point spaced ev.interval apart, from series given offset.
 // For every storage.Series iterator in series, the method iterates in ev.interval sized steps from ev.startTimestamp until and including ev.endTimestamp,
 // collecting every corresponding sample (obtained via ev.vectorSelectorSingle) into a Series.
@@ -1764,9 +1670,13 @@ func (ev *evaluator) eval(ctx context.Context, expr parser.Expr) (parser.Value, 
 		sortedGrouping := e.Grouping
 		slices.Sort(sortedGrouping)
 
+		unwrapParenExpr(&e.Param)
+		param := unwrapStepInvariantExpr(e.Param)
+		unwrapParenExpr(&param)
+
 		if e.Op == parser.COUNT_VALUES {
-			valueLabel := e.Param.(*parser.StringLiteral)
-			if !model.UTF8Validation.IsValidLabelName(valueLabel.Val) {
+			valueLabel := param.(*parser.StringLiteral)
+			if !model.LabelName(valueLabel.Val).IsValid() {
 				ev.errorf("invalid label name %s", valueLabel)
 			}
 			if !e.Without {
@@ -1780,8 +1690,8 @@ func (ev *evaluator) eval(ctx context.Context, expr parser.Expr) (parser.Value, 
 
 		var warnings annotations.Annotations
 		originalNumSamples := ev.currentSamples
-		// e.Param is the number k for topk/bottomk, or q for quantile.
-		fp, ws := newFParams(ctx, ev, e.Param)
+		// param is the number k for topk/bottomk, or q for quantile.
+		fp, ws := newFParams(ctx, ev, param)
 		warnings.Merge(ws)
 		// Now fetch the data to be aggregated.
 		val, ws := ev.eval(ctx, e.Expr)
@@ -1801,7 +1711,9 @@ func (ev *evaluator) eval(ctx context.Context, expr parser.Expr) (parser.Value, 
 			// Matrix evaluation always returns the evaluation time,
 			// so this function needs special handling when given
 			// a vector selector.
+			unwrapParenExpr(&e.Args[0])
 			arg := unwrapStepInvariantExpr(e.Args[0])
+			unwrapParenExpr(&arg)
 			vs, ok := arg.(*parser.VectorSelector)
 			if ok {
 				return ev.rangeEvalTimestampFunctionOverVectorSelector(ctx, vs, call, e)
@@ -1815,7 +1727,9 @@ func (ev *evaluator) eval(ctx context.Context, expr parser.Expr) (parser.Value, 
 			warnings       annotations.Annotations
 		)
 		for i := range e.Args {
-			a := e.Args[i]
+			unwrapParenExpr(&e.Args[i])
+			a := unwrapStepInvariantExpr(e.Args[i])
+			unwrapParenExpr(&a)
 			if _, ok := a.(*parser.MatrixSelector); ok {
 				matrixArgIndex = i
 				matrixArg = true
@@ -1866,20 +1780,11 @@ func (ev *evaluator) eval(ctx context.Context, expr parser.Expr) (parser.Value, 
 			}
 		}
 
-		arg := e.Args[matrixArgIndex]
+		unwrapParenExpr(&e.Args[matrixArgIndex])
+		arg := unwrapStepInvariantExpr(e.Args[matrixArgIndex])
+		unwrapParenExpr(&arg)
 		sel := arg.(*parser.MatrixSelector)
 		selVS := sel.VectorSelector.(*parser.VectorSelector)
-
-		switch {
-		case selVS.Anchored:
-			if _, ok := AnchoredSafeFunctions[e.Func.Name]; !ok {
-				ev.errorf("anchored modifier can only be used with: %s - not with %s", strings.Join(slices.Sorted(maps.Keys(AnchoredSafeFunctions)), ", "), e.Func.Name)
-			}
-		case selVS.Smoothed:
-			if _, ok := SmoothedSafeFunctions[e.Func.Name]; !ok {
-				ev.errorf("smoothed modifier can only be used with: %s - not with %s", strings.Join(slices.Sorted(maps.Keys(SmoothedSafeFunctions)), ", "), e.Func.Name)
-			}
-		}
 
 		ws, err := checkAndExpandSeriesSet(ctx, sel)
 		warnings.Merge(ws)
@@ -1889,17 +1794,10 @@ func (ev *evaluator) eval(ctx context.Context, expr parser.Expr) (parser.Value, 
 		mat := make(Matrix, 0, len(selVS.Series)) // Output matrix.
 		offset := durationMilliseconds(selVS.Offset)
 		selRange := durationMilliseconds(sel.Range)
-
-		var stepRange int64
-		switch {
-		case selVS.Anchored:
-			stepRange = min(selRange+durationMilliseconds(ev.lookbackDelta), ev.interval)
-		case selVS.Smoothed:
-			stepRange = min(selRange+durationMilliseconds(2*ev.lookbackDelta), ev.interval)
-		default:
-			stepRange = min(selRange, ev.interval)
+		stepRange := selRange
+		if stepRange > ev.interval {
+			stepRange = ev.interval
 		}
-
 		// Reuse objects across steps to save memory allocations.
 		var floats []FPoint
 		var histograms []HPoint
@@ -1907,25 +1805,14 @@ func (ev *evaluator) eval(ctx context.Context, expr parser.Expr) (parser.Value, 
 		inMatrix := make(Matrix, 1)
 		enh := &EvalNodeHelper{Out: make(Vector, 0, 1), enableDelayedNameRemoval: ev.enableDelayedNameRemoval}
 		// Process all the calls for one time series at a time.
-		// For anchored and smoothed selectors, we need to iterate over a
-		// larger range than the query range to account for the lookback delta.
-		// For standard range queries, we iterate over the query range.
-		bufferRange := selRange
-		switch {
-		case selVS.Anchored:
-			bufferRange += durationMilliseconds(ev.lookbackDelta)
-		case selVS.Smoothed:
-			bufferRange += durationMilliseconds(2 * ev.lookbackDelta)
-		}
-
-		it := storage.NewBuffer(bufferRange)
+		it := storage.NewBuffer(selRange)
 		var chkIter chunkenc.Iterator
 
-		// The last_over_time and first_over_time functions act like
-		// offset; thus, they should keep the metric name.  For all the
-		// other range vector functions, the only change needed is to
-		// drop the metric name in the output.
-		dropName := (e.Func.Name != "last_over_time" && e.Func.Name != "first_over_time")
+		// The last_over_time function acts like offset; thus, it
+		// should keep the metric name.  For all the other range
+		// vector functions, the only change needed is to drop the
+		// metric name in the output.
+		dropName := e.Func.Name != "last_over_time"
 		vectorVals := make([]Vector, len(e.Args)-1)
 		for i, s := range selVS.Series {
 			if err := contextDone(ctx, "expression evaluation"); err != nil {
@@ -1967,23 +1854,10 @@ func (ev *evaluator) eval(ctx context.Context, expr parser.Expr) (parser.Value, 
 				if ts == ev.startTimestamp || selVS.Timestamp == nil {
 					maxt := ts - offset
 					mint := maxt - selRange
-					switch {
-					case selVS.Anchored:
-						mint -= durationMilliseconds(ev.lookbackDelta)
-					case selVS.Smoothed:
-						mint -= durationMilliseconds(ev.lookbackDelta)
-						maxt += durationMilliseconds(ev.lookbackDelta)
-					}
 					floats, histograms = ev.matrixIterSlice(it, mint, maxt, floats, histograms)
 				}
 				if len(floats)+len(histograms) == 0 {
 					continue
-				}
-				if selVS.Anchored || selVS.Smoothed {
-					if len(histograms) > 0 {
-						// TODO: support native histograms.
-						ev.errorf("smoothed and anchored modifiers do not work with native histograms")
-					}
 				}
 				inMatrix[0].Floats = floats
 				inMatrix[0].Histograms = histograms
@@ -2183,10 +2057,6 @@ func (ev *evaluator) eval(ctx context.Context, expr parser.Expr) (parser.Value, 
 		if err != nil {
 			ev.error(errWithWarnings{fmt.Errorf("expanding series: %w", err), ws})
 		}
-		if e.Smoothed {
-			mat := ev.smoothSeries(e.Series, e.Offset)
-			return mat, ws
-		}
 		mat := ev.evalSeries(ctx, e.Series, e.Offset, false)
 		return mat, ws
 
@@ -2238,6 +2108,11 @@ func (ev *evaluator) eval(ctx context.Context, expr parser.Expr) (parser.Value, 
 		ev.samplesStats.IncrementSamplesAtTimestamp(ev.endTimestamp, newEv.samplesStats.TotalSamples)
 		return res, ws
 	case *parser.StepInvariantExpr:
+		switch ce := e.Expr.(type) {
+		case *parser.StringLiteral, *parser.NumberLiteral:
+			return ev.eval(ctx, ce)
+		}
+
 		newEv := &evaluator{
 			startTimestamp:           ev.startTimestamp,
 			endTimestamp:             ev.startTimestamp, // Always a single evaluation.
@@ -2483,23 +2358,10 @@ func (ev *evaluator) matrixSelector(ctx context.Context, node *parser.MatrixSele
 		offset = durationMilliseconds(vs.Offset)
 		maxt   = ev.startTimestamp - offset
 		mint   = maxt - durationMilliseconds(node.Range)
-		// matrixMint keeps the original mint for smoothed and anchored selectors.
-		matrixMint = mint
-		// matrixMaxt keeps the original maxt for smoothed and anchored selectors.
-		matrixMaxt  = maxt
-		matrix      = make(Matrix, 0, len(vs.Series))
-		bufferRange = durationMilliseconds(node.Range)
+		matrix = make(Matrix, 0, len(vs.Series))
+
+		it = storage.NewBuffer(durationMilliseconds(node.Range))
 	)
-	switch {
-	case vs.Anchored:
-		bufferRange += durationMilliseconds(ev.lookbackDelta)
-		mint -= durationMilliseconds(ev.lookbackDelta)
-	case vs.Smoothed:
-		bufferRange += 2 * durationMilliseconds(ev.lookbackDelta)
-		mint -= durationMilliseconds(ev.lookbackDelta)
-		maxt += durationMilliseconds(ev.lookbackDelta)
-	}
-	it := storage.NewBuffer(bufferRange)
 	ws, err := checkAndExpandSeriesSet(ctx, node)
 	if err != nil {
 		ev.error(errWithWarnings{fmt.Errorf("expanding series: %w", err), ws})
@@ -2518,18 +2380,6 @@ func (ev *evaluator) matrixSelector(ctx context.Context, node *parser.MatrixSele
 		}
 
 		ss.Floats, ss.Histograms = ev.matrixIterSlice(it, mint, maxt, nil, nil)
-		switch {
-		case vs.Anchored:
-			if ss.Histograms != nil {
-				ev.errorf("anchored modifier is not supported with histograms")
-			}
-			ss.Floats = extendFloats(ss.Floats, matrixMint, matrixMaxt, false)
-		case vs.Smoothed:
-			if ss.Histograms != nil {
-				ev.errorf("anchored modifier is not supported with histograms")
-			}
-			ss.Floats = extendFloats(ss.Floats, matrixMint, matrixMaxt, true)
-		}
 		totalSize := int64(len(ss.Floats)) + int64(totalHPointSize(ss.Histograms))
 		ev.samplesStats.IncrementSamplesAtTimestamp(ev.startTimestamp, totalSize)
 
@@ -2712,7 +2562,7 @@ loop:
 	return floats, histograms
 }
 
-func (*evaluator) VectorAnd(lhs, rhs Vector, matching *parser.VectorMatching, lhsh, rhsh []EvalSeriesHelper, enh *EvalNodeHelper) Vector {
+func (ev *evaluator) VectorAnd(lhs, rhs Vector, matching *parser.VectorMatching, lhsh, rhsh []EvalSeriesHelper, enh *EvalNodeHelper) Vector {
 	if matching.Card != parser.CardManyToMany {
 		panic("set operations must only use many-to-many matching")
 	}
@@ -2736,7 +2586,7 @@ func (*evaluator) VectorAnd(lhs, rhs Vector, matching *parser.VectorMatching, lh
 	return enh.Out
 }
 
-func (*evaluator) VectorOr(lhs, rhs Vector, matching *parser.VectorMatching, lhsh, rhsh []EvalSeriesHelper, enh *EvalNodeHelper) Vector {
+func (ev *evaluator) VectorOr(lhs, rhs Vector, matching *parser.VectorMatching, lhsh, rhsh []EvalSeriesHelper, enh *EvalNodeHelper) Vector {
 	switch {
 	case matching.Card != parser.CardManyToMany:
 		panic("set operations must only use many-to-many matching")
@@ -2763,7 +2613,7 @@ func (*evaluator) VectorOr(lhs, rhs Vector, matching *parser.VectorMatching, lhs
 	return enh.Out
 }
 
-func (*evaluator) VectorUnless(lhs, rhs Vector, matching *parser.VectorMatching, lhsh, rhsh []EvalSeriesHelper, enh *EvalNodeHelper) Vector {
+func (ev *evaluator) VectorUnless(lhs, rhs Vector, matching *parser.VectorMatching, lhsh, rhsh []EvalSeriesHelper, enh *EvalNodeHelper) Vector {
 	if matching.Card != parser.CardManyToMany {
 		panic("set operations must only use many-to-many matching")
 	}
@@ -2987,7 +2837,7 @@ func (ev *evaluator) VectorscalarBinop(op parser.ItemType, lhs Vector, rhs Scala
 			lh, rh = rh, lh
 		}
 		float, histogram, keep, err := vectorElemBinop(op, lf, rf, lh, rh, pos)
-		if err != nil && !errors.Is(err, annotations.PromQLWarning) {
+		if err != nil {
 			lastErr = err
 			continue
 		}
@@ -3112,23 +2962,17 @@ func vectorElemBinop(op parser.ItemType, lhs, rhs float64, hlhs, hrhs *histogram
 		{
 			switch op {
 			case parser.ADD:
-				res, counterResetCollision, err := hlhs.Copy().Add(hrhs)
+				res, err := hlhs.Copy().Add(hrhs)
 				if err != nil {
 					return 0, nil, false, err
 				}
-				if counterResetCollision {
-					err = annotations.NewHistogramCounterResetCollisionWarning(pos, annotations.HistogramAdd)
-				}
-				return 0, res.Compact(0), true, err
+				return 0, res.Compact(0), true, nil
 			case parser.SUB:
-				res, counterResetCollision, err := hlhs.Copy().Sub(hrhs)
+				res, err := hlhs.Copy().Sub(hrhs)
 				if err != nil {
 					return 0, nil, false, err
 				}
-				if counterResetCollision {
-					err = annotations.NewHistogramCounterResetCollisionWarning(pos, annotations.HistogramSub)
-				}
-				return 0, res.Compact(0), true, err
+				return 0, res.Compact(0), true, nil
 			case parser.EQLC:
 				// This operation expects that both histograms are compacted.
 				return 0, hlhs, hlhs.Equals(hrhs), nil
@@ -3241,13 +3085,10 @@ func (ev *evaluator) aggregation(e *parser.AggregateExpr, q float64, inputMatrix
 			if h != nil {
 				group.hasHistogram = true
 				if group.histogramValue != nil {
-					_, counterResetCollision, err := group.histogramValue.Add(h)
+					_, err := group.histogramValue.Add(h)
 					if err != nil {
 						handleAggregationError(err, e, inputMatrix[si].Metric.Get(model.MetricNameLabel), &annos)
 						group.incompatibleHistograms = true
-					}
-					if counterResetCollision {
-						annos.Add(annotations.NewHistogramCounterResetCollisionWarning(e.Expr.PositionRange(), annotations.HistogramAgg))
 					}
 				}
 				// Otherwise the aggregation contained floats
@@ -3297,23 +3138,17 @@ func (ev *evaluator) aggregation(e *parser.AggregateExpr, q float64, inputMatrix
 				if group.histogramValue != nil {
 					left := h.Copy().Div(group.groupCount)
 					right := group.histogramValue.Copy().Div(group.groupCount)
-					toAdd, counterResetCollision, err := left.Sub(right)
+					toAdd, err := left.Sub(right)
 					if err != nil {
 						handleAggregationError(err, e, inputMatrix[si].Metric.Get(model.MetricNameLabel), &annos)
 						group.incompatibleHistograms = true
 						continue
 					}
-					if counterResetCollision {
-						annos.Add(annotations.NewHistogramCounterResetCollisionWarning(e.Expr.PositionRange(), annotations.HistogramAgg))
-					}
-					_, counterResetCollision, err = group.histogramValue.Add(toAdd)
+					_, err = group.histogramValue.Add(toAdd)
 					if err != nil {
 						handleAggregationError(err, e, inputMatrix[si].Metric.Get(model.MetricNameLabel), &annos)
 						group.incompatibleHistograms = true
 						continue
-					}
-					if counterResetCollision {
-						annos.Add(annotations.NewHistogramCounterResetCollisionWarning(e.Expr.PositionRange(), annotations.HistogramAgg))
 					}
 				}
 				// Otherwise the aggregation contained floats
@@ -3493,7 +3328,10 @@ seriesLoop:
 		var r float64
 		switch op {
 		case parser.TOPK, parser.BOTTOMK, parser.LIMITK:
-			k = min(int64(fParam), int64(len(inputMatrix)))
+			k = int64(fParam)
+			if k > int64(len(inputMatrix)) {
+				k = int64(len(inputMatrix))
+			}
 			if k < 1 {
 				if enh.Ts != ev.endTimestamp {
 					advanceRemainingSeries(enh.Ts, si+1)
@@ -3685,7 +3523,7 @@ seriesLoop:
 
 // aggregationCountValues evaluates count_values on vec.
 // Outputs as many series per group as there are values in the input.
-func (*evaluator) aggregationCountValues(e *parser.AggregateExpr, grouping []string, valueLabel string, vec Vector, enh *EvalNodeHelper) (Vector, annotations.Annotations) {
+func (ev *evaluator) aggregationCountValues(e *parser.AggregateExpr, grouping []string, valueLabel string, vec Vector, enh *EvalNodeHelper) (Vector, annotations.Annotations) {
 	type groupCount struct {
 		labels labels.Labels
 		count  int
@@ -3769,7 +3607,7 @@ func addToSeries(ss *Series, ts int64, f float64, h *histogram.FloatHistogram, n
 	ss.Histograms = append(ss.Histograms, HPoint{T: ts, H: h})
 }
 
-func (*evaluator) nextValues(ts int64, series *Series) (f float64, h *histogram.FloatHistogram, b bool) {
+func (ev *evaluator) nextValues(ts int64, series *Series) (f float64, h *histogram.FloatHistogram, b bool) {
 	switch {
 	case len(series.Floats) > 0 && series.Floats[0].T == ts:
 		f = series.Floats[0].F
@@ -3860,7 +3698,7 @@ func changesMetricSchema(op parser.ItemType) bool {
 }
 
 // NewOriginContext returns a new context with data about the origin attached.
-func NewOriginContext(ctx context.Context, data map[string]any) context.Context {
+func NewOriginContext(ctx context.Context, data map[string]interface{}) context.Context {
 	return context.WithValue(ctx, QueryOrigin{}, data)
 }
 
@@ -3887,8 +3725,8 @@ func unwrapStepInvariantExpr(e parser.Expr) parser.Expr {
 }
 
 // PreprocessExpr wraps all possible step invariant parts of the given expression with
-// StepInvariantExpr. It also resolves the preprocessors, evaluates duration expressions
-// into their numeric values and removes superfluous parenthesis on parameters to functions and aggregations.
+// StepInvariantExpr. It also resolves the preprocessors and evaluates duration expressions
+// into their numeric values.
 func PreprocessExpr(expr parser.Expr, start, end time.Time, step time.Duration) (parser.Expr, error) {
 	detectHistogramStatsDecoding(expr)
 
@@ -3896,20 +3734,18 @@ func PreprocessExpr(expr parser.Expr, start, end time.Time, step time.Duration) 
 		return nil, err
 	}
 
-	_, shouldWrap := preprocessExprHelper(expr, start, end)
-	if shouldWrap {
+	isStepInvariant := preprocessExprHelper(expr, start, end)
+	if isStepInvariant {
 		return newStepInvariantExpr(expr), nil
 	}
 	return expr, nil
 }
 
-// preprocessExprHelper wraps child nodes of expr with a StepInvariantExpr,
-// at the highest level within the tree that is step-invariant.
-// Also resolves start() and end() on selector and subquery nodes.
-// Also remove superfluous parenthesis on parameters to functions and aggregations.
-// Return isStepInvariant is true when the whole subexpression is step invariant.
-// Return shoudlWrap is false for cases like MatrixSelector and StringLiteral that never need to be wrapped.
-func preprocessExprHelper(expr parser.Expr, start, end time.Time) (isStepInvariant, shouldWrap bool) {
+// preprocessExprHelper wraps the child nodes of the expression
+// with a StepInvariantExpr wherever it's step invariant. The returned boolean is true if the
+// passed expression qualifies to be wrapped by StepInvariantExpr.
+// It also resolves the preprocessors.
+func preprocessExprHelper(expr parser.Expr, start, end time.Time) bool {
 	switch n := expr.(type) {
 	case *parser.VectorSelector:
 		switch n.StartOrEnd {
@@ -3918,56 +3754,49 @@ func preprocessExprHelper(expr parser.Expr, start, end time.Time) (isStepInvaria
 		case parser.END:
 			n.Timestamp = makeInt64Pointer(timestamp.FromTime(end))
 		}
-		return n.Timestamp != nil, n.Timestamp != nil
+		return n.Timestamp != nil
 
 	case *parser.AggregateExpr:
-		unwrapParenExpr(&n.Expr)
-		unwrapParenExpr(&n.Param)
 		return preprocessExprHelper(n.Expr, start, end)
 
 	case *parser.BinaryExpr:
-		isInvariantLHS, shouldWrapLHS := preprocessExprHelper(n.LHS, start, end)
-		isInvariantRHS, shouldWrapRHS := preprocessExprHelper(n.RHS, start, end)
-		if isInvariantLHS && isInvariantRHS {
-			return true, true
+		isInvariant1, isInvariant2 := preprocessExprHelper(n.LHS, start, end), preprocessExprHelper(n.RHS, start, end)
+		if isInvariant1 && isInvariant2 {
+			return true
 		}
 
-		if shouldWrapLHS {
+		if isInvariant1 {
 			n.LHS = newStepInvariantExpr(n.LHS)
 		}
-		if shouldWrapRHS {
+		if isInvariant2 {
 			n.RHS = newStepInvariantExpr(n.RHS)
 		}
 
-		return false, false
+		return false
 
 	case *parser.Call:
 		_, ok := AtModifierUnsafeFunctions[n.Func.Name]
 		isStepInvariant := !ok
-		shouldWrap := make([]bool, len(n.Args))
+		isStepInvariantSlice := make([]bool, len(n.Args))
 		for i := range n.Args {
-			unwrapParenExpr(&n.Args[i])
-			var argIsStepInvariant bool
-			argIsStepInvariant, shouldWrap[i] = preprocessExprHelper(n.Args[i], start, end)
-			isStepInvariant = isStepInvariant && argIsStepInvariant
+			isStepInvariantSlice[i] = preprocessExprHelper(n.Args[i], start, end)
+			isStepInvariant = isStepInvariant && isStepInvariantSlice[i]
 		}
 
 		if isStepInvariant {
 			// The function and all arguments are step invariant.
-			return true, true
+			return true
 		}
 
-		for i, isi := range shouldWrap {
+		for i, isi := range isStepInvariantSlice {
 			if isi {
 				n.Args[i] = newStepInvariantExpr(n.Args[i])
 			}
 		}
-		return false, false
+		return false
 
 	case *parser.MatrixSelector:
-		// We don't need to wrap a MatrixSelector because functions over range vectors evaluate those directly.
-		isStepInvariant, _ := preprocessExprHelper(n.VectorSelector, start, end)
-		return isStepInvariant, false
+		return preprocessExprHelper(n.VectorSelector, start, end)
 
 	case *parser.SubqueryExpr:
 		// Since we adjust offset for the @ modifier evaluation,
@@ -3975,7 +3804,7 @@ func preprocessExprHelper(expr parser.Expr, start, end time.Time) (isStepInvaria
 		// Hence we wrap the inside of subquery irrespective of
 		// @ on subquery (given it is also step invariant) so that
 		// it is evaluated only once w.r.t. the start time of subquery.
-		isInvariant, _ := preprocessExprHelper(n.Expr, start, end)
+		isInvariant := preprocessExprHelper(n.Expr, start, end)
 		if isInvariant {
 			n.Expr = newStepInvariantExpr(n.Expr)
 		}
@@ -3985,7 +3814,7 @@ func preprocessExprHelper(expr parser.Expr, start, end time.Time) (isStepInvaria
 		case parser.END:
 			n.Timestamp = makeInt64Pointer(timestamp.FromTime(end))
 		}
-		return n.Timestamp != nil, n.Timestamp != nil
+		return n.Timestamp != nil
 
 	case *parser.ParenExpr:
 		return preprocessExprHelper(n.Expr, start, end)
@@ -3994,7 +3823,7 @@ func preprocessExprHelper(expr parser.Expr, start, end time.Time) (isStepInvaria
 		return preprocessExprHelper(n.Expr, start, end)
 
 	case *parser.StringLiteral, *parser.NumberLiteral:
-		return true, false
+		return true
 	}
 
 	panic(fmt.Sprintf("found unexpected node %#v", expr))
@@ -4051,36 +3880,22 @@ func detectHistogramStatsDecoding(expr parser.Expr) {
 			return nil
 		}
 
-	pathLoop:
-		for i := len(path) - 1; i >= 0; i-- { // Walk backwards up the path.
-			if _, ok := path[i].(*parser.SubqueryExpr); ok {
-				// If we ever see a subquery in the path, we
-				// will not skip the buckets. We need the
-				// buckets for correct counter reset detection.
-				n.SkipHistogramBuckets = false
-				break pathLoop
-			}
+		for i := len(path) - 1; i > 0; i-- { // Walk backwards up the path.
 			call, ok := path[i].(*parser.Call)
 			if !ok {
-				continue pathLoop
+				continue
 			}
 			switch call.Func.Name {
 			case "histogram_count", "histogram_sum", "histogram_avg":
-				// We allow skipping buckets preliminarily. But
-				// we will continue through the path to see if
-				// we find a subquery (or a histogram function)
-				// further up (the latter wouldn't make sense,
-				// but no harm in detecting it).
 				n.SkipHistogramBuckets = true
 			case "histogram_quantile", "histogram_fraction":
-				// If we ever see a function that needs the
-				// whole histogram, we will not skip the
-				// buckets.
 				n.SkipHistogramBuckets = false
-				break pathLoop
+			default:
+				continue
 			}
+			break
 		}
-		return nil
+		return errors.New("stop")
 	})
 }
 
@@ -4107,7 +3922,7 @@ func NewHashRatioSampler() *HashRatioSampler {
 	return &HashRatioSampler{}
 }
 
-func (*HashRatioSampler) sampleOffset(_ int64, sample *Sample) float64 {
+func (s *HashRatioSampler) sampleOffset(_ int64, sample *Sample) float64 {
 	const (
 		float64MaxUint64 = float64(math.MaxUint64)
 	)
@@ -4194,40 +4009,4 @@ func (ev *evaluator) gatherVector(ts int64, input Matrix, output Vector, bufHelp
 	ev.samplesStats.UpdatePeak(ev.currentSamples)
 
 	return output, bufHelpers
-}
-
-// extendFloats extends the floats to the given mint and maxt.
-// This function is used with matrix selectors that are smoothed or anchored.
-func extendFloats(floats []FPoint, mint, maxt int64, smoothed bool) []FPoint {
-	lastSampleIndex := len(floats) - 1
-
-	firstSampleIndex := max(0, sort.Search(lastSampleIndex, func(i int) bool { return floats[i].T > mint })-1)
-	if smoothed {
-		lastSampleIndex = sort.Search(lastSampleIndex, func(i int) bool { return floats[i].T >= maxt })
-	}
-
-	if floats[lastSampleIndex].T <= mint {
-		return []FPoint{}
-	}
-
-	// TODO: detect if the sample is a counter, based on __type__ or metadata.
-	left := pickOrInterpolateLeft(floats, firstSampleIndex, mint, smoothed, false)
-	right := pickOrInterpolateRight(floats, lastSampleIndex, maxt, smoothed, false)
-
-	// Filter out samples at boundaries or outside the range.
-	if floats[firstSampleIndex].T <= mint {
-		firstSampleIndex++
-	}
-	if floats[lastSampleIndex].T >= maxt {
-		lastSampleIndex--
-	}
-
-	// TODO: Preallocate the length of the new list.
-	out := make([]FPoint, 0)
-	// Create the new floats list with the boundary samples and the inner samples.
-	out = append(out, FPoint{T: mint, F: left})
-	out = append(out, floats[firstSampleIndex:lastSampleIndex+1]...)
-	out = append(out, FPoint{T: maxt, F: right})
-
-	return out
 }

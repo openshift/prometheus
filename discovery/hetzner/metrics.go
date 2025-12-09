@@ -24,9 +24,9 @@ type hetznerMetrics struct {
 }
 
 // Register implements discovery.DiscovererMetrics.
-func (*hetznerMetrics) Register() error {
+func (m *hetznerMetrics) Register() error {
 	return nil
 }
 
 // Unregister implements discovery.DiscovererMetrics.
-func (*hetznerMetrics) Unregister() {}
+func (m *hetznerMetrics) Unregister() {}

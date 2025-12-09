@@ -122,16 +122,13 @@ Outer:
 }
 
 var parserPool = sync.Pool{
-	New: func() any {
+	New: func() interface{} {
 		return &parser{}
 	},
 }
 
 // ExperimentalDurationExpr is a flag to enable experimental duration expression parsing.
 var ExperimentalDurationExpr bool
-
-// EnableExtendedRangeSelectors is a flag to enable experimental extended range selectors.
-var EnableExtendedRangeSelectors bool
 
 type Parser interface {
 	ParseExpr() (Expr, error)
@@ -150,10 +147,17 @@ type parser struct {
 	// Everytime an Item is lexed that could be the end
 	// of certain expressions its end position is stored here.
 	lastClosing posrange.Pos
+	// Keep track of closing parentheses in addition, because sometimes the
+	// parser needs to read past a closing parenthesis to find the end of an
+	// expression, e.g. reading ony '(sum(foo)' cannot tell the end of the
+	// aggregation expression, since it could continue with either
+	// '(sum(foo))' or '(sum(foo) by (bar))' by which time we set lastClosing
+	// to the last paren.
+	closingParens []posrange.Pos
 
 	yyParser yyParserImpl
 
-	generatedParserResult any
+	generatedParserResult interface{}
 	parseErrors           ParseErrors
 }
 
@@ -173,7 +177,7 @@ func NewParser(input string, opts ...Opt) *parser { //nolint:revive // unexporte
 	p.injecting = false
 	p.parseErrors = nil
 	p.generatedParserResult = nil
-	p.lastClosing = posrange.Pos(0)
+	p.closingParens = make([]posrange.Pos, 0)
 
 	// Clear lexer struct before reusing.
 	p.lex = Lexer{
@@ -263,6 +267,11 @@ func EnrichParseError(err error, enrich func(parseErr *ParseErr)) {
 func ParseExpr(input string) (expr Expr, err error) {
 	p := NewParser(input)
 	defer p.Close()
+
+	if len(p.closingParens) > 0 {
+		return nil, fmt.Errorf("internal parser error, not all closing parens consumed: %v", p.closingParens)
+	}
+
 	return p.ParseExpr()
 }
 
@@ -365,7 +374,7 @@ func ParseSeriesDesc(input string) (labels labels.Labels, values []SequenceValue
 }
 
 // addParseErrf formats the error and appends it to the list of parsing errors.
-func (p *parser) addParseErrf(positionRange posrange.PositionRange, format string, args ...any) {
+func (p *parser) addParseErrf(positionRange posrange.PositionRange, format string, args ...interface{}) {
 	p.addParseErr(positionRange, fmt.Errorf(format, args...))
 }
 
@@ -414,7 +423,7 @@ func (p *parser) unexpected(context, expected string) {
 var errUnexpected = errors.New("unexpected error")
 
 // recover is the handler that turns panics into returns from the top level of Parse.
-func (*parser) recover(errp *error) {
+func (p *parser) recover(errp *error) {
 	e := recover()
 	switch _, ok := e.(runtime.Error); {
 	case ok:
@@ -467,7 +476,10 @@ func (p *parser) Lex(lval *yySymType) int {
 	case EOF:
 		lval.item.Typ = EOF
 		p.InjectItem(0)
-	case RIGHT_BRACE, RIGHT_PAREN, RIGHT_BRACKET, DURATION, NUMBER:
+	case RIGHT_PAREN:
+		p.closingParens = append(p.closingParens, lval.item.Pos+posrange.Pos(len(lval.item.Val)))
+		fallthrough
+	case RIGHT_BRACE, RIGHT_BRACKET, DURATION, NUMBER:
 		p.lastClosing = lval.item.Pos + posrange.Pos(len(lval.item.Val))
 	}
 
@@ -479,7 +491,7 @@ func (p *parser) Lex(lval *yySymType) int {
 // It is a no-op since the parsers error routines are triggered
 // by mechanisms that allow more fine-grained control
 // For more information, see https://pkg.go.dev/golang.org/x/tools/cmd/goyacc.
-func (*parser) Error(string) {
+func (p *parser) Error(string) {
 }
 
 // InjectItem allows injecting a single Item at the beginning of the token stream
@@ -502,7 +514,7 @@ func (p *parser) InjectItem(typ ItemType) {
 	p.injecting = true
 }
 
-func (*parser) newBinaryExpression(lhs Node, op Item, modifiers, rhs Node) *BinaryExpr {
+func (p *parser) newBinaryExpression(lhs Node, op Item, modifiers, rhs Node) *BinaryExpr {
 	ret := modifiers.(*BinaryExpr)
 
 	ret.LHS = lhs.(Expr)
@@ -512,7 +524,7 @@ func (*parser) newBinaryExpression(lhs Node, op Item, modifiers, rhs Node) *Bina
 	return ret
 }
 
-func (*parser) assembleVectorSelector(vs *VectorSelector) {
+func (p *parser) assembleVectorSelector(vs *VectorSelector) {
 	// If the metric name was set outside the braces, add a matcher for it.
 	// If the metric name was inside the braces we don't need to do anything.
 	if vs.Name != "" {
@@ -524,17 +536,20 @@ func (*parser) assembleVectorSelector(vs *VectorSelector) {
 	}
 }
 
-func (p *parser) newAggregateExpr(op Item, modifier, args Node, overread bool) (ret *AggregateExpr) {
+func (p *parser) newAggregateExpr(op Item, modifier, args Node) (ret *AggregateExpr) {
 	ret = modifier.(*AggregateExpr)
 	arguments := args.(Expressions)
 
+	if len(p.closingParens) == 0 {
+		// Prevents invalid array accesses.
+		// The error is already captured by the parser.
+		return
+	}
 	ret.PosRange = posrange.PositionRange{
 		Start: op.Pos,
-		End:   p.lastClosing,
+		End:   p.closingParens[0],
 	}
-	if overread {
-		ret.PosRange.End = p.lex.findPrevRightParen(p.lastClosing)
-	}
+	p.closingParens = p.closingParens[1:]
 
 	ret.Op = op.Typ
 
@@ -567,13 +582,13 @@ func (p *parser) newAggregateExpr(op Item, modifier, args Node, overread bool) (
 }
 
 // newMap is used when building the FloatHistogram from a map.
-func (*parser) newMap() (ret map[string]any) {
-	return map[string]any{}
+func (p *parser) newMap() (ret map[string]interface{}) {
+	return map[string]interface{}{}
 }
 
 // mergeMaps is used to combine maps as they're used to later build the Float histogram.
 // This will merge the right map into the left map.
-func (p *parser) mergeMaps(left, right *map[string]any) (ret *map[string]any) {
+func (p *parser) mergeMaps(left, right *map[string]interface{}) (ret *map[string]interface{}) {
 	for key, value := range *right {
 		if _, ok := (*left)[key]; ok {
 			p.addParseErrf(posrange.PositionRange{}, "duplicate key \"%s\" in histogram", key)
@@ -586,19 +601,17 @@ func (p *parser) mergeMaps(left, right *map[string]any) (ret *map[string]any) {
 
 func (p *parser) histogramsIncreaseSeries(base, inc *histogram.FloatHistogram, times uint64) ([]SequenceValue, error) {
 	return p.histogramsSeries(base, inc, times, func(a, b *histogram.FloatHistogram) (*histogram.FloatHistogram, error) {
-		res, _, err := a.Add(b)
-		return res, err
+		return a.Add(b)
 	})
 }
 
 func (p *parser) histogramsDecreaseSeries(base, inc *histogram.FloatHistogram, times uint64) ([]SequenceValue, error) {
 	return p.histogramsSeries(base, inc, times, func(a, b *histogram.FloatHistogram) (*histogram.FloatHistogram, error) {
-		res, _, err := a.Sub(b)
-		return res, err
+		return a.Sub(b)
 	})
 }
 
-func (*parser) histogramsSeries(base, inc *histogram.FloatHistogram, times uint64,
+func (p *parser) histogramsSeries(base, inc *histogram.FloatHistogram, times uint64,
 	combine func(*histogram.FloatHistogram, *histogram.FloatHistogram) (*histogram.FloatHistogram, error),
 ) ([]SequenceValue, error) {
 	ret := make([]SequenceValue, times+1)
@@ -622,7 +635,7 @@ func (*parser) histogramsSeries(base, inc *histogram.FloatHistogram, times uint6
 }
 
 // buildHistogramFromMap is used in the grammar to take then individual parts of the histogram and complete it.
-func (p *parser) buildHistogramFromMap(desc *map[string]any) *histogram.FloatHistogram {
+func (p *parser) buildHistogramFromMap(desc *map[string]interface{}) *histogram.FloatHistogram {
 	output := &histogram.FloatHistogram{}
 
 	val, ok := (*desc)["schema"]
@@ -715,7 +728,7 @@ func (p *parser) buildHistogramFromMap(desc *map[string]any) *histogram.FloatHis
 	return output
 }
 
-func (p *parser) buildHistogramBucketsAndSpans(desc *map[string]any, bucketsKey, offsetKey string,
+func (p *parser) buildHistogramBucketsAndSpans(desc *map[string]interface{}, bucketsKey, offsetKey string,
 ) (buckets []float64, spans []histogram.Span) {
 	bucketCount := 0
 	val, ok := (*desc)[bucketsKey]
@@ -990,7 +1003,7 @@ func parseDuration(ds string) (time.Duration, error) {
 // parseGenerated invokes the yacc generated parser.
 // The generated parser gets the provided startSymbol injected into
 // the lexer stream, based on which grammar will be used.
-func (p *parser) parseGenerated(startSymbol ItemType) any {
+func (p *parser) parseGenerated(startSymbol ItemType) interface{} {
 	p.InjectItem(startSymbol)
 
 	p.yyParser.Parse(p)
@@ -1113,52 +1126,6 @@ func (p *parser) addOffsetExpr(e Node, expr *DurationExpr) {
 	}
 
 	*endPosp = p.lastClosing
-}
-
-func (p *parser) setAnchored(e Node) {
-	if !EnableExtendedRangeSelectors {
-		p.addParseErrf(e.PositionRange(), "anchored modifier is experimental and not enabled")
-		return
-	}
-	switch s := e.(type) {
-	case *VectorSelector:
-		s.Anchored = true
-		if s.Smoothed {
-			p.addParseErrf(e.PositionRange(), "anchored and smoothed modifiers cannot be used together")
-		}
-	case *MatrixSelector:
-		s.VectorSelector.(*VectorSelector).Anchored = true
-		if s.VectorSelector.(*VectorSelector).Smoothed {
-			p.addParseErrf(e.PositionRange(), "anchored and smoothed modifiers cannot be used together")
-		}
-	case *SubqueryExpr:
-		p.addParseErrf(e.PositionRange(), "anchored modifier is not supported for subqueries")
-	default:
-		p.addParseErrf(e.PositionRange(), "anchored modifier not implemented")
-	}
-}
-
-func (p *parser) setSmoothed(e Node) {
-	if !EnableExtendedRangeSelectors {
-		p.addParseErrf(e.PositionRange(), "smoothed modifier is experimental and not enabled")
-		return
-	}
-	switch s := e.(type) {
-	case *VectorSelector:
-		s.Smoothed = true
-		if s.Anchored {
-			p.addParseErrf(e.PositionRange(), "anchored and smoothed modifiers cannot be used together")
-		}
-	case *MatrixSelector:
-		s.VectorSelector.(*VectorSelector).Smoothed = true
-		if s.VectorSelector.(*VectorSelector).Anchored {
-			p.addParseErrf(e.PositionRange(), "anchored and smoothed modifiers cannot be used together")
-		}
-	case *SubqueryExpr:
-		p.addParseErrf(e.PositionRange(), "smoothed modifier is not supported for subqueries")
-	default:
-		p.addParseErrf(e.PositionRange(), "smoothed modifier not implemented")
-	}
 }
 
 // setTimestamp is used to set the timestamp from the @ modifier in the generated parser.

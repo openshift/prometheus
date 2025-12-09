@@ -1,7 +1,7 @@
 package backoff
 
 import (
-	"math/rand/v2"
+	"math/rand"
 	"time"
 )
 
@@ -28,7 +28,13 @@ multiplied by the exponential, that is, between 2 and 6 seconds.
 
 Note: MaxInterval caps the RetryInterval and not the randomized interval.
 
-Example: Given the following default arguments, for 9 tries the sequence will be:
+If the time elapsed since an ExponentialBackOff instance is created goes past the
+MaxElapsedTime, then the method NextBackOff() starts returning backoff.Stop.
+
+The elapsed time can be reset by calling Reset().
+
+Example: Given the following default arguments, for 10 tries the sequence will be,
+and assuming we go over the MaxElapsedTime on the 10th try:
 
 	Request #  RetryInterval (seconds)  Randomized Interval (seconds)
 
@@ -41,6 +47,7 @@ Example: Given the following default arguments, for 9 tries the sequence will be
 	 7          5.692                   [2.846,  8.538]
 	 8          8.538                   [4.269, 12.807]
 	 9         12.807                   [6.403, 19.210]
+	10         19.210                   backoff.Stop
 
 Note: Implementation is not thread-safe.
 */

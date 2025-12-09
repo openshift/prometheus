@@ -54,10 +54,10 @@ type managedIdentityClient struct {
 // setIMDSRetryOptionDefaults sets zero-valued fields to default values appropriate for IMDS
 func setIMDSRetryOptionDefaults(o *policy.RetryOptions) {
 	if o.MaxRetries == 0 {
-		o.MaxRetries = 6
+		o.MaxRetries = 5
 	}
 	if o.MaxRetryDelay == 0 {
-		o.MaxRetryDelay = 25 * time.Second
+		o.MaxRetryDelay = 1 * time.Minute
 	}
 	if o.RetryDelay == 0 {
 		o.RetryDelay = 2 * time.Second

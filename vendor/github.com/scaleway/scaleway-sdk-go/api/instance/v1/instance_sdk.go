@@ -51,7 +51,7 @@ const (
 func (enum Arch) String() string {
 	if enum == "" {
 		// return default value if empty
-		return string(ArchUnknownArch)
+		return "unknown_arch"
 	}
 	return string(enum)
 }
@@ -92,7 +92,7 @@ const (
 func (enum AttachServerVolumeRequestVolumeType) String() string {
 	if enum == "" {
 		// return default value if empty
-		return string(AttachServerVolumeRequestVolumeTypeUnknownVolumeType)
+		return "unknown_volume_type"
 	}
 	return string(enum)
 }
@@ -132,7 +132,7 @@ const (
 func (enum BootType) String() string {
 	if enum == "" {
 		// return default value if empty
-		return string(BootTypeLocal)
+		return "local"
 	}
 	return string(enum)
 }
@@ -173,7 +173,7 @@ const (
 func (enum IPState) String() string {
 	if enum == "" {
 		// return default value if empty
-		return string(IPStateUnknownState)
+		return "unknown_state"
 	}
 	return string(enum)
 }
@@ -214,7 +214,7 @@ const (
 func (enum IPType) String() string {
 	if enum == "" {
 		// return default value if empty
-		return string(IPTypeUnknownIptype)
+		return "unknown_iptype"
 	}
 	return string(enum)
 }
@@ -253,7 +253,7 @@ const (
 func (enum ImageState) String() string {
 	if enum == "" {
 		// return default value if empty
-		return string(ImageStateAvailable)
+		return "available"
 	}
 	return string(enum)
 }
@@ -293,7 +293,7 @@ const (
 func (enum ListServersRequestOrder) String() string {
 	if enum == "" {
 		// return default value if empty
-		return string(ListServersRequestOrderCreationDateDesc)
+		return "creation_date_desc"
 	}
 	return string(enum)
 }
@@ -332,7 +332,7 @@ const (
 func (enum PlacementGroupPolicyMode) String() string {
 	if enum == "" {
 		// return default value if empty
-		return string(PlacementGroupPolicyModeOptional)
+		return "optional"
 	}
 	return string(enum)
 }
@@ -369,7 +369,7 @@ const (
 func (enum PlacementGroupPolicyType) String() string {
 	if enum == "" {
 		// return default value if empty
-		return string(PlacementGroupPolicyTypeMaxAvailability)
+		return "max_availability"
 	}
 	return string(enum)
 }
@@ -407,7 +407,7 @@ const (
 func (enum PrivateNICState) String() string {
 	if enum == "" {
 		// return default value if empty
-		return string(PrivateNICStateAvailable)
+		return "available"
 	}
 	return string(enum)
 }
@@ -446,7 +446,7 @@ const (
 func (enum SecurityGroupPolicy) String() string {
 	if enum == "" {
 		// return default value if empty
-		return string(SecurityGroupPolicyUnknownPolicy)
+		return "unknown_policy"
 	}
 	return string(enum)
 }
@@ -485,7 +485,7 @@ const (
 func (enum SecurityGroupRuleAction) String() string {
 	if enum == "" {
 		// return default value if empty
-		return string(SecurityGroupRuleActionUnknownAction)
+		return "unknown_action"
 	}
 	return string(enum)
 }
@@ -524,7 +524,7 @@ const (
 func (enum SecurityGroupRuleDirection) String() string {
 	if enum == "" {
 		// return default value if empty
-		return string(SecurityGroupRuleDirectionUnknownDirection)
+		return "unknown_direction"
 	}
 	return string(enum)
 }
@@ -565,7 +565,7 @@ const (
 func (enum SecurityGroupRuleProtocol) String() string {
 	if enum == "" {
 		// return default value if empty
-		return string(SecurityGroupRuleProtocolUnknownProtocol)
+		return "unknown_protocol"
 	}
 	return string(enum)
 }
@@ -606,7 +606,7 @@ const (
 func (enum SecurityGroupState) String() string {
 	if enum == "" {
 		// return default value if empty
-		return string(SecurityGroupStateAvailable)
+		return "available"
 	}
 	return string(enum)
 }
@@ -649,7 +649,7 @@ const (
 func (enum ServerAction) String() string {
 	if enum == "" {
 		// return default value if empty
-		return string(ServerActionPoweron)
+		return "poweron"
 	}
 	return string(enum)
 }
@@ -681,47 +681,6 @@ func (enum *ServerAction) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-type ServerFilesystemState string
-
-const (
-	ServerFilesystemStateUnknownState = ServerFilesystemState("unknown_state")
-	ServerFilesystemStateAttaching    = ServerFilesystemState("attaching")
-	ServerFilesystemStateAvailable    = ServerFilesystemState("available")
-	ServerFilesystemStateDetaching    = ServerFilesystemState("detaching")
-)
-
-func (enum ServerFilesystemState) String() string {
-	if enum == "" {
-		// return default value if empty
-		return string(ServerFilesystemStateUnknownState)
-	}
-	return string(enum)
-}
-
-func (enum ServerFilesystemState) Values() []ServerFilesystemState {
-	return []ServerFilesystemState{
-		"unknown_state",
-		"attaching",
-		"available",
-		"detaching",
-	}
-}
-
-func (enum ServerFilesystemState) MarshalJSON() ([]byte, error) {
-	return []byte(fmt.Sprintf(`"%s"`, enum)), nil
-}
-
-func (enum *ServerFilesystemState) UnmarshalJSON(data []byte) error {
-	tmp := ""
-
-	if err := json.Unmarshal(data, &tmp); err != nil {
-		return err
-	}
-
-	*enum = ServerFilesystemState(ServerFilesystemState(tmp).String())
-	return nil
-}
-
 type ServerIPIPFamily string
 
 const (
@@ -732,7 +691,7 @@ const (
 func (enum ServerIPIPFamily) String() string {
 	if enum == "" {
 		// return default value if empty
-		return string(ServerIPIPFamilyInet)
+		return "inet"
 	}
 	return string(enum)
 }
@@ -770,7 +729,7 @@ const (
 func (enum ServerIPProvisioningMode) String() string {
 	if enum == "" {
 		// return default value if empty
-		return string(ServerIPProvisioningModeManual)
+		return "manual"
 	}
 	return string(enum)
 }
@@ -811,7 +770,7 @@ const (
 func (enum ServerIPState) String() string {
 	if enum == "" {
 		// return default value if empty
-		return string(ServerIPStateUnknownState)
+		return "unknown_state"
 	}
 	return string(enum)
 }
@@ -855,7 +814,7 @@ const (
 func (enum ServerState) String() string {
 	if enum == "" {
 		// return default value if empty
-		return string(ServerStateRunning)
+		return "running"
 	}
 	return string(enum)
 }
@@ -897,7 +856,7 @@ const (
 func (enum ServerTypesAvailability) String() string {
 	if enum == "" {
 		// return default value if empty
-		return string(ServerTypesAvailabilityAvailable)
+		return "available"
 	}
 	return string(enum)
 }
@@ -939,7 +898,7 @@ const (
 func (enum SnapshotState) String() string {
 	if enum == "" {
 		// return default value if empty
-		return string(SnapshotStateAvailable)
+		return "available"
 	}
 	return string(enum)
 }
@@ -982,7 +941,7 @@ const (
 func (enum SnapshotVolumeType) String() string {
 	if enum == "" {
 		// return default value if empty
-		return string(SnapshotVolumeTypeUnknownVolumeType)
+		return "unknown_volume_type"
 	}
 	return string(enum)
 }
@@ -1024,7 +983,7 @@ const (
 func (enum TaskStatus) String() string {
 	if enum == "" {
 		// return default value if empty
-		return string(TaskStatusPending)
+		return "pending"
 	}
 	return string(enum)
 }
@@ -1059,18 +1018,17 @@ type VolumeServerState string
 const (
 	VolumeServerStateAvailable    = VolumeServerState("available")
 	VolumeServerStateSnapshotting = VolumeServerState("snapshotting")
-	VolumeServerStateResizing     = VolumeServerState("resizing")
 	VolumeServerStateFetching     = VolumeServerState("fetching")
+	VolumeServerStateResizing     = VolumeServerState("resizing")
 	VolumeServerStateSaving       = VolumeServerState("saving")
 	VolumeServerStateHotsyncing   = VolumeServerState("hotsyncing")
-	VolumeServerStateAttaching    = VolumeServerState("attaching")
 	VolumeServerStateError        = VolumeServerState("error")
 )
 
 func (enum VolumeServerState) String() string {
 	if enum == "" {
 		// return default value if empty
-		return string(VolumeServerStateAvailable)
+		return "available"
 	}
 	return string(enum)
 }
@@ -1079,11 +1037,10 @@ func (enum VolumeServerState) Values() []VolumeServerState {
 	return []VolumeServerState{
 		"available",
 		"snapshotting",
-		"resizing",
 		"fetching",
+		"resizing",
 		"saving",
 		"hotsyncing",
-		"attaching",
 		"error",
 	}
 }
@@ -1115,7 +1072,7 @@ const (
 func (enum VolumeServerVolumeType) String() string {
 	if enum == "" {
 		// return default value if empty
-		return string(VolumeServerVolumeTypeLSSD)
+		return "l_ssd"
 	}
 	return string(enum)
 }
@@ -1150,8 +1107,8 @@ const (
 	VolumeStateAvailable    = VolumeState("available")
 	VolumeStateSnapshotting = VolumeState("snapshotting")
 	VolumeStateFetching     = VolumeState("fetching")
-	VolumeStateSaving       = VolumeState("saving")
 	VolumeStateResizing     = VolumeState("resizing")
+	VolumeStateSaving       = VolumeState("saving")
 	VolumeStateHotsyncing   = VolumeState("hotsyncing")
 	VolumeStateError        = VolumeState("error")
 )
@@ -1159,7 +1116,7 @@ const (
 func (enum VolumeState) String() string {
 	if enum == "" {
 		// return default value if empty
-		return string(VolumeStateAvailable)
+		return "available"
 	}
 	return string(enum)
 }
@@ -1169,8 +1126,8 @@ func (enum VolumeState) Values() []VolumeState {
 		"available",
 		"snapshotting",
 		"fetching",
-		"saving",
 		"resizing",
+		"saving",
 		"hotsyncing",
 		"error",
 	}
@@ -1205,7 +1162,7 @@ const (
 func (enum VolumeVolumeType) String() string {
 	if enum == "" {
 		// return default value if empty
-		return string(VolumeVolumeTypeLSSD)
+		return "l_ssd"
 	}
 	return string(enum)
 }
@@ -1445,14 +1402,6 @@ type SecurityGroupSummary struct {
 	Name string `json:"name"`
 }
 
-// ServerFilesystem: server filesystem.
-type ServerFilesystem struct {
-	FilesystemID string `json:"filesystem_id"`
-
-	// State: default value: unknown_state
-	State ServerFilesystemState `json:"state"`
-}
-
 // ServerIP: server ip.
 type ServerIP struct {
 	// ID: unique ID of the IP address.
@@ -1570,9 +1519,6 @@ type ServerTypeCapabilities struct {
 
 	// BootTypes: list of supported boot types.
 	BootTypes []BootType `json:"boot_types"`
-
-	// MaxFileSystems: max number of SFS (Scaleway File Systems) that can be attached to the Instance.
-	MaxFileSystems uint32 `json:"max_file_systems"`
 }
 
 // ServerTypeGPUInfo: server type gpu info.
@@ -1723,12 +1669,6 @@ type Server struct {
 
 	// AdminPasswordEncryptedValue: this value is reset when admin_password_encryption_ssh_key_id is set to an empty string.
 	AdminPasswordEncryptedValue *string `json:"admin_password_encrypted_value"`
-
-	// Filesystems: list of attached filesystems.
-	Filesystems []*ServerFilesystem `json:"filesystems"`
-
-	// EndOfService: true if the Instance type has reached end of service.
-	EndOfService bool `json:"end_of_service"`
 }
 
 // IP: ip.
@@ -1966,7 +1906,7 @@ type Task struct {
 
 	HrefResult string `json:"href_result"`
 
-	// Zone: zone in which the task is executed.
+	// Zone: zone in which the task is excecuted.
 	Zone scw.Zone `json:"zone"`
 }
 
@@ -2160,21 +2100,6 @@ type ApplyBlockMigrationRequest struct {
 
 	// ValidationKey: a value to be retrieved from a call to the [Get a volume or snapshot's migration plan](#path-volumes-get-a-volume-or-snapshots-migration-plan) endpoint, to confirm that the volume and/or snapshots specified in said plan should be migrated.
 	ValidationKey string `json:"validation_key,omitempty"`
-}
-
-// AttachServerFileSystemRequest: attach server file system request.
-type AttachServerFileSystemRequest struct {
-	// Zone: zone to target. If none is passed will use default zone from the config.
-	Zone scw.Zone `json:"-"`
-
-	ServerID string `json:"-"`
-
-	FilesystemID string `json:"filesystem_id,omitempty"`
-}
-
-// AttachServerFileSystemResponse: attach server file system response.
-type AttachServerFileSystemResponse struct {
-	Server *Server `json:"server"`
 }
 
 // AttachServerVolumeRequest: attach server volume request.
@@ -2426,7 +2351,7 @@ type CreateServerRequest struct {
 	// Name: instance name.
 	Name string `json:"name,omitempty"`
 
-	// DynamicIPRequired: by default, `dynamic_ip_required` is true, a dynamic ip is attached to the instance (if no flexible ip is already attached).
+	// DynamicIPRequired: define if a dynamic IPv4 is required for the Instance.
 	DynamicIPRequired *bool `json:"dynamic_ip_required,omitempty"`
 
 	// Deprecated: RoutedIPEnabled: if true, configure the Instance so it uses the new routed IP mode.
@@ -2473,9 +2398,6 @@ type CreateServerRequest struct {
 
 	// AdminPasswordEncryptionSSHKeyID: the public_key value of this key is used to encrypt the admin password.
 	AdminPasswordEncryptionSSHKeyID *string `json:"admin_password_encryption_ssh_key_id,omitempty"`
-
-	// Protected: true to activate server protection option.
-	Protected bool `json:"protected,omitempty"`
 }
 
 // CreateServerResponse: create server response.
@@ -2658,21 +2580,6 @@ type DeleteVolumeRequest struct {
 
 	// VolumeID: UUID of the volume you want to delete.
 	VolumeID string `json:"-"`
-}
-
-// DetachServerFileSystemRequest: detach server file system request.
-type DetachServerFileSystemRequest struct {
-	// Zone: zone to target. If none is passed will use default zone from the config.
-	Zone scw.Zone `json:"-"`
-
-	ServerID string `json:"-"`
-
-	FilesystemID string `json:"filesystem_id,omitempty"`
-}
-
-// DetachServerFileSystemResponse: detach server file system response.
-type DetachServerFileSystemResponse struct {
-	Server *Server `json:"server"`
 }
 
 // DetachServerVolumeRequest: detach server volume request.
@@ -2879,7 +2786,7 @@ func (r *GetServerTypesAvailabilityResponse) UnsafeGetTotalCount() uint32 {
 
 // UnsafeAppend should not be used
 // Internal usage only
-func (r *GetServerTypesAvailabilityResponse) UnsafeAppend(res any) (uint32, error) {
+func (r *GetServerTypesAvailabilityResponse) UnsafeAppend(res interface{}) (uint32, error) {
 	results, ok := res.(*GetServerTypesAvailabilityResponse)
 	if !ok {
 		return 0, errors.New("%T type cannot be appended to type %T", res, r)
@@ -2973,7 +2880,7 @@ func (r *ListIPsResponse) UnsafeGetTotalCount() uint32 {
 
 // UnsafeAppend should not be used
 // Internal usage only
-func (r *ListIPsResponse) UnsafeAppend(res any) (uint32, error) {
+func (r *ListIPsResponse) UnsafeAppend(res interface{}) (uint32, error) {
 	results, ok := res.(*ListIPsResponse)
 	if !ok {
 		return 0, errors.New("%T type cannot be appended to type %T", res, r)
@@ -3023,7 +2930,7 @@ func (r *ListImagesResponse) UnsafeGetTotalCount() uint32 {
 
 // UnsafeAppend should not be used
 // Internal usage only
-func (r *ListImagesResponse) UnsafeAppend(res any) (uint32, error) {
+func (r *ListImagesResponse) UnsafeAppend(res interface{}) (uint32, error) {
 	results, ok := res.(*ListImagesResponse)
 	if !ok {
 		return 0, errors.New("%T type cannot be appended to type %T", res, r)
@@ -3075,7 +2982,7 @@ func (r *ListPlacementGroupsResponse) UnsafeGetTotalCount() uint32 {
 
 // UnsafeAppend should not be used
 // Internal usage only
-func (r *ListPlacementGroupsResponse) UnsafeAppend(res any) (uint32, error) {
+func (r *ListPlacementGroupsResponse) UnsafeAppend(res interface{}) (uint32, error) {
 	results, ok := res.(*ListPlacementGroupsResponse)
 	if !ok {
 		return 0, errors.New("%T type cannot be appended to type %T", res, r)
@@ -3119,7 +3026,7 @@ func (r *ListPrivateNICsResponse) UnsafeGetTotalCount() uint64 {
 
 // UnsafeAppend should not be used
 // Internal usage only
-func (r *ListPrivateNICsResponse) UnsafeAppend(res any) (uint64, error) {
+func (r *ListPrivateNICsResponse) UnsafeAppend(res interface{}) (uint64, error) {
 	results, ok := res.(*ListPrivateNICsResponse)
 	if !ok {
 		return 0, errors.New("%T type cannot be appended to type %T", res, r)
@@ -3162,7 +3069,7 @@ func (r *ListSecurityGroupRulesResponse) UnsafeGetTotalCount() uint32 {
 
 // UnsafeAppend should not be used
 // Internal usage only
-func (r *ListSecurityGroupRulesResponse) UnsafeAppend(res any) (uint32, error) {
+func (r *ListSecurityGroupRulesResponse) UnsafeAppend(res interface{}) (uint32, error) {
 	results, ok := res.(*ListSecurityGroupRulesResponse)
 	if !ok {
 		return 0, errors.New("%T type cannot be appended to type %T", res, r)
@@ -3217,7 +3124,7 @@ func (r *ListSecurityGroupsResponse) UnsafeGetTotalCount() uint32 {
 
 // UnsafeAppend should not be used
 // Internal usage only
-func (r *ListSecurityGroupsResponse) UnsafeAppend(res any) (uint32, error) {
+func (r *ListSecurityGroupsResponse) UnsafeAppend(res interface{}) (uint32, error) {
 	results, ok := res.(*ListSecurityGroupsResponse)
 	if !ok {
 		return 0, errors.New("%T type cannot be appended to type %T", res, r)
@@ -3328,7 +3235,7 @@ func (r *ListServersResponse) UnsafeGetTotalCount() uint32 {
 
 // UnsafeAppend should not be used
 // Internal usage only
-func (r *ListServersResponse) UnsafeAppend(res any) (uint32, error) {
+func (r *ListServersResponse) UnsafeAppend(res interface{}) (uint32, error) {
 	results, ok := res.(*ListServersResponse)
 	if !ok {
 		return 0, errors.New("%T type cannot be appended to type %T", res, r)
@@ -3366,7 +3273,7 @@ func (r *ListServersTypesResponse) UnsafeGetTotalCount() uint32 {
 
 // UnsafeAppend should not be used
 // Internal usage only
-func (r *ListServersTypesResponse) UnsafeAppend(res any) (uint32, error) {
+func (r *ListServersTypesResponse) UnsafeAppend(res interface{}) (uint32, error) {
 	results, ok := res.(*ListServersTypesResponse)
 	if !ok {
 		return 0, errors.New("%T type cannot be appended to type %T", res, r)
@@ -3426,7 +3333,7 @@ func (r *ListSnapshotsResponse) UnsafeGetTotalCount() uint32 {
 
 // UnsafeAppend should not be used
 // Internal usage only
-func (r *ListSnapshotsResponse) UnsafeAppend(res any) (uint32, error) {
+func (r *ListSnapshotsResponse) UnsafeAppend(res interface{}) (uint32, error) {
 	results, ok := res.(*ListSnapshotsResponse)
 	if !ok {
 		return 0, errors.New("%T type cannot be appended to type %T", res, r)
@@ -3482,7 +3389,7 @@ func (r *ListVolumesResponse) UnsafeGetTotalCount() uint32 {
 
 // UnsafeAppend should not be used
 // Internal usage only
-func (r *ListVolumesResponse) UnsafeAppend(res any) (uint32, error) {
+func (r *ListVolumesResponse) UnsafeAppend(res interface{}) (uint32, error) {
 	results, ok := res.(*ListVolumesResponse)
 	if !ok {
 		return 0, errors.New("%T type cannot be appended to type %T", res, r)
@@ -3520,7 +3427,7 @@ func (r *ListVolumesTypesResponse) UnsafeGetTotalCount() uint32 {
 
 // UnsafeAppend should not be used
 // Internal usage only
-func (r *ListVolumesTypesResponse) UnsafeAppend(res any) (uint32, error) {
+func (r *ListVolumesTypesResponse) UnsafeAppend(res interface{}) (uint32, error) {
 	results, ok := res.(*ListVolumesTypesResponse)
 	if !ok {
 		return 0, errors.New("%T type cannot be appended to type %T", res, r)
@@ -3560,15 +3467,6 @@ type PlanBlockMigrationRequest struct {
 	// SnapshotID: the snapshot for which the migration plan will be generated.
 	// Precisely one of VolumeID, SnapshotID must be set.
 	SnapshotID *string `json:"snapshot_id,omitempty"`
-}
-
-// ReleaseIPToIpamRequest: release ip to ipam request.
-type ReleaseIPToIpamRequest struct {
-	// Zone: zone to target. If none is passed will use default zone from the config.
-	Zone scw.Zone `json:"-"`
-
-	// IPID: ID of the IP you want to release from the Instance but retain in IPAM.
-	IPID string `json:"-"`
 }
 
 // ServerActionRequest: server action request.
@@ -3937,7 +3835,6 @@ type UpdateServerRequest struct {
 	// Deprecated
 	EnableIPv6 *bool `json:"enable_ipv6,omitempty"`
 
-	// Protected: true to activate server protection option.
 	Protected *bool `json:"protected,omitempty"`
 
 	SecurityGroup *SecurityGroupTemplate `json:"security_group,omitempty"`
@@ -4247,7 +4144,7 @@ type setSnapshotResponse struct {
 	Snapshot *Snapshot `json:"snapshot"`
 }
 
-// This API allows you to manage your CPU and GPU Instances.
+// This API allows you to manage your Instances.
 type API struct {
 	client *scw.Client
 }
@@ -4258,7 +4155,6 @@ func NewAPI(client *scw.Client) *API {
 		client: client,
 	}
 }
-
 func (s *API) Zones() []scw.Zone {
 	return []scw.Zone{scw.ZoneFrPar1, scw.ZoneFrPar2, scw.ZoneFrPar3, scw.ZoneNlAms1, scw.ZoneNlAms2, scw.ZoneNlAms3, scw.ZonePlWaw1, scw.ZonePlWaw2, scw.ZonePlWaw3}
 }
@@ -4638,11 +4534,11 @@ func (s *API) ListServerActions(req *ListServerActionsRequest, opts ...scw.Reque
 // * `stop_in_place`: Stop the Instance, but keep the slot on the hypervisor.
 // * `reboot`: Stop the instance and restart it.
 // * `backup`:  Create an image with all the volumes of an Instance.
-// * `terminate`: Delete the Instance along with its attached local volumes.
+// * `terminate`: Delete the Instance along with its attached volumes, except for SBS volumes.
 // * `enable_routed_ip`: Migrate the Instance to the new network stack.
 //
-// The `terminate` action will result in the deletion of `l_ssd` and `scratch` volumes types, `sbs_volume` volumes will only be detached.
-// If you want to preserve your `l_ssd` volumes, you should stop your Instance, detach the volumes to be preserved, then delete your Instance.
+// The `terminate` action will result in the deletion of `l_ssd`, `b_ssd` and `scratch` volumes types, `sbs_volume` volumes type will only be detached.
+// If you want to preserve your volumes, you should detach them before the Instance deletion or `terminate` action.
 //
 // The `backup` action can be done with:
 // * No `volumes` key in the body: an image is created with snapshots of all the server volumes, except for the `scratch` volumes types.
@@ -4782,7 +4678,7 @@ func (s *API) GetServerCompatibleTypes(req *GetServerCompatibleTypesRequest, opt
 	return &resp, nil
 }
 
-// AttachServerVolume: Attach a volume to an Instance.
+// AttachServerVolume:
 func (s *API) AttachServerVolume(req *AttachServerVolumeRequest, opts ...scw.RequestOption) (*AttachServerVolumeResponse, error) {
 	var err error
 
@@ -4818,7 +4714,7 @@ func (s *API) AttachServerVolume(req *AttachServerVolumeRequest, opts ...scw.Req
 	return &resp, nil
 }
 
-// DetachServerVolume: Detach a volume from an Instance.
+// DetachServerVolume:
 func (s *API) DetachServerVolume(req *DetachServerVolumeRequest, opts ...scw.RequestOption) (*DetachServerVolumeResponse, error) {
 	var err error
 
@@ -4846,78 +4742,6 @@ func (s *API) DetachServerVolume(req *DetachServerVolumeRequest, opts ...scw.Req
 	}
 
 	var resp DetachServerVolumeResponse
-
-	err = s.client.Do(scwReq, &resp, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return &resp, nil
-}
-
-// AttachServerFileSystem: Attach a filesystem volume to an Instance.
-func (s *API) AttachServerFileSystem(req *AttachServerFileSystemRequest, opts ...scw.RequestOption) (*AttachServerFileSystemResponse, error) {
-	var err error
-
-	if req.Zone == "" {
-		defaultZone, _ := s.client.GetDefaultZone()
-		req.Zone = defaultZone
-	}
-
-	if fmt.Sprint(req.Zone) == "" {
-		return nil, errors.New("field Zone cannot be empty in request")
-	}
-
-	if fmt.Sprint(req.ServerID) == "" {
-		return nil, errors.New("field ServerID cannot be empty in request")
-	}
-
-	scwReq := &scw.ScalewayRequest{
-		Method: "POST",
-		Path:   "/instance/v1/zones/" + fmt.Sprint(req.Zone) + "/servers/" + fmt.Sprint(req.ServerID) + "/attach-filesystem",
-	}
-
-	err = scwReq.SetBody(req)
-	if err != nil {
-		return nil, err
-	}
-
-	var resp AttachServerFileSystemResponse
-
-	err = s.client.Do(scwReq, &resp, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return &resp, nil
-}
-
-// DetachServerFileSystem: Detach a filesystem volume from an Instance.
-func (s *API) DetachServerFileSystem(req *DetachServerFileSystemRequest, opts ...scw.RequestOption) (*DetachServerFileSystemResponse, error) {
-	var err error
-
-	if req.Zone == "" {
-		defaultZone, _ := s.client.GetDefaultZone()
-		req.Zone = defaultZone
-	}
-
-	if fmt.Sprint(req.Zone) == "" {
-		return nil, errors.New("field Zone cannot be empty in request")
-	}
-
-	if fmt.Sprint(req.ServerID) == "" {
-		return nil, errors.New("field ServerID cannot be empty in request")
-	}
-
-	scwReq := &scw.ScalewayRequest{
-		Method: "POST",
-		Path:   "/instance/v1/zones/" + fmt.Sprint(req.Zone) + "/servers/" + fmt.Sprint(req.ServerID) + "/detach-filesystem",
-	}
-
-	err = scwReq.SetBody(req)
-	if err != nil {
-		return nil, err
-	}
-
-	var resp DetachServerFileSystemResponse
 
 	err = s.client.Do(scwReq, &resp, opts...)
 	if err != nil {
@@ -5529,7 +5353,7 @@ func (s *API) GetVolume(req *GetVolumeRequest, opts ...scw.RequestOption) (*GetV
 	return &resp, nil
 }
 
-// UpdateVolume: Replace the name and/or size properties of a volume specified by its ID, with the specified value(s).
+// UpdateVolume: Replace the name and/or size properties of a volume specified by its ID, with the specified value(s). Any volume name can be changed, however only `b_ssd` volumes can currently be increased in size.
 func (s *API) UpdateVolume(req *UpdateVolumeRequest, opts ...scw.RequestOption) (*UpdateVolumeResponse, error) {
 	var err error
 
@@ -6912,40 +6736,6 @@ func (s *API) CheckBlockMigrationOrganizationQuotas(req *CheckBlockMigrationOrga
 	scwReq := &scw.ScalewayRequest{
 		Method: "POST",
 		Path:   "/instance/v1/zones/" + fmt.Sprint(req.Zone) + "/block-migration/check-organization-quotas",
-	}
-
-	err = scwReq.SetBody(req)
-	if err != nil {
-		return err
-	}
-
-	err = s.client.Do(scwReq, nil, opts...)
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
-// ReleaseIPToIpam: **The IP remains available in IPAM**, which means that it is still reserved by the Organization, and can be reattached to another resource (Instance or other product).
-func (s *API) ReleaseIPToIpam(req *ReleaseIPToIpamRequest, opts ...scw.RequestOption) error {
-	var err error
-
-	if req.Zone == "" {
-		defaultZone, _ := s.client.GetDefaultZone()
-		req.Zone = defaultZone
-	}
-
-	if fmt.Sprint(req.Zone) == "" {
-		return errors.New("field Zone cannot be empty in request")
-	}
-
-	if fmt.Sprint(req.IPID) == "" {
-		return errors.New("field IPID cannot be empty in request")
-	}
-
-	scwReq := &scw.ScalewayRequest{
-		Method: "POST",
-		Path:   "/instance/v1/zones/" + fmt.Sprint(req.Zone) + "/ips/" + fmt.Sprint(req.IPID) + "/release-to-ipam",
 	}
 
 	err = scwReq.SetBody(req)

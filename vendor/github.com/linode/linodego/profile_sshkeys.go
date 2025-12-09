@@ -33,7 +33,6 @@ func (i *SSHKey) UnmarshalJSON(b []byte) error {
 
 	p := struct {
 		*Mask
-
 		Created *parseabletime.ParseableTime `json:"created"`
 	}{
 		Mask: (*Mask)(i),
@@ -52,14 +51,13 @@ func (i *SSHKey) UnmarshalJSON(b []byte) error {
 func (i SSHKey) GetCreateOptions() (o SSHKeyCreateOptions) {
 	o.Label = i.Label
 	o.SSHKey = i.SSHKey
-
-	return o
+	return
 }
 
 // GetUpdateOptions converts a SSHKey to SSHKeyCreateOptions for use in UpdateSSHKey
 func (i SSHKey) GetUpdateOptions() (o SSHKeyUpdateOptions) {
 	o.Label = i.Label
-	return o
+	return
 }
 
 // ListSSHKeys lists SSHKeys

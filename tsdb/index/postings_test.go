@@ -48,7 +48,7 @@ func TestMemPostings_ensureOrder(t *testing.T) {
 	p := NewUnorderedMemPostings()
 	p.m["a"] = map[string][]storage.SeriesRef{}
 
-	for i := range 100 {
+	for i := 0; i < 100; i++ {
 		l := make([]storage.SeriesRef, 100)
 		for j := range l {
 			l[j] = storage.SeriesRef(rand.Uint64())
@@ -321,7 +321,7 @@ func BenchmarkIntersect(t *testing.B) {
 	t.Run("LongPostings2", func(bench *testing.B) {
 		var a, b, c, d []storage.SeriesRef
 
-		for i := range 12500000 {
+		for i := 0; i < 12500000; i++ {
 			a = append(a, storage.SeriesRef(i))
 		}
 		for i := 7500000; i < 12500000; i++ {
@@ -353,7 +353,7 @@ func BenchmarkIntersect(t *testing.B) {
 		var refs [][]storage.SeriesRef
 
 		// Create 100000 matchers(k=100000), making sure all memory allocation is done before starting the loop.
-		for range 100000 {
+		for i := 0; i < 100000; i++ {
 			var temp []storage.SeriesRef
 			for j := storage.SeriesRef(1); j < 100; j++ {
 				temp = append(temp, j)
@@ -383,7 +383,7 @@ func BenchmarkMerge(t *testing.B) {
 	var refs [][]storage.SeriesRef
 
 	// Create 100000 matchers(k=100000), making sure all memory allocation is done before starting the loop.
-	for i := range 100000 {
+	for i := 0; i < 100000; i++ {
 		var temp []storage.SeriesRef
 		for j := 1; j < 100; j++ {
 			temp = append(temp, storage.SeriesRef(i+j*100000))
@@ -642,7 +642,8 @@ func TestRemovedNextStackoverflow(t *testing.T) {
 	var full []storage.SeriesRef
 	var remove []storage.SeriesRef
 
-	for i := range storage.SeriesRef(1e7) {
+	var i storage.SeriesRef
+	for i = 0; i < 1e7; i++ {
 		full = append(full, i)
 		remove = append(remove, i)
 	}
@@ -755,14 +756,14 @@ func TestBigEndian(t *testing.T) {
 	}
 
 	beLst := make([]byte, num*4)
-	for i := range num {
+	for i := 0; i < num; i++ {
 		b := beLst[i*4 : i*4+4]
 		binary.BigEndian.PutUint32(b, ls[i])
 	}
 
 	t.Run("Iteration", func(t *testing.T) {
 		bep := newBigEndianPostings(beLst)
-		for i := range num {
+		for i := 0; i < num; i++ {
 			require.True(t, bep.Next())
 			require.Equal(t, storage.SeriesRef(ls[i]), bep.At())
 		}
@@ -924,7 +925,7 @@ func BenchmarkPostings_Stats(b *testing.B) {
 		}
 	}
 	createPostingsLabelValues("__name__", "metrics_name_can_be_very_big_and_bad", 1e3)
-	for i := range 20 {
+	for i := 0; i < 20; i++ {
 		createPostingsLabelValues(fmt.Sprintf("host-%d", i), "metrics_name_can_be_very_big_and_bad", 1e3)
 		createPostingsLabelValues(fmt.Sprintf("instance-%d", i), "10.0.IP.", 1e3)
 		createPostingsLabelValues(fmt.Sprintf("job-%d", i), "Small_Job_name", 1e3)
@@ -1028,7 +1029,7 @@ func BenchmarkMemPostings_Delete(b *testing.B) {
 	const total = 1e6
 	allSeries := [total]labels.Labels{}
 	nameValues := make([]string, 0, 100)
-	for i := range int(total) {
+	for i := 0; i < total; i++ {
 		nameValues = nameValues[:0]
 
 		// A thousand labels like lbl_x_of_1000, each with total/1000 values
@@ -1061,7 +1062,7 @@ func BenchmarkMemPostings_Delete(b *testing.B) {
 
 					stop := make(chan struct{})
 					wg := sync.WaitGroup{}
-					for i := range reads {
+					for i := 0; i < reads; i++ {
 						wg.Add(1)
 						go func(i int) {
 							lbl := "lbl_" + itoa(i) + "_of_100"
@@ -1086,7 +1087,7 @@ func BenchmarkMemPostings_Delete(b *testing.B) {
 					for n := 0; n < b.N; n++ {
 						deleted := make(map[storage.SeriesRef]struct{}, refs)
 						affected := make(map[labels.Label]struct{}, refs)
-						for i := range refs {
+						for i := 0; i < refs; i++ {
 							ref := storage.SeriesRef(n*refs + i)
 							deleted[ref] = struct{}{}
 							allSeries[ref].Range(func(l labels.Label) {
@@ -1360,13 +1361,13 @@ func TestListPostings(t *testing.T) {
 		for _, c := range []int{2, 8, 9, 10} {
 			t.Run(fmt.Sprintf("count=%d", c), func(t *testing.T) {
 				list := make([]storage.SeriesRef, c)
-				for i := range c {
+				for i := 0; i < c; i++ {
 					list[i] = storage.SeriesRef(i * 10)
 				}
 
 				t.Run("all one by one", func(t *testing.T) {
 					p := NewListPostings(list)
-					for i := range c {
+					for i := 0; i < c; i++ {
 						require.True(t, p.Seek(storage.SeriesRef(i*10)))
 						require.Equal(t, storage.SeriesRef(i*10), p.At())
 					}
@@ -1390,7 +1391,7 @@ func TestListPostings(t *testing.T) {
 func BenchmarkListPostings(b *testing.B) {
 	const maxCount = 1e6
 	input := make([]storage.SeriesRef, maxCount)
-	for i := range int(maxCount) {
+	for i := 0; i < maxCount; i++ {
 		input[i] = storage.SeriesRef(i << 2)
 	}
 
@@ -1436,8 +1437,8 @@ func BenchmarkMemPostings_PostingsForLabelMatching(b *testing.B) {
 	for _, labelValueCount := range []int{1_000, 10_000, 100_000} {
 		b.Run(fmt.Sprintf("labels=%d", labelValueCount), func(b *testing.B) {
 			mp := NewMemPostings()
-			for i := range labelValueCount {
-				for j := range seriesPerLabel {
+			for i := 0; i < labelValueCount; i++ {
+				for j := 0; j < seriesPerLabel; j++ {
 					mp.Add(storage.SeriesRef(i*seriesPerLabel+j), labels.FromStrings("__name__", strconv.Itoa(j), "label", strconv.Itoa(i)))
 				}
 			}

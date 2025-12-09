@@ -41,7 +41,7 @@ type Node struct {
 	logger   *slog.Logger
 	informer cache.SharedInformer
 	store    cache.Store
-	queue    *workqueue.Typed[string]
+	queue    *workqueue.Type
 }
 
 // NewNode returns a new node discovery.
@@ -58,21 +58,19 @@ func NewNode(l *slog.Logger, inf cache.SharedInformer, eventCount *prometheus.Co
 		logger:   l,
 		informer: inf,
 		store:    inf.GetStore(),
-		queue: workqueue.NewTypedWithConfig(workqueue.TypedQueueConfig[string]{
-			Name: RoleNode.String(),
-		}),
+		queue:    workqueue.NewNamed(RoleNode.String()),
 	}
 
 	_, err := n.informer.AddEventHandler(cache.ResourceEventHandlerFuncs{
-		AddFunc: func(o any) {
+		AddFunc: func(o interface{}) {
 			nodeAddCount.Inc()
 			n.enqueue(o)
 		},
-		DeleteFunc: func(o any) {
+		DeleteFunc: func(o interface{}) {
 			nodeDeleteCount.Inc()
 			n.enqueue(o)
 		},
-		UpdateFunc: func(_, o any) {
+		UpdateFunc: func(_, o interface{}) {
 			nodeUpdateCount.Inc()
 			n.enqueue(o)
 		},
@@ -83,7 +81,7 @@ func NewNode(l *slog.Logger, inf cache.SharedInformer, eventCount *prometheus.Co
 	return n
 }
 
-func (n *Node) enqueue(obj any) {
+func (n *Node) enqueue(obj interface{}) {
 	key, err := nodeName(obj)
 	if err != nil {
 		return
@@ -113,11 +111,12 @@ func (n *Node) Run(ctx context.Context, ch chan<- []*targetgroup.Group) {
 }
 
 func (n *Node) process(ctx context.Context, ch chan<- []*targetgroup.Group) bool {
-	key, quit := n.queue.Get()
+	keyObj, quit := n.queue.Get()
 	if quit {
 		return false
 	}
-	defer n.queue.Done(key)
+	defer n.queue.Done(keyObj)
+	key := keyObj.(string)
 
 	_, name, err := cache.SplitMetaNamespaceKey(key)
 	if err != nil {
@@ -141,7 +140,7 @@ func (n *Node) process(ctx context.Context, ch chan<- []*targetgroup.Group) bool
 	return true
 }
 
-func convertToNode(o any) (*apiv1.Node, error) {
+func convertToNode(o interface{}) (*apiv1.Node, error) {
 	node, ok := o.(*apiv1.Node)
 	if ok {
 		return node, nil

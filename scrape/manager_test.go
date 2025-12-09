@@ -37,8 +37,8 @@ import (
 	"github.com/prometheus/common/model"
 	"github.com/prometheus/common/promslog"
 	"github.com/stretchr/testify/require"
-	"go.yaml.in/yaml/v2"
 	"google.golang.org/protobuf/types/known/timestamppb"
+	"gopkg.in/yaml.v2"
 
 	"github.com/prometheus/prometheus/config"
 	"github.com/prometheus/prometheus/discovery"
@@ -188,12 +188,11 @@ func TestPopulateLabels(t *testing.T) {
 				ScrapeTimeout:  model.Duration(time.Second),
 				RelabelConfigs: []*relabel.Config{
 					{
-						Action:               relabel.Replace,
-						Regex:                relabel.MustNewRegexp("(.*)"),
-						SourceLabels:         model.LabelNames{"custom"},
-						Replacement:          "${1}",
-						TargetLabel:          string(model.AddressLabel),
-						NameValidationScheme: model.UTF8Validation,
+						Action:       relabel.Replace,
+						Regex:        relabel.MustNewRegexp("(.*)"),
+						SourceLabels: model.LabelNames{"custom"},
+						Replacement:  "${1}",
+						TargetLabel:  string(model.AddressLabel),
 					},
 				},
 			},
@@ -227,12 +226,11 @@ func TestPopulateLabels(t *testing.T) {
 				ScrapeTimeout:  model.Duration(time.Second),
 				RelabelConfigs: []*relabel.Config{
 					{
-						Action:               relabel.Replace,
-						Regex:                relabel.MustNewRegexp("(.*)"),
-						SourceLabels:         model.LabelNames{"custom"},
-						Replacement:          "${1}",
-						TargetLabel:          string(model.AddressLabel),
-						NameValidationScheme: model.UTF8Validation,
+						Action:       relabel.Replace,
+						Regex:        relabel.MustNewRegexp("(.*)"),
+						SourceLabels: model.LabelNames{"custom"},
+						Replacement:  "${1}",
+						TargetLabel:  string(model.AddressLabel),
 					},
 				},
 			},
@@ -452,10 +450,6 @@ func TestPopulateLabels(t *testing.T) {
 	for _, c := range cases {
 		in := maps.Clone(c.in)
 		lb := labels.NewBuilder(labels.EmptyLabels())
-		c.cfg.MetricNameValidationScheme = model.UTF8Validation
-		for i := range c.cfg.RelabelConfigs {
-			c.cfg.RelabelConfigs[i].NameValidationScheme = model.UTF8Validation
-		}
 		res, err := PopulateLabels(lb, c.cfg, c.in, nil)
 		if c.err != "" {
 			require.EqualError(t, err, c.err)
@@ -594,7 +588,7 @@ func TestManagerTargetsUpdates(t *testing.T) {
 	defer m.Stop()
 
 	tgSent := make(map[string][]*targetgroup.Group)
-	for x := range 10 {
+	for x := 0; x < 10; x++ {
 		tgSent[strconv.Itoa(x)] = []*targetgroup.Group{
 			{
 				Source: strconv.Itoa(x),
@@ -751,7 +745,6 @@ func setupTestServer(t *testing.T, typ string, toWrite []byte) *httptest.Server 
 
 // TestManagerCTZeroIngestion tests scrape manager for various CT cases.
 func TestManagerCTZeroIngestion(t *testing.T) {
-	t.Parallel()
 	const (
 		// _total suffix is required, otherwise expfmt with OMText will mark metric as "unknown"
 		expectedMetricName        = "expected_metric_total"
@@ -924,7 +917,6 @@ func generateTestHistogram(i int) *dto.Histogram {
 }
 
 func TestManagerCTZeroIngestionHistogram(t *testing.T) {
-	t.Parallel()
 	const mName = "expected_histogram"
 
 	for _, tc := range []struct {
@@ -960,7 +952,6 @@ func TestManagerCTZeroIngestionHistogram(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 
@@ -1056,7 +1047,7 @@ scrape_configs:
 func TestUnregisterMetrics(t *testing.T) {
 	reg := prometheus.NewRegistry()
 	// Check that all metrics can be unregistered, allowing a second manager to be created.
-	for range 2 {
+	for i := 0; i < 2; i++ {
 		opts := Options{}
 		manager, err := NewManager(&opts, nil, nil, nil, reg)
 		require.NotNil(t, manager)
@@ -1165,7 +1156,6 @@ func requireTargets(
 
 // TestTargetDisappearsAfterProviderRemoved makes sure that when a provider is dropped, (only) its targets are dropped.
 func TestTargetDisappearsAfterProviderRemoved(t *testing.T) {
-	t.Parallel()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -1266,7 +1256,6 @@ scrape_configs:
 // TestOnlyProviderStaleTargetsAreDropped makes sure that when a job has only one provider with multiple targets
 // and when the provider can no longer discover some of those targets, only those stale targets are dropped.
 func TestOnlyProviderStaleTargetsAreDropped(t *testing.T) {
-	t.Parallel()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 

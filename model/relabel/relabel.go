@@ -72,7 +72,7 @@ const (
 )
 
 // UnmarshalYAML implements the yaml.Unmarshaler interface.
-func (a *Action) UnmarshalYAML(unmarshal func(any) error) error {
+func (a *Action) UnmarshalYAML(unmarshal func(interface{}) error) error {
 	var s string
 	if err := unmarshal(&s); err != nil {
 		return err
@@ -103,12 +103,10 @@ type Config struct {
 	Replacement string `yaml:"replacement,omitempty" json:"replacement,omitempty"`
 	// Action is the action to be performed for the relabeling.
 	Action Action `yaml:"action,omitempty" json:"action,omitempty"`
-	// NameValidationScheme to use when validating labels.
-	NameValidationScheme model.ValidationScheme `yaml:"-" json:"-"`
 }
 
 // UnmarshalYAML implements the yaml.Unmarshaler interface.
-func (c *Config) UnmarshalYAML(unmarshal func(any) error) error {
+func (c *Config) UnmarshalYAML(unmarshal func(interface{}) error) error {
 	*c = DefaultRelabelConfig
 	type plain Config
 	if err := unmarshal((*plain)(c)); err != nil {
@@ -117,10 +115,10 @@ func (c *Config) UnmarshalYAML(unmarshal func(any) error) error {
 	if c.Regex.Regexp == nil {
 		c.Regex = MustNewRegexp("")
 	}
-	return nil
+	return c.Validate()
 }
 
-func (c *Config) Validate(nameValidationScheme model.ValidationScheme) error {
+func (c *Config) Validate() error {
 	if c.Action == "" {
 		return errors.New("relabel action cannot be empty")
 	}
@@ -130,17 +128,7 @@ func (c *Config) Validate(nameValidationScheme model.ValidationScheme) error {
 	if (c.Action == Replace || c.Action == HashMod || c.Action == Lowercase || c.Action == Uppercase || c.Action == KeepEqual || c.Action == DropEqual) && c.TargetLabel == "" {
 		return fmt.Errorf("relabel configuration for %s action requires 'target_label' value", c.Action)
 	}
-
-	// Relabel config validation scheme matches global if left blank.
-	switch c.NameValidationScheme {
-	case model.LegacyValidation, model.UTF8Validation:
-	case model.UnsetValidation:
-		c.NameValidationScheme = nameValidationScheme
-	default:
-		return fmt.Errorf("unknown relabel config name validation method specified, must be either '', 'legacy' or 'utf8', got %s", c.NameValidationScheme)
-	}
-
-	if c.Action == Replace && !varInRegexTemplate(c.TargetLabel) && !c.NameValidationScheme.IsValidLabelName(c.TargetLabel) {
+	if c.Action == Replace && !varInRegexTemplate(c.TargetLabel) && !model.LabelName(c.TargetLabel).IsValid() {
 		return fmt.Errorf("%q is invalid 'target_label' for %s action", c.TargetLabel, c.Action)
 	}
 
@@ -148,18 +136,12 @@ func (c *Config) Validate(nameValidationScheme model.ValidationScheme) error {
 		// UTF-8 allows ${} characters, so standard validation allow $variables by default.
 		// TODO(bwplotka): Relabelling users cannot put $ and ${<...>} characters in metric names or values.
 		// Design escaping mechanism to allow that, once valid use case appears.
-		switch c.NameValidationScheme {
-		case model.UTF8Validation:
-			return c.NameValidationScheme.IsValidLabelName(value)
-		default:
-			// For legacy validation, use the legacy regex that allows $variables.
-			return relabelTargetLegacy.MatchString(value)
-		}
+		return model.LabelName(value).IsValid()
 	}
 	if c.Action == Replace && varInRegexTemplate(c.TargetLabel) && !isValidLabelNameWithRegexVarFn(c.TargetLabel) {
 		return fmt.Errorf("%q is invalid 'target_label' for %s action", c.TargetLabel, c.Action)
 	}
-	if (c.Action == Lowercase || c.Action == Uppercase || c.Action == KeepEqual || c.Action == DropEqual) && !c.NameValidationScheme.IsValidLabelName(c.TargetLabel) {
+	if (c.Action == Lowercase || c.Action == Uppercase || c.Action == KeepEqual || c.Action == DropEqual) && !model.LabelName(c.TargetLabel).IsValid() {
 		return fmt.Errorf("%q is invalid 'target_label' for %s action", c.TargetLabel, c.Action)
 	}
 	if (c.Action == Lowercase || c.Action == Uppercase || c.Action == KeepEqual || c.Action == DropEqual) && c.Replacement != DefaultRelabelConfig.Replacement {
@@ -168,7 +150,7 @@ func (c *Config) Validate(nameValidationScheme model.ValidationScheme) error {
 	if c.Action == LabelMap && !isValidLabelNameWithRegexVarFn(c.Replacement) {
 		return fmt.Errorf("%q is invalid 'replacement' for %s action", c.Replacement, c.Action)
 	}
-	if c.Action == HashMod && !c.NameValidationScheme.IsValidLabelName(c.TargetLabel) {
+	if c.Action == HashMod && !model.LabelName(c.TargetLabel).IsValid() {
 		return fmt.Errorf("%q is invalid 'target_label' for %s action", c.TargetLabel, c.Action)
 	}
 
@@ -216,7 +198,7 @@ func MustNewRegexp(s string) Regexp {
 }
 
 // UnmarshalYAML implements the yaml.Unmarshaler interface.
-func (re *Regexp) UnmarshalYAML(unmarshal func(any) error) error {
+func (re *Regexp) UnmarshalYAML(unmarshal func(interface{}) error) error {
 	var s string
 	if err := unmarshal(&s); err != nil {
 		return err
@@ -230,7 +212,7 @@ func (re *Regexp) UnmarshalYAML(unmarshal func(any) error) error {
 }
 
 // MarshalYAML implements the yaml.Marshaler interface.
-func (re Regexp) MarshalYAML() (any, error) {
+func (re Regexp) MarshalYAML() (interface{}, error) {
 	if re.String() != "" {
 		return re.String(), nil
 	}
@@ -339,16 +321,16 @@ func relabel(cfg *Config, lb *labels.Builder) (keep bool) {
 		if indexes == nil {
 			break
 		}
-		target := string(cfg.Regex.ExpandString([]byte{}, cfg.TargetLabel, val, indexes))
-		if !cfg.NameValidationScheme.IsValidLabelName(target) {
+		target := model.LabelName(cfg.Regex.ExpandString([]byte{}, cfg.TargetLabel, val, indexes))
+		if !target.IsValid() {
 			break
 		}
 		res := cfg.Regex.ExpandString([]byte{}, cfg.Replacement, val, indexes)
 		if len(res) == 0 {
-			lb.Del(target)
+			lb.Del(string(target))
 			break
 		}
-		lb.Set(target, string(res))
+		lb.Set(string(target), string(res))
 	case Lowercase:
 		lb.Set(cfg.TargetLabel, strings.ToLower(val))
 	case Uppercase:

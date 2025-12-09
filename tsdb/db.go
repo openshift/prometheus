@@ -1420,7 +1420,6 @@ func (db *DB) compactOOOHead(ctx context.Context) error {
 // Each ULID in the result corresponds to a block in a unique time range.
 // The db.cmtx mutex should be held before calling this method.
 func (db *DB) compactOOO(dest string, oooHead *OOOCompactionHead) (_ []ulid.ULID, err error) {
-	db.logger.Info("out-of-order compaction started")
 	start := time.Now()
 
 	blockSize := oooHead.ChunkRange()
@@ -1927,7 +1926,7 @@ func OverlappingBlocks(bm []BlockMeta) Overlaps {
 	return overlapGroups
 }
 
-func (*DB) String() string {
+func (db *DB) String() string {
 	return "HEAD"
 }
 

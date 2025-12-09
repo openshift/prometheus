@@ -17,7 +17,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"maps"
 	"net"
 	"strconv"
 
@@ -207,7 +206,7 @@ func (i *InstanceDiscovery) refresh(ctx context.Context) ([]*targetgroup.Group, 
 				labels[openstackLabelTagPrefix+model.LabelName(name)] = model.LabelValue(v)
 			}
 			for pool, address := range s.Addresses {
-				md, ok := address.([]any)
+				md, ok := address.([]interface{})
 				if !ok {
 					i.logger.Warn("Invalid type for address, expected array")
 					continue
@@ -217,7 +216,7 @@ func (i *InstanceDiscovery) refresh(ctx context.Context) ([]*targetgroup.Group, 
 					continue
 				}
 				for _, address := range md {
-					md1, ok := address.(map[string]any)
+					md1, ok := address.(map[string]interface{})
 					if !ok {
 						i.logger.Warn("Invalid type for address, expected dict")
 						continue
@@ -231,7 +230,9 @@ func (i *InstanceDiscovery) refresh(ctx context.Context) ([]*targetgroup.Group, 
 						continue
 					}
 					lbls := make(model.LabelSet, len(labels))
-					maps.Copy(lbls, labels)
+					for k, v := range labels {
+						lbls[k] = v
+					}
 					lbls[openstackLabelAddressPool] = model.LabelValue(pool)
 					lbls[openstackLabelPrivateIP] = model.LabelValue(addr)
 					if val, ok := floatingIPList[floatingIPKey{deviceID: s.ID, fixed: addr}]; ok {

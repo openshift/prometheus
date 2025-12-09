@@ -30,8 +30,8 @@ import (
 	"github.com/coreos/go-systemd/v22/activation"
 	"github.com/mdlayher/vsock"
 	config_util "github.com/prometheus/common/config"
-	"go.yaml.in/yaml/v2"
 	"golang.org/x/sync/errgroup"
+	"gopkg.in/yaml.v2"
 )
 
 var (
@@ -254,11 +254,11 @@ func ConfigToTLSConfig(c *TLSConfig) (*tls.Config, error) {
 	case "", "NoClientCert":
 		cfg.ClientAuth = tls.NoClientCert
 	default:
-		return nil, errors.New("invalid ClientAuth: " + c.ClientAuth)
+		return nil, errors.New("Invalid ClientAuth: " + c.ClientAuth)
 	}
 
 	if (c.ClientCAs != "" || c.ClientCAsText != "") && cfg.ClientAuth == tls.NoClientCert {
-		return nil, errors.New("client CA's have been configured without a Client Auth Policy")
+		return nil, errors.New("Client CA's have been configured without a Client Auth Policy")
 	}
 
 	return cfg, nil
@@ -269,6 +269,7 @@ func ConfigToTLSConfig(c *TLSConfig) (*tls.Config, error) {
 func ServeMultiple(listeners []net.Listener, server *http.Server, flags *FlagConfig, logger *slog.Logger) error {
 	errs := new(errgroup.Group)
 	for _, l := range listeners {
+		l := l
 		errs.Go(func() error {
 			return Serve(l, server, flags, logger)
 		})
@@ -427,7 +428,7 @@ type Cipher uint16
 
 func (c *Cipher) UnmarshalYAML(unmarshal func(interface{}) error) error {
 	var s string
-	err := unmarshal(&s)
+	err := unmarshal((*string)(&s))
 	if err != nil {
 		return err
 	}
@@ -455,7 +456,7 @@ var curves = map[string]Curve{
 
 func (c *Curve) UnmarshalYAML(unmarshal func(interface{}) error) error {
 	var s string
-	err := unmarshal(&s)
+	err := unmarshal((*string)(&s))
 	if err != nil {
 		return err
 	}
@@ -486,7 +487,7 @@ var tlsVersions = map[string]TLSVersion{
 
 func (tv *TLSVersion) UnmarshalYAML(unmarshal func(interface{}) error) error {
 	var s string
-	err := unmarshal(&s)
+	err := unmarshal((*string)(&s))
 	if err != nil {
 		return err
 	}

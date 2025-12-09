@@ -233,7 +233,10 @@ func (q *mergeGenericQuerier) mergeResults(lq labelGenericQueriers, hints *Label
 }
 
 func mergeStrings(a, b []string) []string {
-	maxl := max(len(b), len(a))
+	maxl := len(a)
+	if len(b) > len(a) {
+		maxl = len(b)
+	}
 	res := make([]string, 0, maxl*10/9)
 
 	for len(a) > 0 && len(b) > 0 {
@@ -437,11 +440,11 @@ func (h genericSeriesSetHeap) Less(i, j int) bool {
 	return labels.Compare(a, b) < 0
 }
 
-func (h *genericSeriesSetHeap) Push(x any) {
+func (h *genericSeriesSetHeap) Push(x interface{}) {
 	*h = append(*h, x.(genericSeriesSet))
 }
 
-func (h *genericSeriesSetHeap) Pop() any {
+func (h *genericSeriesSetHeap) Pop() interface{} {
 	old := *h
 	n := len(old)
 	x := old[n-1]
@@ -695,11 +698,11 @@ func (h samplesIteratorHeap) Less(i, j int) bool {
 	return h[i].AtT() < h[j].AtT()
 }
 
-func (h *samplesIteratorHeap) Push(x any) {
+func (h *samplesIteratorHeap) Push(x interface{}) {
 	*h = append(*h, x.(chunkenc.Iterator))
 }
 
-func (h *samplesIteratorHeap) Pop() any {
+func (h *samplesIteratorHeap) Pop() interface{} {
 	old := *h
 	n := len(old)
 	x := old[n-1]
@@ -843,11 +846,11 @@ func (h chunkIteratorHeap) Less(i, j int) bool {
 	return at.MinTime < bt.MinTime
 }
 
-func (h *chunkIteratorHeap) Push(x any) {
+func (h *chunkIteratorHeap) Push(x interface{}) {
 	*h = append(*h, x.(chunks.Iterator))
 }
 
-func (h *chunkIteratorHeap) Pop() any {
+func (h *chunkIteratorHeap) Pop() interface{} {
 	old := *h
 	n := len(old)
 	x := old[n-1]

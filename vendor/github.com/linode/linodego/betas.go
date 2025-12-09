@@ -8,7 +8,7 @@ import (
 	"github.com/linode/linodego/internal/parseabletime"
 )
 
-// BetaProgram is a new product or service that is not generally available to all Akamai customers.
+// Beta Program is a new product or service that is not generally available to all Akamai customers.
 // Users must enroll into a beta in order to access the functionality.
 type BetaProgram struct {
 	Label       string `json:"label"`
@@ -35,7 +35,6 @@ func (beta *BetaProgram) UnmarshalJSON(b []byte) error {
 
 	p := struct {
 		*Mask
-
 		Started *parseabletime.ParseableTime `json:"started"`
 		Ended   *parseabletime.ParseableTime `json:"ended"`
 	}{

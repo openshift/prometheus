@@ -32,7 +32,6 @@ import (
 )
 
 // Endpoints discovers new endpoint targets.
-// Deprecated: The Endpoints API is deprecated starting in K8s v1.33+. Use EndpointSlice.
 type Endpoints struct {
 	logger *slog.Logger
 
@@ -48,11 +47,11 @@ type Endpoints struct {
 	endpointsStore cache.Store
 	serviceStore   cache.Store
 
-	queue *workqueue.Typed[string]
+	queue *workqueue.Type
 }
 
 // NewEndpoints returns a new endpoints discovery.
-// Deprecated: The Endpoints API is deprecated starting in K8s v1.33+. Use NewEndpointSlice.
+// Endpoints API is deprecated in k8s v1.33+, but we should still support it.
 func NewEndpoints(l *slog.Logger, eps cache.SharedIndexInformer, svc, pod, node, namespace cache.SharedInformer, eventCount *prometheus.CounterVec) *Endpoints {
 	if l == nil {
 		l = promslog.NewNopLogger()
@@ -80,21 +79,19 @@ func NewEndpoints(l *slog.Logger, eps cache.SharedIndexInformer, svc, pod, node,
 		withNodeMetadata:      node != nil,
 		namespaceInf:          namespace,
 		withNamespaceMetadata: namespace != nil,
-		queue: workqueue.NewTypedWithConfig(workqueue.TypedQueueConfig[string]{
-			Name: RoleEndpoint.String(),
-		}),
+		queue:                 workqueue.NewNamed(RoleEndpoint.String()),
 	}
 
 	_, err := e.endpointsInf.AddEventHandler(cache.ResourceEventHandlerFuncs{
-		AddFunc: func(o any) {
+		AddFunc: func(o interface{}) {
 			epAddCount.Inc()
 			e.enqueue(o)
 		},
-		UpdateFunc: func(_, o any) {
+		UpdateFunc: func(_, o interface{}) {
 			epUpdateCount.Inc()
 			e.enqueue(o)
 		},
-		DeleteFunc: func(o any) {
+		DeleteFunc: func(o interface{}) {
 			epDeleteCount.Inc()
 			e.enqueue(o)
 		},
@@ -103,7 +100,7 @@ func NewEndpoints(l *slog.Logger, eps cache.SharedIndexInformer, svc, pod, node,
 		l.Error("Error adding endpoints event handler.", "err", err)
 	}
 
-	serviceUpdate := func(o any) {
+	serviceUpdate := func(o interface{}) {
 		svc, err := convertToService(o)
 		if err != nil {
 			e.logger.Error("converting to Service object failed", "err", err)
@@ -122,15 +119,15 @@ func NewEndpoints(l *slog.Logger, eps cache.SharedIndexInformer, svc, pod, node,
 	_, err = e.serviceInf.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		// TODO(fabxc): potentially remove add and delete event handlers. Those should
 		// be triggered via the endpoint handlers already.
-		AddFunc: func(o any) {
+		AddFunc: func(o interface{}) {
 			svcAddCount.Inc()
 			serviceUpdate(o)
 		},
-		UpdateFunc: func(_, o any) {
+		UpdateFunc: func(_, o interface{}) {
 			svcUpdateCount.Inc()
 			serviceUpdate(o)
 		},
-		DeleteFunc: func(o any) {
+		DeleteFunc: func(o interface{}) {
 			svcDeleteCount.Inc()
 			serviceUpdate(o)
 		},
@@ -139,7 +136,7 @@ func NewEndpoints(l *slog.Logger, eps cache.SharedIndexInformer, svc, pod, node,
 		l.Error("Error adding services event handler.", "err", err)
 	}
 	_, err = e.podInf.AddEventHandler(cache.ResourceEventHandlerFuncs{
-		UpdateFunc: func(old, cur any) {
+		UpdateFunc: func(old, cur interface{}) {
 			podUpdateCount.Inc()
 			oldPod, ok := old.(*apiv1.Pod)
 			if !ok {
@@ -163,15 +160,15 @@ func NewEndpoints(l *slog.Logger, eps cache.SharedIndexInformer, svc, pod, node,
 	}
 	if e.withNodeMetadata {
 		_, err = e.nodeInf.AddEventHandler(cache.ResourceEventHandlerFuncs{
-			AddFunc: func(o any) {
+			AddFunc: func(o interface{}) {
 				node := o.(*apiv1.Node)
 				e.enqueueNode(node.Name)
 			},
-			UpdateFunc: func(_, o any) {
+			UpdateFunc: func(_, o interface{}) {
 				node := o.(*apiv1.Node)
 				e.enqueueNode(node.Name)
 			},
-			DeleteFunc: func(o any) {
+			DeleteFunc: func(o interface{}) {
 				nodeName, err := nodeName(o)
 				if err != nil {
 					l.Error("Error getting Node name", "err", err)
@@ -186,7 +183,7 @@ func NewEndpoints(l *slog.Logger, eps cache.SharedIndexInformer, svc, pod, node,
 
 	if e.withNamespaceMetadata {
 		_, err = e.namespaceInf.AddEventHandler(cache.ResourceEventHandlerFuncs{
-			UpdateFunc: func(_, o any) {
+			UpdateFunc: func(_, o interface{}) {
 				namespace := o.(*apiv1.Namespace)
 				e.enqueueNamespace(namespace.Name)
 			},
@@ -237,7 +234,7 @@ func (e *Endpoints) enqueuePod(podNamespacedName string) {
 	}
 }
 
-func (e *Endpoints) enqueue(obj any) {
+func (e *Endpoints) enqueue(obj interface{}) {
 	key, err := cache.DeletionHandlingMetaNamespaceKeyFunc(obj)
 	if err != nil {
 		return
@@ -275,11 +272,12 @@ func (e *Endpoints) Run(ctx context.Context, ch chan<- []*targetgroup.Group) {
 }
 
 func (e *Endpoints) process(ctx context.Context, ch chan<- []*targetgroup.Group) bool {
-	key, quit := e.queue.Get()
+	keyObj, quit := e.queue.Get()
 	if quit {
 		return false
 	}
-	defer e.queue.Done(key)
+	defer e.queue.Done(keyObj)
+	key := keyObj.(string)
 
 	namespace, name, err := cache.SplitMetaNamespaceKey(key)
 	if err != nil {
@@ -305,7 +303,7 @@ func (e *Endpoints) process(ctx context.Context, ch chan<- []*targetgroup.Group)
 	return true
 }
 
-func convertToEndpoints(o any) (*apiv1.Endpoints, error) {
+func convertToEndpoints(o interface{}) (*apiv1.Endpoints, error) {
 	endpoints, ok := o.(*apiv1.Endpoints)
 	if ok {
 		return endpoints, nil

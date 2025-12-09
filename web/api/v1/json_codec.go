@@ -38,20 +38,20 @@ func init() {
 // JSONCodec is a Codec that encodes API responses as JSON.
 type JSONCodec struct{}
 
-func (JSONCodec) ContentType() MIMEType {
+func (j JSONCodec) ContentType() MIMEType {
 	return MIMEType{Type: "application", SubType: "json"}
 }
 
-func (JSONCodec) CanEncode(*Response) bool {
+func (j JSONCodec) CanEncode(_ *Response) bool {
 	return true
 }
 
-func (JSONCodec) Encode(resp *Response) ([]byte, error) {
+func (j JSONCodec) Encode(resp *Response) ([]byte, error) {
 	json := jsoniter.ConfigCompatibleWithStandardLibrary
 	return json.Marshal(resp)
 }
 
-// unsafeMarshalSeriesJSON writes something like the following:
+// marshalSeriesJSON writes something like the following:
 //
 //	{
 //	   "metric" : {
@@ -108,7 +108,7 @@ func neverEmpty(unsafe.Pointer) bool {
 	return false
 }
 
-// unsafeMarshalSampleJSON writes something like the following for normal value samples:
+// marshalSampleJSON writes something like the following for normal value samples:
 //
 //	{
 //	   "metric" : {

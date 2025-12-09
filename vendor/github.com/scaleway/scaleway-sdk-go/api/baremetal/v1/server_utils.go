@@ -42,7 +42,7 @@ func (s *API) WaitForServer(req *WaitForServerRequest, opts ...scw.RequestOption
 	}
 
 	server, err := async.WaitSync(&async.WaitSyncConfig{
-		Get: func() (any, bool, error) {
+		Get: func() (interface{}, bool, error) {
 			res, err := s.GetServer(&GetServerRequest{
 				ServerID: req.ServerID,
 				Zone:     req.Zone,
@@ -92,7 +92,7 @@ func (s *API) WaitForServerInstall(req *WaitForServerInstallRequest, opts ...scw
 	}
 
 	server, err := async.WaitSync(&async.WaitSyncConfig{
-		Get: func() (any, bool, error) {
+		Get: func() (interface{}, bool, error) {
 			res, err := s.GetServer(&GetServerRequest{
 				ServerID: req.ServerID,
 				Zone:     req.Zone,
@@ -132,20 +132,15 @@ func (s *API) GetServerOffer(server *Server) (*Offer, error) {
 }
 
 type GetOfferByNameRequest struct {
-	OfferName          string
-	SubscriptionPeriod string
-	Zone               scw.Zone
+	OfferName string
+	Zone      scw.Zone
 }
 
 // GetOfferByName returns an offer from its commercial name
 func (s *API) GetOfferByName(req *GetOfferByNameRequest) (*Offer, error) {
-	reqList := &ListOffersRequest{
+	res, err := s.ListOffers(&ListOffersRequest{
 		Zone: req.Zone,
-	}
-	if req.SubscriptionPeriod != "" {
-		reqList.SubscriptionPeriod = OfferSubscriptionPeriod(req.SubscriptionPeriod)
-	}
-	res, err := s.ListOffers(reqList, scw.WithAllPages())
+	}, scw.WithAllPages())
 	if err != nil {
 		return nil, err
 	}
@@ -186,7 +181,7 @@ func (s *API) WaitForServerOptions(req *WaitForServerOptionsRequest, opts ...scw
 	}
 
 	server, err := async.WaitSync(&async.WaitSyncConfig{
-		Get: func() (any, bool, error) {
+		Get: func() (interface{}, bool, error) {
 			res, err := s.GetServer(&GetServerRequest{
 				ServerID: req.ServerID,
 				Zone:     req.Zone,
@@ -241,7 +236,7 @@ func (s *PrivateNetworkAPI) WaitForServerPrivateNetworks(req *WaitForServerPriva
 	}
 
 	serverPrivateNetwork, err := async.WaitSync(&async.WaitSyncConfig{
-		Get: func() (any, bool, error) {
+		Get: func() (interface{}, bool, error) {
 			res, err := s.ListServerPrivateNetworks(&PrivateNetworkAPIListServerPrivateNetworksRequest{
 				ServerID: &req.ServerID,
 				Zone:     req.Zone,

@@ -363,25 +363,6 @@ PromQL(
     )
 )
 
-# Function first_over_time
-
-first_over_time(data[1m])
-
-==>
-PromQL(
-    FunctionCall(
-      FunctionIdentifier(FirstOverTime),
-      FunctionCallBody(
-            MatrixSelector(
-                VectorSelector(
-                    Identifier
-                ),
-              NumberDurationLiteralInDurationContext
-            )
-      )
-    )
-)
-
 # Function sgn
 
 sgn(data)

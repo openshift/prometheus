@@ -47,7 +47,6 @@ func (i *Promotion) UnmarshalJSON(b []byte) error {
 
 	p := struct {
 		*Mask
-
 		ExpirationDate *parseabletime.ParseableTime `json:"date"`
 	}{
 		Mask: (*Mask)(i),

@@ -668,6 +668,7 @@ func TestTargetUpdatesOrder(t *testing.T) {
 	}
 
 	for i, tc := range testCases {
+		tc := tc
 		t.Run(tc.title, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
@@ -1157,7 +1158,7 @@ func TestApplyConfigDoesNotModifyStaticTargets(t *testing.T) {
 
 type errorConfig struct{ err error }
 
-func (errorConfig) Name() string                                          { return "error" }
+func (e errorConfig) Name() string                                        { return "error" }
 func (e errorConfig) NewDiscoverer(DiscovererOptions) (Discoverer, error) { return nil, e.err }
 
 // NewDiscovererMetrics implements discovery.Config.
@@ -1175,7 +1176,7 @@ func (lockStaticConfig) NewDiscovererMetrics(prometheus.Registerer, RefreshMetri
 	return &NoopDiscovererMetrics{}
 }
 
-func (lockStaticConfig) Name() string { return "lockstatic" }
+func (s lockStaticConfig) Name() string { return "lockstatic" }
 func (s lockStaticConfig) NewDiscoverer(DiscovererOptions) (Discoverer, error) {
 	return (lockStaticDiscoverer)(s), nil
 }
@@ -1349,6 +1350,7 @@ func TestCoordinationWithReceiver(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
+		tc := tc
 		t.Run(tc.title, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
@@ -1469,7 +1471,7 @@ func TestTargetSetTargetGroupsUpdateDuringApplyConfig(t *testing.T) {
 	wg.Add(2000)
 
 	start := make(chan struct{})
-	for range 1000 {
+	for i := 0; i < 1000; i++ {
 		go func() {
 			<-start
 			td.update([]*targetgroup.Group{
@@ -1483,7 +1485,7 @@ func TestTargetSetTargetGroupsUpdateDuringApplyConfig(t *testing.T) {
 		}()
 	}
 
-	for i := range 1000 {
+	for i := 0; i < 1000; i++ {
 		go func(i int) {
 			<-start
 			c := map[string]Configs{
@@ -1519,7 +1521,7 @@ func (*testDiscoverer) NewDiscovererMetrics(prometheus.Registerer, RefreshMetric
 }
 
 // Name implements Config.
-func (*testDiscoverer) Name() string {
+func (t *testDiscoverer) Name() string {
 	return "test"
 }
 
@@ -1543,7 +1545,7 @@ func (t *testDiscoverer) update(tgs []*targetgroup.Group) {
 func TestUnregisterMetrics(t *testing.T) {
 	reg := prometheus.NewRegistry()
 	// Check that all metrics can be unregistered, allowing a second manager to be created.
-	for range 2 {
+	for i := 0; i < 2; i++ {
 		ctx, cancel := context.WithCancel(context.Background())
 
 		refreshMetrics, sdMetrics := NewTestMetrics(t, reg)

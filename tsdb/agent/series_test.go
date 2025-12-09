@@ -36,7 +36,7 @@ func TestNoDeadlock(t *testing.T) {
 	)
 
 	wg.Add(numWorkers)
-	for range numWorkers {
+	for i := 0; i < numWorkers; i++ {
 		go func() {
 			defer wg.Done()
 			<-started
@@ -45,7 +45,7 @@ func TestNoDeadlock(t *testing.T) {
 	}
 
 	wg.Add(numWorkers)
-	for i := range numWorkers {
+	for i := 0; i < numWorkers; i++ {
 		go func(i int) {
 			defer wg.Done()
 			<-started
@@ -94,7 +94,7 @@ func labelsWithHashCollision() (labels.Labels, labels.Labels) {
 }
 
 // stripeSeriesWithCollidingSeries returns a stripeSeries with two memSeries having the same, colliding, hash.
-func stripeSeriesWithCollidingSeries(*testing.T) (*stripeSeries, *memSeries, *memSeries) {
+func stripeSeriesWithCollidingSeries(_ *testing.T) (*stripeSeries, *memSeries, *memSeries) {
 	lbls1, lbls2 := labelsWithHashCollision()
 	ms1 := memSeries{
 		lset: lbls1,

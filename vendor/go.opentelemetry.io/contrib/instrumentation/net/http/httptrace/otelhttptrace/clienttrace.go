@@ -11,12 +11,11 @@ import (
 	"strings"
 	"sync"
 
+	"go.opentelemetry.io/contrib/instrumentation/net/http/httptrace/otelhttptrace/internal/semconv"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
-
-	"go.opentelemetry.io/contrib/instrumentation/net/http/httptrace/otelhttptrace/internal/semconv"
 )
 
 // ScopeName is the instrumentation scope name.
@@ -361,10 +360,7 @@ func (ct *clientTracer) got100Continue() {
 	if ct.useSpans {
 		span = ct.span("http.receive")
 	}
-	// It's possible that Got100Continue is called before GotFirstResponseByte at which point span can be `nil`.
-	if span != nil {
-		span.AddEvent("GOT 100 - Continue")
-	}
+	span.AddEvent("GOT 100 - Continue")
 }
 
 func (ct *clientTracer) wait100Continue() {
@@ -372,10 +368,7 @@ func (ct *clientTracer) wait100Continue() {
 	if ct.useSpans {
 		span = ct.span("http.send")
 	}
-	// It's possible that Wait100Continue is called before GotFirstResponseByte at which point span can be `nil`.
-	if span != nil {
-		span.AddEvent("GOT 100 - Wait")
-	}
+	span.AddEvent("GOT 100 - Wait")
 }
 
 func (ct *clientTracer) got1xxResponse(code int, header textproto.MIMEHeader) error {
@@ -383,13 +376,10 @@ func (ct *clientTracer) got1xxResponse(code int, header textproto.MIMEHeader) er
 	if ct.useSpans {
 		span = ct.span("http.receive")
 	}
-	// It's possible that Got1xxResponse is called before GotFirstResponseByte at which point span can be `nil`.
-	if span != nil {
-		span.AddEvent("GOT 1xx", trace.WithAttributes(
-			HTTPStatus.Int(code),
-			HTTPHeaderMIME.String(sm2s(header)),
-		))
-	}
+	span.AddEvent("GOT 1xx", trace.WithAttributes(
+		HTTPStatus.Int(code),
+		HTTPHeaderMIME.String(sm2s(header)),
+	))
 	return nil
 }
 

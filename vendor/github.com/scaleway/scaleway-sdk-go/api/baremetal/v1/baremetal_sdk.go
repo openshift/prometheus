@@ -51,7 +51,7 @@ const (
 func (enum IPReverseStatus) String() string {
 	if enum == "" {
 		// return default value if empty
-		return string(IPReverseStatusUnknown)
+		return "unknown"
 	}
 	return string(enum)
 }
@@ -90,7 +90,7 @@ const (
 func (enum IPVersion) String() string {
 	if enum == "" {
 		// return default value if empty
-		return string(IPVersionIPv4)
+		return "IPv4"
 	}
 	return string(enum)
 }
@@ -127,7 +127,7 @@ const (
 func (enum ListServerEventsRequestOrderBy) String() string {
 	if enum == "" {
 		// return default value if empty
-		return string(ListServerEventsRequestOrderByCreatedAtAsc)
+		return "created_at_asc"
 	}
 	return string(enum)
 }
@@ -166,7 +166,7 @@ const (
 func (enum ListServerPrivateNetworksRequestOrderBy) String() string {
 	if enum == "" {
 		// return default value if empty
-		return string(ListServerPrivateNetworksRequestOrderByCreatedAtAsc)
+		return "created_at_asc"
 	}
 	return string(enum)
 }
@@ -205,7 +205,7 @@ const (
 func (enum ListServersRequestOrderBy) String() string {
 	if enum == "" {
 		// return default value if empty
-		return string(ListServersRequestOrderByCreatedAtAsc)
+		return "created_at_asc"
 	}
 	return string(enum)
 }
@@ -242,7 +242,7 @@ const (
 func (enum ListSettingsRequestOrderBy) String() string {
 	if enum == "" {
 		// return default value if empty
-		return string(ListSettingsRequestOrderByCreatedAtAsc)
+		return "created_at_asc"
 	}
 	return string(enum)
 }
@@ -280,7 +280,7 @@ const (
 func (enum OfferStock) String() string {
 	if enum == "" {
 		// return default value if empty
-		return string(OfferStockEmpty)
+		return "empty"
 	}
 	return string(enum)
 }
@@ -319,7 +319,7 @@ const (
 func (enum OfferSubscriptionPeriod) String() string {
 	if enum == "" {
 		// return default value if empty
-		return string(OfferSubscriptionPeriodUnknownSubscriptionPeriod)
+		return "unknown_subscription_period"
 	}
 	return string(enum)
 }
@@ -361,7 +361,7 @@ const (
 func (enum SchemaFilesystemFormat) String() string {
 	if enum == "" {
 		// return default value if empty
-		return string(SchemaFilesystemFormatUnknownFormat)
+		return "unknown_format"
 	}
 	return string(enum)
 }
@@ -410,7 +410,7 @@ const (
 func (enum SchemaPartitionLabel) String() string {
 	if enum == "" {
 		// return default value if empty
-		return string(SchemaPartitionLabelUnknownPartitionLabel)
+		return "unknown_partition_label"
 	}
 	return string(enum)
 }
@@ -458,7 +458,7 @@ const (
 func (enum SchemaPoolType) String() string {
 	if enum == "" {
 		// return default value if empty
-		return string(SchemaPoolTypeUnknownType)
+		return "unknown_type"
 	}
 	return string(enum)
 }
@@ -502,7 +502,7 @@ const (
 func (enum SchemaRAIDLevel) String() string {
 	if enum == "" {
 		// return default value if empty
-		return string(SchemaRAIDLevelUnknownRaidLevel)
+		return "unknown_raid_level"
 	}
 	return string(enum)
 }
@@ -544,7 +544,7 @@ const (
 func (enum ServerBootType) String() string {
 	if enum == "" {
 		// return default value if empty
-		return string(ServerBootTypeUnknownBootType)
+		return "unknown_boot_type"
 	}
 	return string(enum)
 }
@@ -585,7 +585,7 @@ const (
 func (enum ServerInstallStatus) String() string {
 	if enum == "" {
 		// return default value if empty
-		return string(ServerInstallStatusUnknown)
+		return "unknown"
 	}
 	return string(enum)
 }
@@ -628,7 +628,7 @@ const (
 func (enum ServerOptionOptionStatus) String() string {
 	if enum == "" {
 		// return default value if empty
-		return string(ServerOptionOptionStatusOptionStatusUnknown)
+		return "option_status_unknown"
 	}
 	return string(enum)
 }
@@ -669,7 +669,7 @@ const (
 func (enum ServerPingStatus) String() string {
 	if enum == "" {
 		// return default value if empty
-		return string(ServerPingStatusPingStatusUnknown)
+		return "ping_status_unknown"
 	}
 	return string(enum)
 }
@@ -711,7 +711,7 @@ const (
 func (enum ServerPrivateNetworkStatus) String() string {
 	if enum == "" {
 		// return default value if empty
-		return string(ServerPrivateNetworkStatusUnknown)
+		return "unknown"
 	}
 	return string(enum)
 }
@@ -763,7 +763,7 @@ const (
 func (enum ServerStatus) String() string {
 	if enum == "" {
 		// return default value if empty
-		return string(ServerStatusUnknown)
+		return "unknown"
 	}
 	return string(enum)
 }
@@ -811,7 +811,7 @@ const (
 func (enum SettingType) String() string {
 	if enum == "" {
 		// return default value if empty
-		return string(SettingTypeUnknown)
+		return "unknown"
 	}
 	return string(enum)
 }
@@ -896,19 +896,9 @@ type SchemaZFS struct {
 	Pools []*SchemaPool `json:"pools"`
 }
 
-// Schema: schema.
-type Schema struct {
-	Disks []*SchemaDisk `json:"disks"`
-
-	Raids []*SchemaRAID `json:"raids"`
-
-	Filesystems []*SchemaFilesystem `json:"filesystems"`
-
-	Zfs *SchemaZFS `json:"zfs"`
-}
-
 // CertificationOption: certification option.
-type CertificationOption struct{}
+type CertificationOption struct {
+}
 
 // LicenseOption: license option.
 type LicenseOption struct {
@@ -926,132 +916,18 @@ type PublicBandwidthOption struct {
 }
 
 // RemoteAccessOption: remote access option.
-type RemoteAccessOption struct{}
-
-// CreateServerRequestInstall: create server request install.
-type CreateServerRequestInstall struct {
-	// OsID: ID of the OS to installation on the server.
-	OsID string `json:"os_id"`
-
-	// Hostname: hostname of the server.
-	Hostname string `json:"hostname"`
-
-	// SSHKeyIDs: SSH key IDs authorized on the server.
-	SSHKeyIDs []string `json:"ssh_key_ids"`
-
-	// User: user for the installation.
-	User *string `json:"user"`
-
-	// Password: password for the installation.
-	Password *string `json:"password"`
-
-	// ServiceUser: regular user that runs the service to be installed on the server.
-	ServiceUser *string `json:"service_user"`
-
-	// ServicePassword: password used for the service to install.
-	ServicePassword *string `json:"service_password"`
-
-	// PartitioningSchema: partitioning schema.
-	PartitioningSchema *Schema `json:"partitioning_schema"`
+type RemoteAccessOption struct {
 }
 
-// IP: ip.
-type IP struct {
-	// ID: ID of the IP.
-	ID string `json:"id"`
+// Schema: schema.
+type Schema struct {
+	Disks []*SchemaDisk `json:"disks"`
 
-	// Address: address of the IP.
-	Address net.IP `json:"address"`
+	Raids []*SchemaRAID `json:"raids"`
 
-	// Reverse: reverse IP value.
-	Reverse string `json:"reverse"`
+	Filesystems []*SchemaFilesystem `json:"filesystems"`
 
-	// Version: version of IP (v4 or v6).
-	// Default value: IPv4
-	Version IPVersion `json:"version"`
-
-	// ReverseStatus: status of the reverse.
-	// Default value: unknown
-	ReverseStatus IPReverseStatus `json:"reverse_status"`
-
-	// ReverseStatusMessage: a message related to the reverse status, e.g. in case of an error.
-	ReverseStatusMessage string `json:"reverse_status_message"`
-}
-
-// ServerInstall: server install.
-type ServerInstall struct {
-	// OsID: ID of the OS.
-	OsID string `json:"os_id"`
-
-	// Hostname: host defined during the server installation.
-	Hostname string `json:"hostname"`
-
-	// SSHKeyIDs: SSH public key IDs defined during server installation.
-	SSHKeyIDs []string `json:"ssh_key_ids"`
-
-	// Status: status of the server installation.
-	// Default value: unknown
-	Status ServerInstallStatus `json:"status"`
-
-	// User: user defined in the server installation, or the default user if none were specified.
-	User string `json:"user"`
-
-	// ServiceUser: service user defined in the server installation, or the default user if none were specified.
-	ServiceUser string `json:"service_user"`
-
-	// ServiceURL: address of the installed service.
-	ServiceURL string `json:"service_url"`
-
-	// PartitioningSchema: partitioning schema.
-	PartitioningSchema *Schema `json:"partitioning_schema"`
-}
-
-// ServerOption: server option.
-type ServerOption struct {
-	// ID: ID of the option.
-	ID string `json:"id"`
-
-	// Name: name of the option.
-	Name string `json:"name"`
-
-	// Status: status of the option on this server.
-	// Default value: option_status_unknown
-	Status ServerOptionOptionStatus `json:"status"`
-
-	// Manageable: defines whether the option can be managed (added or removed).
-	Manageable bool `json:"manageable"`
-
-	// ExpiresAt: auto expiration date for compatible options.
-	ExpiresAt *time.Time `json:"expires_at"`
-
-	// License: license option, contains the ID of the OS linked to the option.
-	// Precisely one of License, PublicBandwidth, PrivateNetwork, RemoteAccess, Certification must be set.
-	License *LicenseOption `json:"license,omitempty"`
-
-	// PublicBandwidth: public_bandwidth option, contains the bandwidth_in_bps.
-	// Precisely one of License, PublicBandwidth, PrivateNetwork, RemoteAccess, Certification must be set.
-	PublicBandwidth *PublicBandwidthOption `json:"public_bandwidth,omitempty"`
-
-	// PrivateNetwork: private_network option, contains the bandwidth_in_bps.
-	// Precisely one of License, PublicBandwidth, PrivateNetwork, RemoteAccess, Certification must be set.
-	PrivateNetwork *PrivateNetworkOption `json:"private_network,omitempty"`
-
-	// RemoteAccess: remote_access option.
-	// Precisely one of License, PublicBandwidth, PrivateNetwork, RemoteAccess, Certification must be set.
-	RemoteAccess *RemoteAccessOption `json:"remote_access,omitempty"`
-
-	// Certification: certification option.
-	// Precisely one of License, PublicBandwidth, PrivateNetwork, RemoteAccess, Certification must be set.
-	Certification *CertificationOption `json:"certification,omitempty"`
-}
-
-// ServerRescueServer: server rescue server.
-type ServerRescueServer struct {
-	// User: rescue user name.
-	User string `json:"user"`
-
-	// Password: rescue password.
-	Password string `json:"password"`
+	Zfs *SchemaZFS `json:"zfs"`
 }
 
 // OSOSField: osos field.
@@ -1179,105 +1055,130 @@ type RaidController struct {
 	RaidLevel []string `json:"raid_level"`
 }
 
-// CreateServerRequest: create server request.
-type CreateServerRequest struct {
-	// Zone: zone to target. If none is passed will use default zone from the config.
-	Zone scw.Zone `json:"-"`
-
-	// OfferID: offer ID of the new server.
-	OfferID string `json:"offer_id"`
-
-	// Deprecated: OrganizationID: organization ID with which the server will be created.
-	// Precisely one of ProjectID, OrganizationID must be set.
-	OrganizationID *string `json:"organization_id,omitempty"`
-
-	// ProjectID: project ID with which the server will be created.
-	// Precisely one of ProjectID, OrganizationID must be set.
-	ProjectID *string `json:"project_id,omitempty"`
-
-	// Name: name of the server (≠hostname).
-	Name string `json:"name"`
-
-	// Description: description associated with the server, max 255 characters.
-	Description string `json:"description"`
-
-	// Tags: tags to associate to the server.
-	Tags []string `json:"tags"`
-
-	// Install: object describing the configuration details of the OS installation on the server.
-	Install *CreateServerRequestInstall `json:"install,omitempty"`
-
-	// OptionIDs: iDs of options to enable on server.
-	OptionIDs []string `json:"option_ids"`
-
-	// Protected: if enabled, the server can not be deleted.
-	Protected bool `json:"protected"`
-}
-
-// Server: server.
-type Server struct {
-	// ID: ID of the server.
+// IP: ip.
+type IP struct {
+	// ID: ID of the IP.
 	ID string `json:"id"`
 
-	// OrganizationID: organization ID the server is attached to.
-	OrganizationID string `json:"organization_id"`
+	// Address: address of the IP.
+	Address net.IP `json:"address"`
 
-	// ProjectID: project ID the server is attached to.
-	ProjectID string `json:"project_id"`
+	// Reverse: reverse IP value.
+	Reverse string `json:"reverse"`
 
-	// Name: name of the server.
+	// Version: version of IP (v4 or v6).
+	// Default value: IPv4
+	Version IPVersion `json:"version"`
+
+	// ReverseStatus: status of the reverse.
+	// Default value: unknown
+	ReverseStatus IPReverseStatus `json:"reverse_status"`
+
+	// ReverseStatusMessage: a message related to the reverse status, e.g. in case of an error.
+	ReverseStatusMessage string `json:"reverse_status_message"`
+}
+
+// ServerInstall: server install.
+type ServerInstall struct {
+	// OsID: ID of the OS.
+	OsID string `json:"os_id"`
+
+	// Hostname: host defined during the server installation.
+	Hostname string `json:"hostname"`
+
+	// SSHKeyIDs: SSH public key IDs defined during server installation.
+	SSHKeyIDs []string `json:"ssh_key_ids"`
+
+	// Status: status of the server installation.
+	// Default value: unknown
+	Status ServerInstallStatus `json:"status"`
+
+	// User: user defined in the server installation, or the default user if none were specified.
+	User string `json:"user"`
+
+	// ServiceUser: service user defined in the server installation, or the default user if none were specified.
+	ServiceUser string `json:"service_user"`
+
+	// ServiceURL: address of the installed service.
+	ServiceURL string `json:"service_url"`
+
+	// PartitioningSchema: partitioning schema.
+	PartitioningSchema *Schema `json:"partitioning_schema"`
+}
+
+// ServerOption: server option.
+type ServerOption struct {
+	// ID: ID of the option.
+	ID string `json:"id"`
+
+	// Name: name of the option.
 	Name string `json:"name"`
 
-	// Description: description of the server.
-	Description string `json:"description"`
+	// Status: status of the option on this server.
+	// Default value: option_status_unknown
+	Status ServerOptionOptionStatus `json:"status"`
 
-	// UpdatedAt: last modification date of the server.
-	UpdatedAt *time.Time `json:"updated_at"`
+	// Manageable: defines whether the option can be managed (added or removed).
+	Manageable bool `json:"manageable"`
 
-	// CreatedAt: creation date of the server.
-	CreatedAt *time.Time `json:"created_at"`
+	// ExpiresAt: auto expiration date for compatible options.
+	ExpiresAt *time.Time `json:"expires_at"`
 
-	// Status: status of the server.
-	// Default value: unknown
-	Status ServerStatus `json:"status"`
+	// License: license option, contains the ID of the OS linked to the option.
+	// Precisely one of License, PublicBandwidth, PrivateNetwork, RemoteAccess, Certification must be set.
+	License *LicenseOption `json:"license,omitempty"`
 
-	// OfferID: offer ID of the server.
-	OfferID string `json:"offer_id"`
+	// PublicBandwidth: public_bandwidth option, contains the bandwidth_in_bps.
+	// Precisely one of License, PublicBandwidth, PrivateNetwork, RemoteAccess, Certification must be set.
+	PublicBandwidth *PublicBandwidthOption `json:"public_bandwidth,omitempty"`
 
-	// OfferName: offer name of the server.
-	OfferName string `json:"offer_name"`
+	// PrivateNetwork: private_network option, contains the bandwidth_in_bps.
+	// Precisely one of License, PublicBandwidth, PrivateNetwork, RemoteAccess, Certification must be set.
+	PrivateNetwork *PrivateNetworkOption `json:"private_network,omitempty"`
 
-	// Tags: array of custom tags attached to the server.
-	Tags []string `json:"tags"`
+	// RemoteAccess: remote_access option.
+	// Precisely one of License, PublicBandwidth, PrivateNetwork, RemoteAccess, Certification must be set.
+	RemoteAccess *RemoteAccessOption `json:"remote_access,omitempty"`
 
-	// IPs: array of IPs attached to the server.
-	IPs []*IP `json:"ips"`
+	// Certification: certification option.
+	// Precisely one of License, PublicBandwidth, PrivateNetwork, RemoteAccess, Certification must be set.
+	Certification *CertificationOption `json:"certification,omitempty"`
+}
 
-	// Domain: domain of the server.
-	Domain string `json:"domain"`
+// ServerRescueServer: server rescue server.
+type ServerRescueServer struct {
+	// User: rescue user name.
+	User string `json:"user"`
 
-	// BootType: boot type of the server.
-	// Default value: unknown_boot_type
-	BootType ServerBootType `json:"boot_type"`
+	// Password: rescue password.
+	Password string `json:"password"`
+}
 
-	// Zone: zone in which is the server located.
-	Zone scw.Zone `json:"zone"`
+// CreateServerRequestInstall: create server request install.
+type CreateServerRequestInstall struct {
+	// OsID: ID of the OS to installation on the server.
+	OsID string `json:"os_id"`
 
-	// Install: configuration of the installation.
-	Install *ServerInstall `json:"install"`
+	// Hostname: hostname of the server.
+	Hostname string `json:"hostname"`
 
-	// PingStatus: status of server ping.
-	// Default value: ping_status_unknown
-	PingStatus ServerPingStatus `json:"ping_status"`
+	// SSHKeyIDs: SSH key IDs authorized on the server.
+	SSHKeyIDs []string `json:"ssh_key_ids"`
 
-	// Options: options enabled on the server.
-	Options []*ServerOption `json:"options"`
+	// User: user for the installation.
+	User *string `json:"user"`
 
-	// RescueServer: configuration of rescue boot.
-	RescueServer *ServerRescueServer `json:"rescue_server"`
+	// Password: password for the installation.
+	Password *string `json:"password"`
 
-	// Protected: if enabled, the server can not be deleted.
-	Protected bool `json:"protected"`
+	// ServiceUser: regular user that runs the service to be installed on the server.
+	ServiceUser *string `json:"service_user"`
+
+	// ServicePassword: password used for the service to install.
+	ServicePassword *string `json:"service_password"`
+
+	// PartitioningSchema: partitioning schema.
+	PartitioningSchema *Schema `json:"partitioning_schema"`
 }
 
 // OS: os.
@@ -1343,7 +1244,7 @@ type Offer struct {
 	// CommercialRange: commercial range of the offer.
 	CommercialRange string `json:"commercial_range"`
 
-	// PricePerHour: price of the offer for the next 60 minutes (a server order at 11h32 will be paid until 12h32).
+	// PricePerHour: price of the offer for the next 60 minutes (a server order at 11h32 will be payed until 12h32).
 	PricePerHour *scw.Money `json:"price_per_hour"`
 
 	// PricePerMonth: monthly price of the offer, if subscribing on a monthly basis.
@@ -1477,6 +1378,69 @@ type ServerPrivateNetwork struct {
 	UpdatedAt *time.Time `json:"updated_at"`
 }
 
+// Server: server.
+type Server struct {
+	// ID: ID of the server.
+	ID string `json:"id"`
+
+	// OrganizationID: organization ID the server is attached to.
+	OrganizationID string `json:"organization_id"`
+
+	// ProjectID: project ID the server is attached to.
+	ProjectID string `json:"project_id"`
+
+	// Name: name of the server.
+	Name string `json:"name"`
+
+	// Description: description of the server.
+	Description string `json:"description"`
+
+	// UpdatedAt: last modification date of the server.
+	UpdatedAt *time.Time `json:"updated_at"`
+
+	// CreatedAt: creation date of the server.
+	CreatedAt *time.Time `json:"created_at"`
+
+	// Status: status of the server.
+	// Default value: unknown
+	Status ServerStatus `json:"status"`
+
+	// OfferID: offer ID of the server.
+	OfferID string `json:"offer_id"`
+
+	// OfferName: offer name of the server.
+	OfferName string `json:"offer_name"`
+
+	// Tags: array of custom tags attached to the server.
+	Tags []string `json:"tags"`
+
+	// IPs: array of IPs attached to the server.
+	IPs []*IP `json:"ips"`
+
+	// Domain: domain of the server.
+	Domain string `json:"domain"`
+
+	// BootType: boot type of the server.
+	// Default value: unknown_boot_type
+	BootType ServerBootType `json:"boot_type"`
+
+	// Zone: zone in which is the server located.
+	Zone scw.Zone `json:"zone"`
+
+	// Install: configuration of the installation.
+	Install *ServerInstall `json:"install"`
+
+	// PingStatus: status of server ping.
+	// Default value: ping_status_unknown
+	PingStatus ServerPingStatus `json:"ping_status"`
+
+	// Options: options enabled on the server.
+	Options []*ServerOption `json:"options"`
+
+	// RescueServer: configuration of rescue boot.
+	RescueServer *ServerRescueServer `json:"rescue_server"`
+}
+
 // Setting: setting.
 type Setting struct {
 	// ID: ID of the setting.
@@ -1521,6 +1485,38 @@ type BMCAccess struct {
 
 	// ExpiresAt: the date after which the BMC (Baseboard Management Controller) access will be closed.
 	ExpiresAt *time.Time `json:"expires_at"`
+}
+
+// CreateServerRequest: create server request.
+type CreateServerRequest struct {
+	// Zone: zone to target. If none is passed will use default zone from the config.
+	Zone scw.Zone `json:"-"`
+
+	// OfferID: offer ID of the new server.
+	OfferID string `json:"offer_id"`
+
+	// Deprecated: OrganizationID: organization ID with which the server will be created.
+	// Precisely one of ProjectID, OrganizationID must be set.
+	OrganizationID *string `json:"organization_id,omitempty"`
+
+	// ProjectID: project ID with which the server will be created.
+	// Precisely one of ProjectID, OrganizationID must be set.
+	ProjectID *string `json:"project_id,omitempty"`
+
+	// Name: name of the server (≠hostname).
+	Name string `json:"name"`
+
+	// Description: description associated with the server, max 255 characters.
+	Description string `json:"description"`
+
+	// Tags: tags to associate to the server.
+	Tags []string `json:"tags"`
+
+	// Install: object describing the configuration details of the OS installation on the server.
+	Install *CreateServerRequestInstall `json:"install,omitempty"`
+
+	// OptionIDs: iDs of options to enable on server.
+	OptionIDs []string `json:"option_ids"`
 }
 
 // DeleteOptionServerRequest: delete option server request.
@@ -1681,7 +1677,7 @@ func (r *ListOSResponse) UnsafeGetTotalCount() uint32 {
 
 // UnsafeAppend should not be used
 // Internal usage only
-func (r *ListOSResponse) UnsafeAppend(res any) (uint32, error) {
+func (r *ListOSResponse) UnsafeAppend(res interface{}) (uint32, error) {
 	results, ok := res.(*ListOSResponse)
 	if !ok {
 		return 0, errors.New("%T type cannot be appended to type %T", res, r)
@@ -1728,7 +1724,7 @@ func (r *ListOffersResponse) UnsafeGetTotalCount() uint32 {
 
 // UnsafeAppend should not be used
 // Internal usage only
-func (r *ListOffersResponse) UnsafeAppend(res any) (uint32, error) {
+func (r *ListOffersResponse) UnsafeAppend(res interface{}) (uint32, error) {
 	results, ok := res.(*ListOffersResponse)
 	if !ok {
 		return 0, errors.New("%T type cannot be appended to type %T", res, r)
@@ -1774,7 +1770,7 @@ func (r *ListOptionsResponse) UnsafeGetTotalCount() uint32 {
 
 // UnsafeAppend should not be used
 // Internal usage only
-func (r *ListOptionsResponse) UnsafeAppend(res any) (uint32, error) {
+func (r *ListOptionsResponse) UnsafeAppend(res interface{}) (uint32, error) {
 	results, ok := res.(*ListOptionsResponse)
 	if !ok {
 		return 0, errors.New("%T type cannot be appended to type %T", res, r)
@@ -1821,7 +1817,7 @@ func (r *ListServerEventsResponse) UnsafeGetTotalCount() uint32 {
 
 // UnsafeAppend should not be used
 // Internal usage only
-func (r *ListServerEventsResponse) UnsafeAppend(res any) (uint32, error) {
+func (r *ListServerEventsResponse) UnsafeAppend(res interface{}) (uint32, error) {
 	results, ok := res.(*ListServerEventsResponse)
 	if !ok {
 		return 0, errors.New("%T type cannot be appended to type %T", res, r)
@@ -1847,7 +1843,7 @@ func (r *ListServerPrivateNetworksResponse) UnsafeGetTotalCount() uint32 {
 
 // UnsafeAppend should not be used
 // Internal usage only
-func (r *ListServerPrivateNetworksResponse) UnsafeAppend(res any) (uint32, error) {
+func (r *ListServerPrivateNetworksResponse) UnsafeAppend(res interface{}) (uint32, error) {
 	results, ok := res.(*ListServerPrivateNetworksResponse)
 	if !ok {
 		return 0, errors.New("%T type cannot be appended to type %T", res, r)
@@ -1909,7 +1905,7 @@ func (r *ListServersResponse) UnsafeGetTotalCount() uint32 {
 
 // UnsafeAppend should not be used
 // Internal usage only
-func (r *ListServersResponse) UnsafeAppend(res any) (uint32, error) {
+func (r *ListServersResponse) UnsafeAppend(res interface{}) (uint32, error) {
 	results, ok := res.(*ListServersResponse)
 	if !ok {
 		return 0, errors.New("%T type cannot be appended to type %T", res, r)
@@ -1956,7 +1952,7 @@ func (r *ListSettingsResponse) UnsafeGetTotalCount() uint32 {
 
 // UnsafeAppend should not be used
 // Internal usage only
-func (r *ListSettingsResponse) UnsafeAppend(res any) (uint32, error) {
+func (r *ListSettingsResponse) UnsafeAppend(res interface{}) (uint32, error) {
 	results, ok := res.(*ListSettingsResponse)
 	if !ok {
 		return 0, errors.New("%T type cannot be appended to type %T", res, r)
@@ -2051,9 +2047,6 @@ type RebootServerRequest struct {
 	// BootType: the type of boot.
 	// Default value: unknown_boot_type
 	BootType ServerBootType `json:"boot_type"`
-
-	// SSHKeyIDs: additional SSH public key IDs to configure on rescue image.
-	SSHKeyIDs []string `json:"ssh_key_ids"`
 }
 
 // SetServerPrivateNetworksResponse: set server private networks response.
@@ -2084,9 +2077,6 @@ type StartServerRequest struct {
 	// BootType: the type of boot.
 	// Default value: unknown_boot_type
 	BootType ServerBootType `json:"boot_type"`
-
-	// SSHKeyIDs: additional SSH public key IDs to configure on rescue image.
-	SSHKeyIDs []string `json:"ssh_key_ids"`
 }
 
 // StopBMCAccessRequest: stop bmc access request.
@@ -2138,9 +2128,6 @@ type UpdateServerRequest struct {
 
 	// Tags: tags associated with the server, not updated if null.
 	Tags *[]string `json:"tags,omitempty"`
-
-	// Protected: if enabled, the server can not be deleted.
-	Protected *bool `json:"protected,omitempty"`
 }
 
 // UpdateSettingRequest: update setting request.
@@ -2181,7 +2168,6 @@ func NewAPI(client *scw.Client) *API {
 		client: client,
 	}
 }
-
 func (s *API) Zones() []scw.Zone {
 	return []scw.Zone{scw.ZoneFrPar1, scw.ZoneFrPar2, scw.ZoneNlAms1, scw.ZoneNlAms2, scw.ZonePlWaw2, scw.ZonePlWaw3}
 }
@@ -2303,7 +2289,7 @@ func (s *API) CreateServer(req *CreateServerRequest, opts ...scw.RequestOption) 
 	return &resp, nil
 }
 
-// UpdateServer: Update the server associated with the ID. You can update parameters such as the server's name, tags, description and protection flag. Any parameters left null in the request body are not updated.
+// UpdateServer: Update the server associated with the ID. You can update parameters such as the server's name, tags and description. Any parameters left null in the request body are not updated.
 func (s *API) UpdateServer(req *UpdateServerRequest, opts ...scw.RequestOption) (*Server, error) {
 	var err error
 
@@ -3189,7 +3175,6 @@ func NewPrivateNetworkAPI(client *scw.Client) *PrivateNetworkAPI {
 		client: client,
 	}
 }
-
 func (s *PrivateNetworkAPI) Zones() []scw.Zone {
 	return []scw.Zone{scw.ZoneFrPar2}
 }

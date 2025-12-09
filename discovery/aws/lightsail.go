@@ -23,14 +23,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/aws/aws-sdk-go-v2/aws"
-	awsConfig "github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/credentials"
-	"github.com/aws/aws-sdk-go-v2/credentials/stscreds"
-	"github.com/aws/aws-sdk-go-v2/feature/ec2/imds"
-	"github.com/aws/aws-sdk-go-v2/service/lightsail"
-	"github.com/aws/aws-sdk-go-v2/service/sts"
-	"github.com/aws/smithy-go"
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/awserr"
+	"github.com/aws/aws-sdk-go/aws/credentials"
+	"github.com/aws/aws-sdk-go/aws/credentials/stscreds"
+	"github.com/aws/aws-sdk-go/aws/ec2metadata"
+	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/aws/aws-sdk-go/service/lightsail"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/common/config"
 	"github.com/prometheus/common/model"
@@ -99,40 +98,28 @@ func (c *LightsailSDConfig) NewDiscoverer(opts discovery.DiscovererOptions) (dis
 }
 
 // UnmarshalYAML implements the yaml.Unmarshaler interface for the Lightsail Config.
-func (c *LightsailSDConfig) UnmarshalYAML(unmarshal func(any) error) error {
+func (c *LightsailSDConfig) UnmarshalYAML(unmarshal func(interface{}) error) error {
 	*c = DefaultLightsailSDConfig
 	type plain LightsailSDConfig
 	err := unmarshal((*plain)(c))
 	if err != nil {
 		return err
 	}
-
 	if c.Region == "" {
-		cfg, err := awsConfig.LoadDefaultConfig(context.Background())
+		sess, err := session.NewSession()
 		if err != nil {
 			return err
 		}
 
-		if cfg.Region != "" {
-			// Use the region from the AWS config. It will load environment variables and shared config files.
-			c.Region = cfg.Region
+		metadata := ec2metadata.New(sess)
+
+		region, err := metadata.Region()
+		if err != nil {
+			//nolint:staticcheck // Capitalized first word.
+			return errors.New("Lightsail SD configuration requires a region")
 		}
-
-		if c.Region == "" {
-			// Try to get the region from the instance metadata service (IMDS).
-			imdsClient := imds.NewFromConfig(cfg)
-			region, err := imdsClient.GetRegion(context.Background(), &imds.GetRegionInput{})
-			if err != nil {
-				return err
-			}
-			c.Region = region.Region
-		}
+		c.Region = region
 	}
-
-	if c.Region == "" {
-		return errors.New("lightsail SD configuration requires a region")
-	}
-
 	return c.HTTPClientConfig.Validate()
 }
 
@@ -141,7 +128,7 @@ func (c *LightsailSDConfig) UnmarshalYAML(unmarshal func(any) error) error {
 type LightsailDiscovery struct {
 	*refresh.Discovery
 	cfg       *LightsailSDConfig
-	lightsail *lightsail.Client
+	lightsail *lightsail.Lightsail
 }
 
 // NewLightsailDiscovery returns a new LightsailDiscovery which periodically refreshes its targets.
@@ -170,53 +157,46 @@ func NewLightsailDiscovery(conf *LightsailSDConfig, logger *slog.Logger, metrics
 	return d, nil
 }
 
-func (d *LightsailDiscovery) lightsailClient(ctx context.Context) (*lightsail.Client, error) {
+func (d *LightsailDiscovery) lightsailClient() (*lightsail.Lightsail, error) {
 	if d.lightsail != nil {
 		return d.lightsail, nil
 	}
 
-	// Build the HTTP client from the provided HTTPClientConfig.
-	httpClient, err := config.NewClientFromConfig(d.cfg.HTTPClientConfig, "lightsail_sd")
+	creds := credentials.NewStaticCredentials(d.cfg.AccessKey, string(d.cfg.SecretKey), "")
+	if d.cfg.AccessKey == "" && d.cfg.SecretKey == "" {
+		creds = nil
+	}
+
+	client, err := config.NewClientFromConfig(d.cfg.HTTPClientConfig, "lightsail_sd")
 	if err != nil {
 		return nil, err
 	}
 
-	// Build the AWS config with the provided region.
-	configOptions := []func(*awsConfig.LoadOptions) error{
-		awsConfig.WithRegion(d.cfg.Region),
-		awsConfig.WithHTTPClient(httpClient),
-	}
-
-	// Only set static credentials if both access key and secret key are provided.
-	// Otherwise, let the AWS SDK use its default credential chain (environment variables, IAM role, etc.).
-	if d.cfg.AccessKey != "" && d.cfg.SecretKey != "" {
-		credProvider := credentials.NewStaticCredentialsProvider(d.cfg.AccessKey, string(d.cfg.SecretKey), "")
-		configOptions = append(configOptions, awsConfig.WithCredentialsProvider(credProvider))
-	}
-
-	// Set the profile if provided.
-	if d.cfg.Profile != "" {
-		configOptions = append(configOptions, awsConfig.WithSharedConfigProfile(d.cfg.Profile))
-	}
-
-	cfg, err := awsConfig.LoadDefaultConfig(ctx, configOptions...)
+	sess, err := session.NewSessionWithOptions(session.Options{
+		Config: aws.Config{
+			Endpoint:    &d.cfg.Endpoint,
+			Region:      &d.cfg.Region,
+			Credentials: creds,
+			HTTPClient:  client,
+		},
+		Profile: d.cfg.Profile,
+	})
 	if err != nil {
-		return nil, fmt.Errorf("could not create aws config: %w", err)
+		return nil, fmt.Errorf("could not create aws session: %w", err)
 	}
 
-	// If the role ARN is set, assume the role to get credentials and set the credentials provider in the config.
 	if d.cfg.RoleARN != "" {
-		assumeProvider := stscreds.NewAssumeRoleProvider(sts.NewFromConfig(cfg), d.cfg.RoleARN)
-		cfg.Credentials = aws.NewCredentialsCache(assumeProvider)
+		creds := stscreds.NewCredentials(sess, d.cfg.RoleARN)
+		d.lightsail = lightsail.New(sess, &aws.Config{Credentials: creds})
+	} else {
+		d.lightsail = lightsail.New(sess)
 	}
-
-	d.lightsail = lightsail.NewFromConfig(cfg)
 
 	return d.lightsail, nil
 }
 
 func (d *LightsailDiscovery) refresh(ctx context.Context) ([]*targetgroup.Group, error) {
-	lightsailClient, err := d.lightsailClient(ctx)
+	lightsailClient, err := d.lightsailClient()
 	if err != nil {
 		return nil, err
 	}
@@ -227,10 +207,10 @@ func (d *LightsailDiscovery) refresh(ctx context.Context) ([]*targetgroup.Group,
 
 	input := &lightsail.GetInstancesInput{}
 
-	output, err := lightsailClient.GetInstances(ctx, input)
+	output, err := lightsailClient.GetInstancesWithContext(ctx, input)
 	if err != nil {
-		var awsErr smithy.APIError
-		if errors.As(err, &awsErr) && (awsErr.ErrorCode() == "AuthFailure" || awsErr.ErrorCode() == "UnauthorizedOperation") {
+		var awsErr awserr.Error
+		if errors.As(err, &awsErr) && (awsErr.Code() == "AuthFailure" || awsErr.Code() == "UnauthorizedOperation") {
 			d.lightsail = nil
 		}
 		return nil, fmt.Errorf("could not get instances: %w", err)
@@ -261,7 +241,9 @@ func (d *LightsailDiscovery) refresh(ctx context.Context) ([]*targetgroup.Group,
 
 		if len(inst.Ipv6Addresses) > 0 {
 			var ipv6addrs []string
-			ipv6addrs = append(ipv6addrs, inst.Ipv6Addresses...)
+			for _, ipv6addr := range inst.Ipv6Addresses {
+				ipv6addrs = append(ipv6addrs, *ipv6addr)
+			}
 			labels[lightsailLabelIPv6Addresses] = model.LabelValue(
 				lightsailLabelSeparator +
 					strings.Join(ipv6addrs, lightsailLabelSeparator) +
@@ -269,7 +251,7 @@ func (d *LightsailDiscovery) refresh(ctx context.Context) ([]*targetgroup.Group,
 		}
 
 		for _, t := range inst.Tags {
-			if t.Key == nil || t.Value == nil {
+			if t == nil || t.Key == nil || t.Value == nil {
 				continue
 			}
 			name := strutil.SanitizeLabelName(*t.Key)

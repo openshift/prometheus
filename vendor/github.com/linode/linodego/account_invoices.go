@@ -50,7 +50,6 @@ func (i *Invoice) UnmarshalJSON(b []byte) error {
 
 	p := struct {
 		*Mask
-
 		Date *parseabletime.ParseableTime `json:"date"`
 	}{
 		Mask: (*Mask)(i),
@@ -71,7 +70,6 @@ func (i *InvoiceItem) UnmarshalJSON(b []byte) error {
 
 	p := struct {
 		*Mask
-
 		From *parseabletime.ParseableTime `json:"from"`
 		To   *parseabletime.ParseableTime `json:"to"`
 	}{

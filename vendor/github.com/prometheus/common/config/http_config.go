@@ -32,11 +32,11 @@ import (
 	"time"
 
 	conntrack "github.com/mwitkow/go-conntrack"
-	"go.yaml.in/yaml/v2"
 	"golang.org/x/net/http/httpproxy"
 	"golang.org/x/net/http2"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/clientcredentials"
+	"gopkg.in/yaml.v2"
 )
 
 var (
@@ -72,7 +72,7 @@ var TLSVersions = map[string]TLSVersion{
 
 func (tv *TLSVersion) UnmarshalYAML(unmarshal func(interface{}) error) error {
 	var s string
-	err := unmarshal(&s)
+	err := unmarshal((*string)(&s))
 	if err != nil {
 		return err
 	}
@@ -245,7 +245,7 @@ type OAuth2 struct {
 	ProxyConfig     `yaml:",inline"`
 }
 
-// UnmarshalYAML implements the yaml.Unmarshaler interface.
+// UnmarshalYAML implements the yaml.Unmarshaler interface
 func (o *OAuth2) UnmarshalYAML(unmarshal func(interface{}) error) error {
 	type plain OAuth2
 	if err := unmarshal((*plain)(o)); err != nil {
@@ -346,7 +346,7 @@ func nonZeroCount[T comparable](values ...T) int {
 	var zero T
 	for _, value := range values {
 		if value != zero {
-			count++
+			count += 1
 		}
 	}
 	return count
@@ -363,7 +363,7 @@ func (c *HTTPClientConfig) Validate() error {
 	if (c.BasicAuth != nil || c.OAuth2 != nil) && (len(c.BearerToken) > 0 || len(c.BearerTokenFile) > 0) {
 		return errors.New("at most one of basic_auth, oauth2, bearer_token & bearer_token_file must be configured")
 	}
-	if c.BasicAuth != nil && nonZeroCount(c.BasicAuth.Username != "", c.BasicAuth.UsernameFile != "", c.BasicAuth.UsernameRef != "") > 1 {
+	if c.BasicAuth != nil && nonZeroCount(string(c.BasicAuth.Username) != "", c.BasicAuth.UsernameFile != "", c.BasicAuth.UsernameRef != "") > 1 {
 		return errors.New("at most one of basic_auth username, username_file & username_ref must be configured")
 	}
 	if c.BasicAuth != nil && nonZeroCount(string(c.BasicAuth.Password) != "", c.BasicAuth.PasswordFile != "", c.BasicAuth.PasswordRef != "") > 1 {
@@ -423,7 +423,7 @@ func (c *HTTPClientConfig) Validate() error {
 	return nil
 }
 
-// UnmarshalYAML implements the yaml.Unmarshaler interface.
+// UnmarshalYAML implements the yaml.Unmarshaler interface
 func (c *HTTPClientConfig) UnmarshalYAML(unmarshal func(interface{}) error) error {
 	type plain HTTPClientConfig
 	*c = DefaultHTTPClientConfig
@@ -542,14 +542,8 @@ func (s *secretManagerOption) applyToTLSConfigOptions(opts *tlsConfigOptions) {
 	opts.secretManager = s.secretManager
 }
 
-// SecretManagerOption is an option for providing a SecretManager.
-type SecretManagerOption interface {
-	TLSConfigOption
-	HTTPClientOption
-}
-
 // WithSecretManager allows setting the secret manager.
-func WithSecretManager(manager SecretManager) SecretManagerOption {
+func WithSecretManager(manager SecretManager) *secretManagerOption {
 	return &secretManagerOption{
 		secretManager: manager,
 	}
@@ -732,11 +726,11 @@ func (s *InlineSecret) Fetch(context.Context) (string, error) {
 	return s.text, nil
 }
 
-func (*InlineSecret) Description() string {
+func (s *InlineSecret) Description() string {
 	return "inline"
 }
 
-func (*InlineSecret) Immutable() bool {
+func (s *InlineSecret) Immutable() bool {
 	return true
 }
 
@@ -748,7 +742,7 @@ func NewFileSecret(file string) *FileSecret {
 	return &FileSecret{file: file}
 }
 
-func (s *FileSecret) Fetch(context.Context) (string, error) {
+func (s *FileSecret) Fetch(ctx context.Context) (string, error) {
 	fileBytes, err := os.ReadFile(s.file)
 	if err != nil {
 		return "", fmt.Errorf("unable to read file %s: %w", s.file, err)
@@ -760,7 +754,7 @@ func (s *FileSecret) Description() string {
 	return "file " + s.file
 }
 
-func (*FileSecret) Immutable() bool {
+func (s *FileSecret) Immutable() bool {
 	return false
 }
 
@@ -778,7 +772,7 @@ func (s *refSecret) Description() string {
 	return "ref " + s.ref
 }
 
-func (*refSecret) Immutable() bool {
+func (s *refSecret) Immutable() bool {
 	return false
 }
 
@@ -1230,7 +1224,7 @@ func (c *TLSConfig) getClientCertificate(ctx context.Context, secretManager Secr
 		}
 	}
 
-	keySecret, err := toSecret(secretManager, c.Key, c.KeyFile, c.KeyRef)
+	keySecret, err := toSecret(secretManager, Secret(c.Key), c.KeyFile, c.KeyRef)
 	if err != nil {
 		return nil, fmt.Errorf("unable to use client key: %w", err)
 	}
@@ -1368,9 +1362,9 @@ func (t *tlsRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 	}
 
 	t.mtx.RLock()
-	equal := bytes.Equal(caHash, t.hashCAData) &&
-		bytes.Equal(certHash, t.hashCertData) &&
-		bytes.Equal(keyHash, t.hashKeyData)
+	equal := bytes.Equal(caHash[:], t.hashCAData) &&
+		bytes.Equal(certHash[:], t.hashCertData) &&
+		bytes.Equal(keyHash[:], t.hashKeyData)
 	rt := t.rt
 	t.mtx.RUnlock()
 	if equal {
@@ -1393,9 +1387,9 @@ func (t *tlsRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 
 	t.mtx.Lock()
 	t.rt = rt
-	t.hashCAData = caHash
-	t.hashCertData = certHash
-	t.hashKeyData = keyHash
+	t.hashCAData = caHash[:]
+	t.hashCertData = certHash[:]
+	t.hashKeyData = keyHash[:]
 	t.mtx.Unlock()
 
 	return rt.RoundTrip(req)

@@ -24,9 +24,9 @@ type scalewayMetrics struct {
 }
 
 // Register implements discovery.DiscovererMetrics.
-func (*scalewayMetrics) Register() error {
+func (m *scalewayMetrics) Register() error {
 	return nil
 }
 
 // Unregister implements discovery.DiscovererMetrics.
-func (*scalewayMetrics) Unregister() {}
+func (m *scalewayMetrics) Unregister() {}

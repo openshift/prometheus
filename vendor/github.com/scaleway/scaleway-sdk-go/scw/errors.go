@@ -461,7 +461,7 @@ type InvalidClientOptionError struct {
 	errorType string
 }
 
-func NewInvalidClientOptionError(format string, a ...any) *InvalidClientOptionError {
+func NewInvalidClientOptionError(format string, a ...interface{}) *InvalidClientOptionError {
 	return &InvalidClientOptionError{errorType: fmt.Sprintf(format, a...)}
 }
 

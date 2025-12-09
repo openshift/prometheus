@@ -190,7 +190,7 @@ func (d Domain) GetUpdateOptions() (du DomainUpdateOptions) {
 	du.RefreshSec = d.RefreshSec
 	du.TTLSec = d.TTLSec
 
-	return du
+	return
 }
 
 // ListDomains lists Domains

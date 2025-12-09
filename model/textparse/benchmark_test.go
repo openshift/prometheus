@@ -149,17 +149,16 @@ func benchParse(b *testing.B, data []byte, parser string) {
 		}
 	case "promproto":
 		newParserFn = func(b []byte, st *labels.SymbolTable) Parser {
-			return NewProtobufParser(b, true, false, false, st)
+			return NewProtobufParser(b, true, false, st)
 		}
 	case "omtext":
 		newParserFn = func(b []byte, st *labels.SymbolTable) Parser {
 			return NewOpenMetricsParser(b, st, WithOMParserCTSeriesSkipped())
 		}
 	case "omtext_with_nhcb":
-		newParserFn = func(buf []byte, st *labels.SymbolTable) Parser {
-			p, err := New(buf, "application/openmetrics-text", st, ParserOptions{ConvertClassicHistogramsToNHCB: true})
-			require.NoError(b, err)
-			return p
+		newParserFn = func(b []byte, st *labels.SymbolTable) Parser {
+			p := NewOpenMetricsParser(b, st, WithOMParserCTSeriesSkipped())
+			return NewNHCBParser(p, st, false)
 		}
 	default:
 		b.Fatal("unknown parser", parser)
@@ -276,7 +275,7 @@ func BenchmarkCreatedTimestampPromProto(b *testing.B) {
 	data := createTestProtoBuf(b).Bytes()
 
 	st := labels.NewSymbolTable()
-	p := NewProtobufParser(data, true, false, false, st)
+	p := NewProtobufParser(data, true, false, st)
 
 	found := false
 Inner:

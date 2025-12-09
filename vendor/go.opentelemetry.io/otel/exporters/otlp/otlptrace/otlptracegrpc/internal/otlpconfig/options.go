@@ -92,11 +92,12 @@ func NewHTTPConfig(opts ...HTTPOption) Config {
 	return cfg
 }
 
-// cleanPath returns a path with all spaces trimmed. If urlPath is empty,
+// cleanPath returns a path with all spaces trimmed and all redundancies
+// removed. If urlPath is empty or cleaning it results in an empty string,
 // defaultPath is returned instead.
 func cleanPath(urlPath string, defaultPath string) string {
-	tmp := strings.TrimSpace(urlPath)
-	if tmp == "" || tmp == "." {
+	tmp := path.Clean(strings.TrimSpace(urlPath))
+	if tmp == "." {
 		return defaultPath
 	}
 	if !path.IsAbs(tmp) {

@@ -54,12 +54,12 @@ func GenerateMarkdown(model *kingpin.ApplicationModel, writer io.Writer) error {
 }
 
 func header(title, help string) []byte {
-	return fmt.Appendf(nil, `---
+	return []byte(fmt.Sprintf(`---
 title: %s
 ---
 
 %s
-`, title, help)
+`, title, help))
 }
 
 func createFlagRow(flag *kingpin.FlagModel) []string {

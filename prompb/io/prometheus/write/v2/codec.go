@@ -25,7 +25,7 @@ import (
 // NOTE(bwplotka): This file's code is tested in /prompb/rwcommon.
 
 // ToLabels return model labels.Labels from timeseries' remote labels.
-func (m TimeSeries) ToLabels(b *labels.ScratchBuilder, symbols []string) (labels.Labels, error) {
+func (m TimeSeries) ToLabels(b *labels.ScratchBuilder, symbols []string) labels.Labels {
 	return desymbolizeLabels(b, m.GetLabelsRefs(), symbols)
 }
 
@@ -142,7 +142,7 @@ func (h Histogram) ToFloatHistogram() *histogram.FloatHistogram {
 
 func spansProtoToSpans(s []BucketSpan) []histogram.Span {
 	spans := make([]histogram.Span, len(s))
-	for i := range s {
+	for i := 0; i < len(s); i++ {
 		spans[i] = histogram.Span{Offset: s[i].Offset, Length: s[i].Length}
 	}
 
@@ -200,25 +200,20 @@ func spansToSpansProto(s []histogram.Span) []BucketSpan {
 		return nil
 	}
 	spans := make([]BucketSpan, len(s))
-	for i := range s {
+	for i := 0; i < len(s); i++ {
 		spans[i] = BucketSpan{Offset: s[i].Offset, Length: s[i].Length}
 	}
 
 	return spans
 }
 
-func (m Exemplar) ToExemplar(b *labels.ScratchBuilder, symbols []string) (exemplar.Exemplar, error) {
+func (m Exemplar) ToExemplar(b *labels.ScratchBuilder, symbols []string) exemplar.Exemplar {
 	timestamp := m.Timestamp
 
-	lbls, err := desymbolizeLabels(b, m.LabelsRefs, symbols)
-	if err != nil {
-		return exemplar.Exemplar{}, err
-	}
-
 	return exemplar.Exemplar{
-		Labels: lbls,
+		Labels: desymbolizeLabels(b, m.LabelsRefs, symbols),
 		Value:  m.Value,
 		Ts:     timestamp,
 		HasTs:  timestamp != 0,
-	}, nil
+	}
 }

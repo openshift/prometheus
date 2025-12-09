@@ -27,8 +27,7 @@ var RootResourceID = &ResourceID{
 }
 
 // ResourceID represents a resource ID such as `/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/myRg`.
-// Don't create this type directly, use [ParseResourceID] instead. Fields are considered immutable and shouldn't be
-// modified after creation.
+// Don't create this type directly, use ParseResourceID instead.
 type ResourceID struct {
 	// Parent is the parent ResourceID of this instance.
 	// Can be nil if there is no parent.
@@ -86,6 +85,28 @@ func ParseResourceID(id string) (*ResourceID, error) {
 
 // String returns the string of the ResourceID
 func (id *ResourceID) String() string {
+	if len(id.stringValue) > 0 {
+		return id.stringValue
+	}
+
+	if id.Parent == nil {
+		return ""
+	}
+
+	builder := strings.Builder{}
+	builder.WriteString(id.Parent.String())
+
+	if id.isChild {
+		builder.WriteString(fmt.Sprintf("/%s", id.ResourceType.lastType()))
+		if len(id.Name) > 0 {
+			builder.WriteString(fmt.Sprintf("/%s", id.Name))
+		}
+	} else {
+		builder.WriteString(fmt.Sprintf("/providers/%s/%s/%s", id.ResourceType.Namespace, id.ResourceType.Type, id.Name))
+	}
+
+	id.stringValue = builder.String()
+
 	return id.stringValue
 }
 
@@ -123,9 +144,9 @@ func newResourceIDWithProvider(parent *ResourceID, providerNamespace, resourceTy
 }
 
 func chooseResourceType(resourceTypeName string, parent *ResourceID) ResourceType {
-	if strings.EqualFold(resourceTypeName, resourceGroupsLowerKey) && isSubscriptionResource(parent) {
+	if strings.EqualFold(resourceTypeName, resourceGroupsLowerKey) {
 		return ResourceGroupResourceType
-	} else if strings.EqualFold(resourceTypeName, subscriptionsKey) && isTenantResource(parent) {
+	} else if strings.EqualFold(resourceTypeName, subscriptionsKey) && parent != nil && parent.ResourceType.String() == TenantResourceType.String() {
 		return SubscriptionResourceType
 	}
 
@@ -164,15 +185,6 @@ func (id *ResourceID) init(parent *ResourceID, resourceType ResourceType, name s
 	id.isChild = isChild
 	id.ResourceType = resourceType
 	id.Name = name
-	id.stringValue = id.Parent.String()
-	if id.isChild {
-		id.stringValue += "/" + id.ResourceType.lastType()
-		if id.Name != "" {
-			id.stringValue += "/" + id.Name
-		}
-	} else {
-		id.stringValue += fmt.Sprintf("/providers/%s/%s/%s", id.ResourceType.Namespace, id.ResourceType.Type, id.Name)
-	}
 }
 
 func appendNext(parent *ResourceID, parts []string, id string) (*ResourceID, error) {
@@ -182,12 +194,12 @@ func appendNext(parent *ResourceID, parts []string, id string) (*ResourceID, err
 
 	if len(parts) == 1 {
 		// subscriptions and resourceGroups are not valid ids without their names
-		if strings.EqualFold(parts[0], subscriptionsKey) && isTenantResource(parent) || strings.EqualFold(parts[0], resourceGroupsLowerKey) && isSubscriptionResource(parent) {
+		if strings.EqualFold(parts[0], subscriptionsKey) || strings.EqualFold(parts[0], resourceGroupsLowerKey) {
 			return nil, fmt.Errorf("invalid resource ID: %s", id)
 		}
 
 		// resourceGroup must contain either child or provider resource type
-		if isResourceGroupResource(parent) {
+		if parent.ResourceType.String() == ResourceGroupResourceType.String() {
 			return nil, fmt.Errorf("invalid resource ID: %s", id)
 		}
 
@@ -196,7 +208,7 @@ func appendNext(parent *ResourceID, parts []string, id string) (*ResourceID, err
 
 	if strings.EqualFold(parts[0], providersKey) && (len(parts) == 2 || strings.EqualFold(parts[2], providersKey)) {
 		// provider resource can only be on a tenant or a subscription parent
-		if !isSubscriptionResource(parent) && !isTenantResource(parent) {
+		if parent.ResourceType.String() != SubscriptionResourceType.String() && parent.ResourceType.String() != TenantResourceType.String() {
 			return nil, fmt.Errorf("invalid resource ID: %s", id)
 		}
 
@@ -224,19 +236,4 @@ func splitStringAndOmitEmpty(v, sep string) []string {
 	}
 
 	return r
-}
-
-// isTenantResource returns true if the resourceID represents a tenant resource. The condition is resource ID matched with TenantResourceType and has no parent.
-func isTenantResource(resourceID *ResourceID) bool {
-	return resourceID != nil && strings.EqualFold(resourceID.ResourceType.String(), TenantResourceType.String()) && resourceID.Parent == nil
-}
-
-// isSubscriptionResource returns true if the resourceID represents a subscription resource. The condition is resource ID matched with SubscriptionResourceType and its parent is a tenant resource.
-func isSubscriptionResource(resourceID *ResourceID) bool {
-	return resourceID != nil && strings.EqualFold(resourceID.ResourceType.String(), SubscriptionResourceType.String()) && isTenantResource(resourceID.Parent)
-}
-
-// isResourceGroupResource returns true if the resourceID represents a resource group resource. The condition is resource ID matched with ResourceGroupResourceType and its parent is a subscription resource.
-func isResourceGroupResource(resourceID *ResourceID) bool {
-	return resourceID != nil && strings.EqualFold(resourceID.ResourceType.String(), ResourceGroupResourceType.String()) && isSubscriptionResource(resourceID.Parent)
 }

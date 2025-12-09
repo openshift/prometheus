@@ -96,7 +96,6 @@ func (i *PaymentMethod) UnmarshalJSON(b []byte) error {
 
 	pm := &struct {
 		*Mask
-
 		Created *parseabletime.ParseableTime `json:"created"`
 		Data    json.RawMessage              `json:"data"`
 	}{
@@ -114,28 +113,24 @@ func (i *PaymentMethod) UnmarshalJSON(b []byte) error {
 		if err := json.Unmarshal(pm.Data, &creditCardData); err != nil {
 			return err
 		}
-
 		i.Data = creditCardData
 	case "google_pay":
 		var googlePayData PaymentMethodDataGooglePay
 		if err := json.Unmarshal(pm.Data, &googlePayData); err != nil {
 			return err
 		}
-
 		i.Data = googlePayData
 	case "paypal":
 		var paypalData PaymentMethodDataPaypal
 		if err := json.Unmarshal(pm.Data, &paypalData); err != nil {
 			return err
 		}
-
 		i.Data = paypalData
 	default:
 		return fmt.Errorf("unknown payment method type: %s", i.Type)
 	}
 
 	i.Created = (*time.Time)(pm.Created)
-
 	return nil
 }
 

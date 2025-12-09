@@ -17,6 +17,7 @@ package strfmt
 import (
 	"database/sql/driver"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -83,7 +84,7 @@ func (d *Date) Scan(raw interface{}) error {
 		*d = Date{}
 		return nil
 	default:
-		return fmt.Errorf("cannot sql.Scan() strfmt.Date from: %#v: %w", v, ErrFormat)
+		return fmt.Errorf("cannot sql.Scan() strfmt.Date from: %#v", v)
 	}
 }
 
@@ -133,7 +134,7 @@ func (d *Date) UnmarshalBSON(data []byte) error {
 		return nil
 	}
 
-	return fmt.Errorf("couldn't unmarshal bson bytes value as Date: %w", ErrFormat)
+	return errors.New("couldn't unmarshal bson bytes value as Date")
 }
 
 // DeepCopyInto copies the receiver and writes its value into out.

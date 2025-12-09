@@ -203,6 +203,7 @@ func TestSendAlerts(t *testing.T) {
 	}
 
 	for i, tc := range testCases {
+		tc := tc
 		t.Run(strconv.Itoa(i), func(t *testing.T) {
 			senderFunc := senderFunc(func(alerts ...*notifier.Alert) {
 				require.NotEmpty(t, tc.in, "sender called with 0 alert")
@@ -663,7 +664,7 @@ func reloadPrometheusConfig(t *testing.T, reloadURL string) {
 func getMetricValue(t *testing.T, body io.Reader, metricType model.MetricType, metricName string) (float64, error) {
 	t.Helper()
 
-	p := expfmt.NewTextParser(model.UTF8Validation)
+	p := expfmt.TextParser{}
 	metricFamilies, err := p.TextToMetricFamilies(body)
 	if err != nil {
 		return 0, err
@@ -910,7 +911,6 @@ scrape_configs:
   - job_name: 'target'
     static_configs:
       - targets: ['localhost:%d']
-
 remote_write:
   - url: %s
     write_relabel_configs:
@@ -964,74 +964,4 @@ remote_write:
 		require.Zero(t, highestSentTimestamp)
 		return true
 	}, 10*time.Second, 100*time.Millisecond)
-}
-
-// TestRemoteWrite_ReshardingWithoutDeadlock ensures that resharding (scaling up) doesn't block when the shards are full.
-// See: https://github.com/prometheus/prometheus/issues/17384.
-func TestRemoteWrite_ReshardingWithoutDeadlock(t *testing.T) {
-	t.Parallel()
-
-	tmpDir := t.TempDir()
-	configFile := filepath.Join(tmpDir, "prometheus.yml")
-
-	port := testutil.RandomUnprivilegedPort(t)
-
-	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
-		time.Sleep(time.Second)
-	}))
-	t.Cleanup(server.Close)
-
-	config := fmt.Sprintf(`
-global:
-  scrape_interval: 100ms
-scrape_configs:
-  - job_name: 'self'
-    static_configs:
-      - targets: ['localhost:%d']
-
-remote_write:
-  - url: %s
-    queue_config:
-      # Speed up the queue being full.
-      capacity: 1
-`, port, server.URL)
-	require.NoError(t, os.WriteFile(configFile, []byte(config), 0o777))
-
-	prom := prometheusCommandWithLogging(
-		t,
-		configFile,
-		port,
-		fmt.Sprintf("--storage.tsdb.path=%s", tmpDir),
-	)
-	require.NoError(t, prom.Start())
-
-	var checkInitialDesiredShardsOnce sync.Once
-	require.Eventually(t, func() bool {
-		r, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d/metrics", port))
-		if err != nil {
-			return false
-		}
-		defer r.Body.Close()
-		if r.StatusCode != http.StatusOK {
-			return false
-		}
-
-		metrics, err := io.ReadAll(r.Body)
-		if err != nil {
-			return false
-		}
-
-		checkInitialDesiredShardsOnce.Do(func() {
-			s, err := getMetricValue(t, bytes.NewReader(metrics), model.MetricTypeGauge, "prometheus_remote_storage_shards_desired")
-			require.NoError(t, err)
-			require.Equal(t, 1.0, s)
-		})
-
-		desiredShards, err := getMetricValue(t, bytes.NewReader(metrics), model.MetricTypeGauge, "prometheus_remote_storage_shards_desired")
-		if err != nil || desiredShards <= 1 {
-			return false
-		}
-		return true
-		// 3*shardUpdateDuration to allow for the resharding logic to run.
-	}, 30*time.Second, 1*time.Second)
 }

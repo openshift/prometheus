@@ -240,7 +240,7 @@ const fuzzLen = 500
 
 func generateRandomEntries(w *WL, records chan []byte) error {
 	var recs [][]byte
-	for i := range fuzzLen {
+	for i := 0; i < fuzzLen; i++ {
 		var sz int64
 		switch i % 5 {
 		case 0, 1:
@@ -314,7 +314,6 @@ func allSegments(dir string) (io.ReadCloser, error) {
 }
 
 func TestReaderFuzz(t *testing.T) {
-	t.Parallel()
 	for name, fn := range readerConstructors {
 		for _, compress := range compression.Types() {
 			t.Run(fmt.Sprintf("%s,compress=%s", name, compress), func(t *testing.T) {
@@ -354,7 +353,6 @@ func TestReaderFuzz(t *testing.T) {
 }
 
 func TestReaderFuzz_Live(t *testing.T) {
-	t.Parallel()
 	logger := promslog.NewNopLogger()
 	for _, compress := range compression.Types() {
 		t.Run(fmt.Sprintf("compress=%s", compress), func(t *testing.T) {

@@ -132,7 +132,7 @@ func wait(ctx context.Context, delay time.Duration) error {
 		select {
 		case <-timer.C:
 		default:
-			return context.Cause(ctx)
+			return ctx.Err()
 		}
 	case <-timer.C:
 	}

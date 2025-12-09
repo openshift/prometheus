@@ -144,7 +144,7 @@ func TestDirectIOWriter(t *testing.T) {
 			fileName := path.Join(t.TempDir(), "test")
 
 			data := make([]byte, tc.dataSize)
-			for i := range data {
+			for i := 0; i < len(data); i++ {
 				// Do not use 256 as it may be a divider of requiredAlignment. To avoid patterns.
 				data[i] = byte(i % 251)
 			}

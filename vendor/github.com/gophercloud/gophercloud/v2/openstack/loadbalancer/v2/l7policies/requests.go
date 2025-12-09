@@ -263,12 +263,6 @@ func Update(ctx context.Context, c *gophercloud.ServiceClient, id string, opts U
 	return
 }
 
-// CreateRuleOptsBuilder allows extensions to add additional parameters to the
-// CreateRule request.
-type CreateRuleOptsBuilder interface {
-	ToRuleCreateMap() (map[string]any, error)
-}
-
 // CreateRuleOpts is the common options struct used in this package's CreateRule
 // operation.
 type CreateRuleOpts struct {
@@ -306,7 +300,7 @@ func (opts CreateRuleOpts) ToRuleCreateMap() (map[string]any, error) {
 }
 
 // CreateRule will create and associate a Rule with a particular L7Policy.
-func CreateRule(ctx context.Context, c *gophercloud.ServiceClient, policyID string, opts CreateRuleOptsBuilder) (r CreateRuleResult) {
+func CreateRule(ctx context.Context, c *gophercloud.ServiceClient, policyID string, opts CreateRuleOpts) (r CreateRuleResult) {
 	b, err := opts.ToRuleCreateMap()
 	if err != nil {
 		r.Err = err

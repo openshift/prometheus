@@ -133,7 +133,6 @@ FunctionIdentifier {
   Delta |
   Deriv |
   Exp |
-  FirstOverTime |
   Floor |
   HistogramCount |
   HistogramFraction |
@@ -157,7 +156,6 @@ FunctionIdentifier {
   MadOverTime |
   MaxOverTime |
   MinOverTime |
-  TsOfFirstOverTime |
   TsOfMaxOverTime |
   TsOfMinOverTime |
   TsOfLastOverTime |
@@ -386,7 +384,6 @@ NumberDurationLiteralInDurationContext {
   Delta { condFn<"delta"> }
   Deriv { condFn<"deriv"> }
   Exp { condFn<"exp"> }
-  FirstOverTime {condFn<"first_over_time">}
   Floor { condFn<"floor"> }
   HistogramAvg { condFn<"histogram_avg"> }
   HistogramCount { condFn<"histogram_count"> }
@@ -410,8 +407,6 @@ NumberDurationLiteralInDurationContext {
   MadOverTime { condFn<"mad_over_time"> }
   MaxOverTime { condFn<"max_over_time"> }
   MinOverTime { condFn<"min_over_time"> }
-  TsOfFirstOverTime { condFn<"ts_of_first_over_time"> }
-  TsOfMaxFirstTime { condFn<"ts_of_first_over_time"> }
   TsOfMaxOverTime { condFn<"ts_of_max_over_time"> }
   TsOfMinOverTime { condFn<"ts_of_min_over_time"> }
   TsOfLastOverTime { condFn<"ts_of_last_over_time"> }

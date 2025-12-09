@@ -49,7 +49,7 @@ type DeleteResult struct {
 
 // IP is a sub-struct that represents an individual IP.
 type IP struct {
-	SubnetID  string `json:"subnet_id,omitempty"`
+	SubnetID  string `json:"subnet_id"`
 	IPAddress string `json:"ip_address,omitempty"`
 }
 

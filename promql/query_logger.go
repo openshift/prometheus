@@ -195,7 +195,7 @@ func newJSONEntry(query string, logger *slog.Logger) []byte {
 }
 
 func (tracker ActiveQueryTracker) generateIndices(maxConcurrent int) {
-	for i := range maxConcurrent {
+	for i := 0; i < maxConcurrent; i++ {
 		tracker.getNextIndex <- 1 + (i * entrySize)
 	}
 }

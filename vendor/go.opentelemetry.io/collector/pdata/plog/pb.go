@@ -5,6 +5,7 @@ package plog // import "go.opentelemetry.io/collector/pdata/plog"
 
 import (
 	"go.opentelemetry.io/collector/pdata/internal"
+	otlplogs "go.opentelemetry.io/collector/pdata/internal/data/protogen/logs/v1"
 )
 
 var _ MarshalSizer = (*ProtoMarshaler)(nil)
@@ -12,41 +13,25 @@ var _ MarshalSizer = (*ProtoMarshaler)(nil)
 type ProtoMarshaler struct{}
 
 func (e *ProtoMarshaler) MarshalLogs(ld Logs) ([]byte, error) {
-	if !internal.UseCustomProtoEncoding.IsEnabled() {
-		return ld.getOrig().Marshal()
-	}
-	size := internal.SizeProtoOrigExportLogsServiceRequest(ld.getOrig())
-	buf := make([]byte, size)
-	_ = internal.MarshalProtoOrigExportLogsServiceRequest(ld.getOrig(), buf)
-	return buf, nil
+	pb := internal.LogsToProto(internal.Logs(ld))
+	return pb.Marshal()
 }
 
 func (e *ProtoMarshaler) LogsSize(ld Logs) int {
-	if !internal.UseCustomProtoEncoding.IsEnabled() {
-		return ld.getOrig().Size()
-	}
-	return internal.SizeProtoOrigExportLogsServiceRequest(ld.getOrig())
+	pb := internal.LogsToProto(internal.Logs(ld))
+	return pb.Size()
 }
 
-func (e *ProtoMarshaler) ResourceLogsSize(ld ResourceLogs) int {
-	if !internal.UseCustomProtoEncoding.IsEnabled() {
-		return ld.orig.Size()
-	}
-	return internal.SizeProtoOrigResourceLogs(ld.orig)
+func (e *ProtoMarshaler) ResourceLogsSize(rl ResourceLogs) int {
+	return rl.orig.Size()
 }
 
-func (e *ProtoMarshaler) ScopeLogsSize(ld ScopeLogs) int {
-	if !internal.UseCustomProtoEncoding.IsEnabled() {
-		return ld.orig.Size()
-	}
-	return internal.SizeProtoOrigScopeLogs(ld.orig)
+func (e *ProtoMarshaler) ScopeLogsSize(sl ScopeLogs) int {
+	return sl.orig.Size()
 }
 
-func (e *ProtoMarshaler) LogRecordSize(ld LogRecord) int {
-	if !internal.UseCustomProtoEncoding.IsEnabled() {
-		return ld.orig.Size()
-	}
-	return internal.SizeProtoOrigLogRecord(ld.orig)
+func (e *ProtoMarshaler) LogRecordSize(lr LogRecord) int {
+	return lr.orig.Size()
 }
 
 var _ Unmarshaler = (*ProtoUnmarshaler)(nil)
@@ -54,17 +39,7 @@ var _ Unmarshaler = (*ProtoUnmarshaler)(nil)
 type ProtoUnmarshaler struct{}
 
 func (d *ProtoUnmarshaler) UnmarshalLogs(buf []byte) (Logs, error) {
-	ld := NewLogs()
-	if !internal.UseCustomProtoEncoding.IsEnabled() {
-		err := ld.getOrig().Unmarshal(buf)
-		if err != nil {
-			return Logs{}, err
-		}
-		return ld, nil
-	}
-	err := internal.UnmarshalProtoOrigExportLogsServiceRequest(ld.getOrig(), buf)
-	if err != nil {
-		return Logs{}, err
-	}
-	return ld, nil
+	pb := otlplogs.LogsData{}
+	err := pb.Unmarshal(buf)
+	return Logs(internal.LogsFromProto(pb)), err
 }

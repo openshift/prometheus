@@ -22,7 +22,6 @@ import (
 	"math"
 	"os"
 	"path/filepath"
-	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -33,7 +32,7 @@ import (
 	"github.com/nsf/jsondiff"
 	"github.com/prometheus/common/model"
 	"github.com/prometheus/common/promslog"
-	"go.yaml.in/yaml/v2"
+	"gopkg.in/yaml.v2"
 
 	"github.com/prometheus/prometheus/model/histogram"
 	"github.com/prometheus/prometheus/model/labels"
@@ -226,7 +225,7 @@ func (tg *testGroup) test(testname string, evalInterval time.Duration, groupOrde
 		QueryFunc:  rules.EngineQueryFunc(suite.QueryEngine(), suite.Storage()),
 		Appendable: suite.Storage(),
 		Context:    context.Background(),
-		NotifyFunc: func(context.Context, string, ...*rules.Alert) {},
+		NotifyFunc: func(_ context.Context, _ string, _ ...*rules.Alert) {},
 		Logger:     promslog.NewNopLogger(),
 	}
 	m := rules.NewManager(opts)
@@ -279,7 +278,9 @@ func (tg *testGroup) test(testname string, evalInterval time.Duration, groupOrde
 	for k := range alertEvalTimesMap {
 		alertEvalTimes = append(alertEvalTimes, k)
 	}
-	slices.Sort(alertEvalTimes)
+	sort.Slice(alertEvalTimes, func(i, j int) bool {
+		return alertEvalTimes[i] < alertEvalTimes[j]
+	})
 
 	// Current index in alertEvalTimes what we are looking at.
 	curr := 0

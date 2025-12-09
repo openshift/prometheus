@@ -427,7 +427,7 @@ func BenchmarkAddExemplar(b *testing.B) {
 					var l labels.Labels
 					b.StartTimer()
 
-					for i := range n {
+					for i := 0; i < n; i++ {
 						if i%100 == 0 {
 							l = labels.FromStrings("service", strconv.Itoa(i))
 						}
@@ -525,12 +525,12 @@ func TestCircularExemplarStorage_Concurrent_AddExemplar_Resize(t *testing.T) {
 		defer wg.Done()
 
 		<-started
-		for range 100 {
+		for i := 0; i < 100; i++ {
 			require.NoError(t, es.AddExemplar(l, e))
 		}
 	}()
 
-	for i := range 100 {
+	for i := 0; i < 100; i++ {
 		es.Resize(int64(i + 1))
 		if i == 0 {
 			close(started)

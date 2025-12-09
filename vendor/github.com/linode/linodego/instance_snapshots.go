@@ -67,7 +67,6 @@ func (i *InstanceSnapshot) UnmarshalJSON(b []byte) error {
 
 	p := struct {
 		*Mask
-
 		Created  *parseabletime.ParseableTime `json:"created"`
 		Updated  *parseabletime.ParseableTime `json:"updated"`
 		Finished *parseabletime.ParseableTime `json:"finished"`
@@ -97,7 +96,6 @@ func (c *Client) CreateInstanceSnapshot(ctx context.Context, linodeID int, label
 	opts := map[string]string{"label": label}
 
 	e := formatAPIPath("linode/instances/%d/backups", linodeID)
-
 	return doPOSTRequest[InstanceSnapshot](ctx, c, e, opts)
 }
 

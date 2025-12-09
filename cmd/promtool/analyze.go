@@ -207,7 +207,7 @@ func calcClassicBucketStatistics(matrix model.Matrix) (*statistics, error) {
 	sortMatrix(matrix)
 
 	totalPop := 0
-	for timeIdx := range numSamples {
+	for timeIdx := 0; timeIdx < numSamples; timeIdx++ {
 		curr, err := getBucketCountsAtTime(matrix, numBuckets, timeIdx)
 		if err != nil {
 			return stats, err

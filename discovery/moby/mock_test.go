@@ -24,7 +24,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"go.yaml.in/yaml/v2"
+	"gopkg.in/yaml.v2"
 
 	"github.com/prometheus/prometheus/util/strutil"
 )

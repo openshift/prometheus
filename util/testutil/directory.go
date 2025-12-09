@@ -72,12 +72,12 @@ type (
 	// the test flags, which we do not want in non-test binaries even if
 	// they make use of these utilities for some reason).
 	T interface {
-		Errorf(format string, args ...any)
+		Errorf(format string, args ...interface{})
 		FailNow()
 	}
 )
 
-func (nilCloser) Close() {
+func (c nilCloser) Close() {
 }
 
 func (c callbackCloser) Close() {

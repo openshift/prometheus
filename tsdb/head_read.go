@@ -49,7 +49,7 @@ type headIndexReader struct {
 	mint, maxt int64
 }
 
-func (*headIndexReader) Close() error {
+func (h *headIndexReader) Close() error {
 	return nil
 }
 
@@ -560,7 +560,7 @@ func (s *memSeries) iterator(id chunks.HeadChunkID, c chunkenc.Chunk, isoState *
 		// Iterate over the appendIDs, find the first one that the isolation state says not
 		// to return.
 		it := s.txs.iterator()
-		for index := range appendIDsToConsider {
+		for index := 0; index < appendIDsToConsider; index++ {
 			appendID := it.At()
 			if appendID <= isoState.maxAppendID { // Easy check first.
 				if _, ok := isoState.incompleteAppends[appendID]; !ok {

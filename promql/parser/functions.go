@@ -162,12 +162,6 @@ var Functions = map[string]*Function{
 		ArgTypes:   []ValueType{ValueTypeVector},
 		ReturnType: ValueTypeVector,
 	},
-	"first_over_time": {
-		Name:         "first_over_time",
-		ArgTypes:     []ValueType{ValueTypeMatrix},
-		ReturnType:   ValueTypeVector,
-		Experimental: true,
-	},
 	"floor": {
 		Name:       "floor",
 		ArgTypes:   []ValueType{ValueTypeVector},
@@ -288,12 +282,6 @@ var Functions = map[string]*Function{
 		Name:       "min_over_time",
 		ArgTypes:   []ValueType{ValueTypeMatrix},
 		ReturnType: ValueTypeVector,
-	},
-	"ts_of_first_over_time": {
-		Name:         "ts_of_first_over_time",
-		ArgTypes:     []ValueType{ValueTypeMatrix},
-		ReturnType:   ValueTypeVector,
-		Experimental: true,
 	},
 	"ts_of_max_over_time": {
 		Name:         "ts_of_max_over_time",

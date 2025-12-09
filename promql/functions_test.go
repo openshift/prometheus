@@ -50,7 +50,7 @@ func TestDeriv(t *testing.T) {
 	interval = 30 * 1000
 	// Introduce some timestamp jitter to test 0 slope case.
 	// https://github.com/prometheus/prometheus/issues/7180
-	for i = range int64(15) {
+	for i = 0; i < 15; i++ {
 		jitter := 12 * i % 2
 		a.Append(0, metric, start+interval*i+jitter, 1)
 	}

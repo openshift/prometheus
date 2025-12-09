@@ -31,7 +31,7 @@ func TestDedupe(t *testing.T) {
 	defer d.Stop()
 
 	// Log 10 times quickly, ensure they are deduped.
-	for range 10 {
+	for i := 0; i < 10; i++ {
 		dlog.Info("test", "hello", "world")
 	}
 
@@ -65,14 +65,14 @@ func TestDedupeConcurrent(t *testing.T) {
 	concurrentWriteFunc := func() {
 		go func() {
 			dlog1 := dlog.With("writer", 1)
-			for range 10 {
+			for i := 0; i < 10; i++ {
 				dlog1.With("foo", "bar").Info("test", "hello", "world")
 			}
 		}()
 
 		go func() {
 			dlog2 := dlog.With("writer", 2)
-			for range 10 {
+			for i := 0; i < 10; i++ {
 				dlog2.With("foo", "bar").Info("test", "hello", "world")
 			}
 		}()

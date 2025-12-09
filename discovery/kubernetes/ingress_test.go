@@ -16,7 +16,6 @@ package kubernetes
 import (
 	"context"
 	"fmt"
-	"maps"
 	"testing"
 
 	"github.com/prometheus/common/model"
@@ -194,7 +193,9 @@ func TestIngressDiscoveryNamespaces(t *testing.T) {
 	n, c := makeDiscovery(RoleIngress, NamespaceDiscovery{Names: []string{"ns1", "ns2"}})
 
 	expected := expectedTargetGroups("ns1", TLSNo)
-	maps.Copy(expected, expectedTargetGroups("ns2", TLSNo))
+	for k, v := range expectedTargetGroups("ns2", TLSNo) {
+		expected[k] = v
+	}
 	k8sDiscoveryTest{
 		discovery: n,
 		afterStart: func() {

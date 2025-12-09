@@ -18,13 +18,6 @@ const (
 	LKEClusterNotReady LKEClusterStatus = "not_ready"
 )
 
-type LKEClusterStackType string
-
-const (
-	LKEClusterStackIPv4 LKEClusterStackType = "ipv4"
-	LKEClusterDualStack LKEClusterStackType = "ipv4-ipv6"
-)
-
 // LKECluster represents a LKECluster object
 type LKECluster struct {
 	ID           int                    `json:"id"`
@@ -42,11 +35,6 @@ type LKECluster struct {
 
 	// NOTE: APLEnabled is currently in beta and may only function with API version v4beta.
 	APLEnabled bool `json:"apl_enabled"`
-
-	// NOTE: SubnetID, VpcID, and StackType may not currently be available to all users and can only be used with v4beta.
-	SubnetID  int                 `json:"subnet_id"`
-	VpcID     int                 `json:"vpc_id"`
-	StackType LKEClusterStackType `json:"stack_type"`
 }
 
 // LKEClusterCreateOptions fields are those accepted by CreateLKECluster
@@ -63,11 +51,6 @@ type LKEClusterCreateOptions struct {
 
 	// NOTE: APLEnabled is currently in beta and may only function with API version v4beta.
 	APLEnabled bool `json:"apl_enabled,omitempty"`
-
-	// NOTE: SubnetID, VpcID, and StackType may not currently be available to all users and can only be used with v4beta.
-	SubnetID  *int                 `json:"subnet_id,omitempty"`
-	VpcID     *int                 `json:"vpc_id,omitempty"`
-	StackType *LKEClusterStackType `json:"stack_type,omitempty"`
 }
 
 // LKEClusterUpdateOptions fields are those accepted by UpdateLKECluster
@@ -126,7 +109,6 @@ func (i *LKECluster) UnmarshalJSON(b []byte) error {
 
 	p := struct {
 		*Mask
-
 		Created *parseabletime.ParseableTime `json:"created"`
 		Updated *parseabletime.ParseableTime `json:"updated"`
 	}{
@@ -158,7 +140,7 @@ func (i LKECluster) GetCreateOptions() (o LKEClusterCreateOptions) {
 	}
 
 	// @TODO copy NodePools?
-	return o
+	return
 }
 
 // GetUpdateOptions converts a LKECluster to LKEClusterUpdateOptions for use in UpdateLKECluster
@@ -174,7 +156,7 @@ func (i LKECluster) GetUpdateOptions() (o LKEClusterUpdateOptions) {
 		// ACL will not be populated in the control plane response
 	}
 
-	return o
+	return
 }
 
 // ListLKEVersions lists the Kubernetes versions available through LKE. This endpoint is cached by default.
