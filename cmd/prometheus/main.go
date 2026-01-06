@@ -53,6 +53,7 @@ import (
 	toolkit_web "github.com/prometheus/exporter-toolkit/web"
 	"go.uber.org/atomic"
 	"go.uber.org/automaxprocs/maxprocs"
+	"k8s.io/client-go/rest"
 	"k8s.io/klog"
 	klogv2 "k8s.io/klog/v2"
 
@@ -765,6 +766,9 @@ func main() {
 
 	klogv2.SetSlogLogger(logger.With("component", "k8s_client_runtime"))
 	klog.SetOutputBySeverity("INFO", klogv1Writer{})
+	// Avoid duplicate API warnings as some like "v1 Endpoints is deprecated in v1.33+..." can
+	// pollute the logs.
+	rest.SetDefaultWarningHandlerWithContext(newDedupWarningHandler())
 
 	modeAppName := "Prometheus Server"
 	mode := "server"
@@ -1970,4 +1974,33 @@ func (p *rwProtoMsgFlagParser) Set(opt string) error {
 	}
 	*p.msgs = append(*p.msgs, t)
 	return nil
+}
+
+// dedupWarningHandler allows to deduplicate API warnings by message.
+// Inspired from https://github.com/kubernetes/kubernetes/blob/3edae6c1c49958fd10a708d9cc8c4c9e7f5fb6e8/staging/src/k8s.io/client-go/rest/warnings.go#L113
+type dedupWarningHandler struct {
+	lock    sync.Mutex
+	logged map[string]struct{}
+}
+
+func newDedupWarningHandler() *dedupWarningHandler {
+	return &dedupWarningHandler{
+		logged: make(map[string]struct{}),
+	}
+}
+
+func (w *dedupWarningHandler) HandleWarningHeaderWithContext(ctx context.Context, code int, _, message string) {
+	if code != 299 || len(message) == 0 {
+		return
+	}
+
+	w.lock.Lock()
+	defer w.lock.Unlock()
+
+	if _, seen := w.logged[message]; seen {
+		return
+	}
+
+	w.logged[message] = struct{}{}
+	klogv2.FromContext(ctx).Info("Warning: " + message)
 }
