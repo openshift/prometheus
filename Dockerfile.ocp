@@ -9,7 +9,7 @@ COPY . .
 # (web/ui/static/**/*.gz) should be committed to the repository.
 RUN if yum install -y prometheus-promu; then export BUILD_PROMU=false; fi && make common-build
 
-FROM registry.ci.openshift.org/ocp/4.22:base-rhel9
+FROM registry.ci.openshift.org/ocp/4.22:base-rhel9-minimal
 LABEL io.k8s.display-name="OpenShift Prometheus" \
       io.k8s.description="The Prometheus monitoring system and time series database." \
       io.openshift.tags="prometheus,monitoring" \
