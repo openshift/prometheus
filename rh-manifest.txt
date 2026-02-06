@@ -38,7 +38,6 @@ braces@3.0.2
 call-bind@1.0.2
 chokidar@3.5.3
 classnames@2.3.2
-colors@0.5.1
 compute-scroll-into-view@1.0.17
 copy-to-clipboard@3.3.2
 crelt@1.0.5
@@ -46,7 +45,6 @@ css.escape@1.5.1
 deep-equal@1.1.1
 deepmerge@4.2.2
 define-properties@1.1.4
-discontinuous-range@1.0.0
 dom-helpers@3.4.0
 dom-serializer@1.4.1
 domelementtype@2.3.0
@@ -87,7 +85,6 @@ isarray@0.0.1
 jquery.flot.tooltip@0.9.0
 jquery@3.6.1
 js-tokens@4.0.0
-lodash.flattendeep@4.4.0
 lodash@4.17.21
 loose-envify@1.4.0
 lru-cache@6.0.0
@@ -95,8 +92,6 @@ micromatch@4.0.5
 moment-timezone@0.5.37
 moment@2.29.4
 nanoid@3.3.4
-nearley@2.7.10
-nomnom@1.6.2
 normalize-path@3.0.0
 object-assign@4.1.1
 object-is@1.1.5
@@ -108,8 +103,6 @@ picomatch@2.3.1
 popper.js@1.16.1
 postcss@8.4.17
 prop-types@15.8.1
-railroad-diagrams@1.0.0
-randexp@0.4.6
 react-copy-to-clipboard@5.1.0
 react-dom@17.0.2
 react-infinite-scroll-component@6.1.0
@@ -131,7 +124,6 @@ regexp.prototype.flags@1.4.3
 requires-port@1.0.0
 resize-observer-polyfill@1.5.1
 resolve-pathname@3.0.0
-ret@0.1.15
 sanitize-html@2.7.2
 sass@1.54.9
 scheduler@0.20.2
@@ -146,7 +138,6 @@ to-regex-range@5.0.1
 toggle-selection@1.0.6
 tslib@2.4.0
 typed-styles@0.0.7
-underscore@1.4.4
 value-equal@1.0.1
 w3c-keyname@2.2.6
 warning@4.0.3
