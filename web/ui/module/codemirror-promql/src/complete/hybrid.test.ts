@@ -11,7 +11,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { analyzeCompletion, computeStartCompletePosition, ContextKind } from './hybrid';
+import { analyzeCompletion, computeStartCompletePosition, ContextKind, durationWithUnitRegexp } from './hybrid';
 import { createEditorState, mockedMetricsTerms, mockPrometheusServer } from '../test/utils-test';
 import { Completion, CompletionContext } from '@codemirror/autocomplete';
 import {
@@ -29,6 +29,7 @@ import {
 import { EqlSingle, Neq } from '@prometheus-io/lezer-promql';
 import { syntaxTree } from '@codemirror/language';
 import { newCompleteStrategy } from './index';
+import nock from 'nock';
 
 describe('analyzeCompletion test', () => {
   const testCases = [
@@ -300,6 +301,12 @@ describe('analyzeCompletion test', () => {
       expectedContext: [{ kind: ContextKind.LabelName, metricName: 'metric_name' }],
     },
     {
+      title: 'no label suggestions after closing matcher',
+      expr: 'up{job="prometheus"}',
+      pos: 20, // cursor is right after the closing curly bracket
+      expectedContext: [],
+    },
+    {
       title: 'continue autocomplete labelName that defined a metric',
       expr: '{myL}',
       pos: 4, // cursor is between the bracket after the string myL
@@ -554,6 +561,18 @@ describe('analyzeCompletion test', () => {
       expectedContext: [{ kind: ContextKind.Duration }],
     },
     {
+      title: 'do not autocomplete duration when unit already present in matrixSelector',
+      expr: 'rate(foo[5m])',
+      pos: 10,
+      expectedContext: [],
+    },
+    {
+      title: 'do not autocomplete duration when multi char unit already present in matrixSelector',
+      expr: 'rate(foo[5ms])',
+      pos: 10,
+      expectedContext: [],
+    },
+    {
       title: 'autocomplete duration for a subQuery',
       expr: 'go[5d:5]',
       pos: 7,
@@ -620,6 +639,42 @@ describe('analyzeCompletion test', () => {
       const node = syntaxTree(state).resolve(value.pos, -1);
       const result = analyzeCompletion(state, node, value.pos);
       expect(value.expectedContext).toEqual(result);
+    });
+  });
+});
+
+describe('durationWithUnitRegexp test', () => {
+  it('should match complete durations with units', () => {
+    const testCases = [
+      { input: '5m', expected: true },
+      { input: '30s', expected: true },
+      { input: '1h', expected: true },
+      { input: '500ms', expected: true },
+      { input: '2d', expected: true },
+      { input: '1w', expected: true },
+      { input: '1y', expected: true },
+      { input: '1d2h', expected: true },
+      { input: '2h30m', expected: true },
+      { input: '1h2m3s', expected: true },
+      { input: '250ms2s', expected: true },
+      { input: '2h3m4s5ms', expected: true },
+      { input: '5', expected: false },
+      { input: '5m5', expected: false },
+      { input: 'm', expected: false },
+      { input: 'd', expected: false },
+      { input: '', expected: false },
+      { input: '1hms', expected: false },
+      { input: '2x', expected: false },
+    ];
+    testCases.forEach(({ input, expected }) => {
+      expect(durationWithUnitRegexp.test(input)).toBe(expected);
+    });
+  });
+
+  it('should not match durations without units or partial units', () => {
+    const testCases = ['5', '30', '100', '5m5', 'm', 'd'];
+    testCases.forEach((input) => {
+      expect(durationWithUnitRegexp.test(input)).toBe(false);
     });
   });
 });
@@ -1224,6 +1279,28 @@ describe('autocomplete promQL test', () => {
       },
     },
     {
+      title: 'offline do not autocomplete duration when unit already present in matrixSelector',
+      expr: 'rate(foo[5m])',
+      pos: 10,
+      expectedResult: {
+        options: [],
+        from: 10,
+        to: 10,
+        validFor: /^[a-zA-Z0-9_:]+$/,
+      },
+    },
+    {
+      title: 'offline do not autocomplete duration when multi char unit already present in matrixSelector',
+      expr: 'rate(foo[5ms])',
+      pos: 10,
+      expectedResult: {
+        options: [],
+        from: 10,
+        to: 10,
+        validFor: /^[a-zA-Z0-9_:]+$/,
+      },
+    },
+    {
       title: 'offline autocomplete duration for a subQuery',
       expr: 'go[5d:5]',
       pos: 7,
@@ -1376,5 +1453,37 @@ describe('autocomplete promQL test', () => {
       const result = await completion.promQL(context);
       expect(value.expectedResult).toEqual(result);
     });
+  });
+
+  it('online autocomplete of openmetrics counter', async () => {
+    const metricName = 'direct_notifications_total';
+    const baseMetricName = 'direct_notifications';
+    nock('http://localhost:8080')
+      .get('/api/v1/label/__name__/values')
+      .query(true)
+      .reply(200, { status: 'success', data: [metricName] });
+    nock('http://localhost:8080')
+      .get('/api/v1/metadata')
+      .query(true)
+      .reply(200, {
+        status: 'success',
+        data: {
+          [baseMetricName]: [
+            {
+              type: 'counter',
+              help: 'Number of direct notifications.',
+              unit: '',
+            },
+          ],
+        },
+      });
+    const state = createEditorState(metricName);
+    const context = new CompletionContext(state, metricName.length, true);
+    const completion = newCompleteStrategy({ remote: { url: 'http://localhost:8080' } });
+    const result = await completion.promQL(context);
+    // nock only mocks the HTTP endpoints; this test just ensures remote completion works
+    // when metadata for an OpenMetrics _total counter is stored under its base metric name.
+    expect(result).not.toBeNull();
+    expect((result as NonNullable<typeof result>).options.length).toBeGreaterThan(0);
   });
 });

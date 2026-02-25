@@ -23,6 +23,7 @@ import (
 	"slices"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -2052,7 +2053,7 @@ func BenchmarkMergedSeriesSet(b *testing.B) {
 
 				b.ResetTimer()
 
-				for i := 0; i < b.N; i++ {
+				for b.Loop() {
 					var sets []storage.SeriesSet
 					for _, s := range in {
 						sets = append(sets, newMockSeriesSet(s))
@@ -2291,10 +2292,6 @@ func (m mockIndex) LabelValues(_ context.Context, name string, hints *storage.La
 	}
 
 	return values, nil
-}
-
-func (m mockIndex) LabelValueFor(_ context.Context, id storage.SeriesRef, label string) (string, error) {
-	return m.series[id].l.Get(label), nil
 }
 
 func (m mockIndex) LabelNamesFor(_ context.Context, postings index.Postings) ([]string, error) {
@@ -2676,7 +2673,7 @@ func BenchmarkSetMatcher(b *testing.B) {
 
 			b.ResetTimer()
 			b.ReportAllocs()
-			for n := 0; n < b.N; n++ {
+			for b.Loop() {
 				ss := sq.Select(context.Background(), false, nil, labels.MustNewMatcher(labels.MatchRegexp, "test", c.pattern))
 				for ss.Next() {
 				}
@@ -3037,14 +3034,14 @@ func TestPostingsForMatchers(t *testing.T) {
 	require.NoError(t, err)
 
 	for _, c := range cases {
-		name := ""
+		var name strings.Builder
 		for i, matcher := range c.matchers {
 			if i > 0 {
-				name += ","
+				name.WriteString(",")
 			}
-			name += matcher.String()
+			name.WriteString(matcher.String())
 		}
-		t.Run(name, func(t *testing.T) {
+		t.Run(name.String(), func(t *testing.T) {
 			exp := map[string]struct{}{}
 			for _, l := range c.exp {
 				exp[l.String()] = struct{}{}
@@ -3094,11 +3091,8 @@ func TestQuerierIndexQueriesRace(t *testing.T) {
 	for _, c := range testCases {
 		t.Run(fmt.Sprintf("%v", c.matchers), func(t *testing.T) {
 			t.Parallel()
-			db := openTestDB(t, DefaultOptions(), nil)
+			db := newTestDB(t)
 			h := db.Head()
-			t.Cleanup(func() {
-				require.NoError(t, db.Close())
-			})
 			ctx, cancel := context.WithCancel(context.Background())
 			wg := &sync.WaitGroup{}
 			wg.Add(1)
@@ -3279,9 +3273,8 @@ func BenchmarkQueries(b *testing.B) {
 }
 
 func benchQuery(b *testing.B, expExpansions int, q storage.Querier, selectors labels.Selector) {
-	b.ResetTimer()
 	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		ss := q.Select(context.Background(), false, nil, selectors...)
 		var actualExpansions int
 		var it chunkenc.Iterator
@@ -3316,10 +3309,6 @@ func (mockMatcherIndex) SortedLabelValues(context.Context, string, *storage.Labe
 // LabelValues will return error if it is called.
 func (mockMatcherIndex) LabelValues(context.Context, string, *storage.LabelHints, ...*labels.Matcher) ([]string, error) {
 	return []string{}, errors.New("label values called")
-}
-
-func (mockMatcherIndex) LabelValueFor(context.Context, storage.SeriesRef, string) (string, error) {
-	return "", errors.New("label value for called")
 }
 
 func (mockMatcherIndex) LabelNamesFor(context.Context, index.Postings) ([]string, error) {
@@ -3497,10 +3486,7 @@ func TestBlockBaseSeriesSet(t *testing.T) {
 }
 
 func BenchmarkHeadChunkQuerier(b *testing.B) {
-	db := openTestDB(b, nil, nil)
-	defer func() {
-		require.NoError(b, db.Close())
-	}()
+	db := newTestDB(b)
 
 	// 3h of data.
 	numTimeseries := 100
@@ -3524,8 +3510,8 @@ func BenchmarkHeadChunkQuerier(b *testing.B) {
 		require.NoError(b, q.Close())
 	}(querier)
 	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+
+	for b.Loop() {
 		ss := querier.Select(context.Background(), false, nil, labels.MustNewMatcher(labels.MatchRegexp, "foo", "bar.*"))
 		total := 0
 		for ss.Next() {
@@ -3542,10 +3528,7 @@ func BenchmarkHeadChunkQuerier(b *testing.B) {
 }
 
 func BenchmarkHeadQuerier(b *testing.B) {
-	db := openTestDB(b, nil, nil)
-	defer func() {
-		require.NoError(b, db.Close())
-	}()
+	db := newTestDB(b)
 
 	// 3h of data.
 	numTimeseries := 100
@@ -3569,8 +3552,8 @@ func BenchmarkHeadQuerier(b *testing.B) {
 		require.NoError(b, q.Close())
 	}(querier)
 	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+
+	for b.Loop() {
 		ss := querier.Select(context.Background(), false, nil, labels.MustNewMatcher(labels.MatchRegexp, "foo", "bar.*"))
 		total := int64(0)
 		for ss.Next() {
@@ -3607,13 +3590,8 @@ func TestQueryWithDeletedHistograms(t *testing.T) {
 
 	for name, tc := range testcases {
 		t.Run(name, func(t *testing.T) {
-			db := openTestDB(t, nil, nil)
-			defer func() {
-				require.NoError(t, db.Close())
-			}()
-
-			db.EnableNativeHistograms()
-			appender := db.Appender(context.Background())
+			db := newTestDB(t)
+			app := db.Appender(context.Background())
 
 			var (
 				err       error
@@ -3623,12 +3601,11 @@ func TestQueryWithDeletedHistograms(t *testing.T) {
 
 			for i := range 100 {
 				h, fh := tc(i)
-				seriesRef, err = appender.AppendHistogram(seriesRef, lbs, int64(i), h, fh)
+				seriesRef, err = app.AppendHistogram(seriesRef, lbs, int64(i), h, fh)
 				require.NoError(t, err)
 			}
 
-			err = appender.Commit()
-			require.NoError(t, err)
+			require.NoError(t, app.Commit())
 
 			matcher, err := labels.NewMatcher(labels.MatchEqual, "__name__", "test")
 			require.NoError(t, err)
@@ -3666,13 +3643,8 @@ func TestQueryWithDeletedHistograms(t *testing.T) {
 
 func TestQueryWithOneChunkCompletelyDeleted(t *testing.T) {
 	ctx := context.Background()
-	db := openTestDB(t, nil, nil)
-	defer func() {
-		require.NoError(t, db.Close())
-	}()
-
-	db.EnableNativeHistograms()
-	appender := db.Appender(context.Background())
+	db := newTestDB(t)
+	app := db.Appender(context.Background())
 
 	var (
 		err       error
@@ -3683,12 +3655,12 @@ func TestQueryWithOneChunkCompletelyDeleted(t *testing.T) {
 	// Create an int histogram chunk with samples between 0 - 20 and 30 - 40.
 	for i := range 20 {
 		h := tsdbutil.GenerateTestHistogram(1)
-		seriesRef, err = appender.AppendHistogram(seriesRef, lbs, int64(i), h, nil)
+		seriesRef, err = app.AppendHistogram(seriesRef, lbs, int64(i), h, nil)
 		require.NoError(t, err)
 	}
 	for i := 30; i < 40; i++ {
 		h := tsdbutil.GenerateTestHistogram(1)
-		seriesRef, err = appender.AppendHistogram(seriesRef, lbs, int64(i), h, nil)
+		seriesRef, err = app.AppendHistogram(seriesRef, lbs, int64(i), h, nil)
 		require.NoError(t, err)
 	}
 
@@ -3696,12 +3668,11 @@ func TestQueryWithOneChunkCompletelyDeleted(t *testing.T) {
 	// type from int histograms so a new chunk is created.
 	for i := 60; i < 100; i++ {
 		fh := tsdbutil.GenerateTestFloatHistogram(1)
-		seriesRef, err = appender.AppendHistogram(seriesRef, lbs, int64(i), nil, fh)
+		seriesRef, err = app.AppendHistogram(seriesRef, lbs, int64(i), nil, fh)
 		require.NoError(t, err)
 	}
 
-	err = appender.Commit()
-	require.NoError(t, err)
+	require.NoError(t, app.Commit())
 
 	matcher, err := labels.NewMatcher(labels.MatchEqual, "__name__", "test")
 	require.NoError(t, err)
@@ -3758,10 +3729,6 @@ const mockReaderOfLabelsSeriesCount = checkContextEveryNIterations * 10
 
 func (mockReaderOfLabels) LabelValues(context.Context, string, *storage.LabelHints, ...*labels.Matcher) ([]string, error) {
 	return make([]string, mockReaderOfLabelsSeriesCount), nil
-}
-
-func (mockReaderOfLabels) LabelValueFor(context.Context, storage.SeriesRef, string) (string, error) {
-	panic("LabelValueFor called")
 }
 
 func (mockReaderOfLabels) SortedLabelValues(context.Context, string, *storage.LabelHints, ...*labels.Matcher) ([]string, error) {
