@@ -145,7 +145,7 @@ func BenchmarkRuleEval(b *testing.B) {
 
 			b.ResetTimer()
 
-			for i := 0; i < b.N; i++ {
+			for b.Loop() {
 				_, err := rule.Eval(context.TODO(), 0, ruleEvaluationTime, EngineQueryFunc(ng, storage), nil, 0)
 				if err != nil {
 					require.NoError(b, err)
@@ -168,8 +168,7 @@ func TestRuleEvalDuplicate(t *testing.T) {
 	}
 
 	engine := promqltest.NewTestEngineWithOpts(t, opts)
-	ctx, cancelCtx := context.WithCancel(context.Background())
-	defer cancelCtx()
+	ctx := t.Context()
 
 	now := time.Now()
 
@@ -177,7 +176,7 @@ func TestRuleEvalDuplicate(t *testing.T) {
 	rule := NewRecordingRule("foo", expr, labels.FromStrings("test", "test"))
 	_, err := rule.Eval(ctx, 0, now, EngineQueryFunc(engine, storage), nil, 0)
 	require.Error(t, err)
-	require.EqualError(t, err, "vector contains metrics with the same labelset after applying rule labels")
+	require.ErrorIs(t, err, ErrDuplicateRecordingLabelSet)
 }
 
 func TestRecordingRuleLimit(t *testing.T) {

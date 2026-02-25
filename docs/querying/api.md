@@ -580,9 +580,9 @@ sample values. JSON does not support special float values such as `NaN`, `Inf`,
 and `-Inf`, so sample values are transferred as quoted JSON strings rather than
 raw numbers.
 
-The keys `"histogram"` and `"histograms"` only show up if the experimental
-native histograms are present in the response. Their placeholder `<histogram>`
-is explained in detail in its own section below.
+The keys `"histogram"` and `"histograms"` only show up if native histograms
+are present in the response. Their placeholder `<histogram>` is explained
+in detail in its own section below.
 
 ### Range vectors
 
@@ -649,9 +649,6 @@ String results are returned as result type `string`. The corresponding
 ### Native histograms
 
 The `<histogram>` placeholder used above is formatted as follows.
-
-_Note that native histograms are an experimental feature, and the format below
-might still change._
 
 ```json
 {
@@ -745,7 +742,7 @@ curl 'http://localhost:9090/api/v1/targets?state=active'
 ```
 
 ```json
-
+{
   "status": "success",
   "data": {
     "activeTargets": [
@@ -781,7 +778,7 @@ curl 'http://localhost:9090/api/v1/targets?scrapePool=node_exporter'
 ```
 
 ```json
-
+{
   "status": "success",
   "data": {
     "activeTargets": [
@@ -807,6 +804,64 @@ curl 'http://localhost:9090/api/v1/targets?scrapePool=node_exporter'
     ],
     "droppedTargets": []
   }
+}
+```
+
+## Relabel steps
+
+This endpoint is **experimental** and might change in the future. It is currently only meant to be used by Prometheus' own web UI, and the endpoint name and exact format returned may change from one Prometheus version to another. It may also be removed again in case it is no longer needed by the UI.
+
+The following endpoint returns a step-by-step list of relabeling rules and their effects on a given target's label set.
+
+```
+GET /api/v1/targets/relabel_steps
+```
+
+URL query parameters:
+- `scrapePool=<string>`: The scrape pool name of the target, used to determine the relabeling rules to apply. Required.
+- `labels=<string>`: A JSON object containing the label set of the target before any relabeling is applied. Required.
+
+The following example returns the relabeling steps for a discovered target in the `prometheus` scrape pool with the label set `{"__address__": "localhost:9090", "job": "prometheus"}`:
+
+```bash
+curl -g 'http://localhost:9090/api/v1/targets/relabel_steps?scrapePool=prometheus&labels={"__address__":"localhost:9090","job":"prometheus"}'
+```
+
+```json
+{
+   "data" : {
+      "steps" : [
+         {
+            "keep" : true,
+            "output" : {
+               "__address__" : "localhost:9090",
+               "env" : "development",
+               "job" : "prometheus"
+            },
+            "rule" : {
+               "action" : "replace",
+               "regex" : "(.*)",
+               "replacement" : "development",
+               "separator" : ";",
+               "target_label" : "env"
+            }
+         },
+         {
+            "keep" : false,
+            "output" : {},
+            "rule" : {
+               "action" : "drop",
+               "regex" : "localhost:.*",
+               "replacement" : "$1",
+               "separator" : ";",
+               "source_labels" : [
+                  "__address__"
+               ]
+            }
+         }
+      ]
+   },
+   "status" : "success"
 }
 ```
 
@@ -945,7 +1000,7 @@ contain metric metadata and the target label set.
 The following example returns all metadata entries for the `go_goroutines` metric
 from the first two targets with label `job="prometheus"`.
 
-```json
+```bash
 curl -G http://localhost:9091/api/v1/targets/metadata \
     --data-urlencode 'metric=go_goroutines' \
     --data-urlencode 'match_target={job="prometheus"}' \
@@ -1291,7 +1346,7 @@ GET /api/v1/status/tsdb
 ```
 URL query parameters:
 
-- `limit=<number>`: Limit the number of returned items to a given number for each set of statistics. By default, 10 items are returned.
+- `limit=<number>`: Limit the number of returned items to a given number for each set of statistics. By default, 10 items are returned. The maximum allowed limit is 10000.
 
 The `data` section of the query result consists of:
 
@@ -1645,3 +1700,80 @@ GET /api/v1/notifications/live
 ```
 
 *New in v3.0*
+
+### Features
+
+The following endpoint returns a list of enabled features in the Prometheus server:
+
+```
+GET /api/v1/features
+```
+
+This endpoint provides information about which features are currently enabled or disabled in the Prometheus instance. Features are organized into categories such as `api`, `promql`, `promql_functions`, etc.
+
+The `data` section contains a map where each key is a feature category, and each value is a map of feature names to their enabled status (boolean).
+
+```bash
+curl http://localhost:9090/api/v1/features
+```
+
+```json
+{
+  "status": "success",
+  "data": {
+    "api": {
+      "admin": false,
+      "exclude_alerts": true
+    },
+    "otlp_receiver": {
+      "delta_conversion": false,
+      "native_delta_ingestion": false
+    },
+    "prometheus": {
+      "agent_mode": false,
+      "auto_reload_config": false
+    },
+    "promql": {
+      "anchored": false,
+      "at_modifier": true
+    },
+    "promql_functions": {
+      "abs": true,
+      "absent": true
+    },
+    "promql_operators": {
+      "!=": true,
+      "!~": true
+    },
+    "rules": {
+      "concurrent_rule_eval": false,
+      "keep_firing_for": true
+    },
+    "scrape": {
+      "start_timestamp_zero_ingestion": false,
+      "extra_metrics": false
+    },
+    "service_discovery": {
+      "azure": true,
+      "consul": true
+    },
+    "templating": {
+      "args": true,
+      "externalURL": true
+    },
+    "tsdb": {
+      "delayed_compaction": false,
+      "exemplar_storage": false
+    }
+  }
+}
+```
+
+**Notes:**
+
+- All feature names use `snake_case` naming convention
+- Features set to `false` may be omitted from the response
+- Clients should treat absent features as equivalent to `false`
+- Clients must ignore unknown feature names and categories for forward compatibility
+
+*New in v3.8*

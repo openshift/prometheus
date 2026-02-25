@@ -166,6 +166,19 @@ function arrayToCompletionResult(data: Completion[], from: number, to: number, i
   } as CompletionResult;
 }
 
+// Matches complete PromQL durations, including compound units (e.g., 5m, 1d2h, 1h30m, etc.).
+// Duration units are a fixed, safe set (no regex metacharacters), so no escaping is needed.
+export const durationWithUnitRegexp = new RegExp(`^(\\d+(${durationTerms.map((term) => term.label).join('|')}))+$`);
+
+// Determines if a duration already has a complete time unit to prevent autocomplete insertion (issue #15452)
+function hasCompleteDurationUnit(state: EditorState, node: SyntaxNode): boolean {
+  if (node.from >= node.to) {
+    return false;
+  }
+  const nodeContent = state.sliceDoc(node.from, node.to);
+  return durationWithUnitRegexp.test(nodeContent);
+}
+
 // computeStartCompleteLabelPositionInLabelMatcherOrInGroupingLabel calculates the start position only when the node is a LabelMatchers or a GroupingLabels
 function computeStartCompleteLabelPositionInLabelMatcherOrInGroupingLabel(node: SyntaxNode, pos: number): number {
   // Here we can have two different situations:
@@ -376,7 +389,7 @@ export function analyzeCompletion(state: EditorState, node: SyntaxNode, pos: num
           { kind: ContextKind.Aggregation }
         );
         if (parent.type.id !== FunctionCallBody && parent.type.id !== MatrixSelector) {
-          // it's too avoid to autocomplete a number in situation where it shouldn't.
+          // it's to avoid to autocomplete a number in situation where it shouldn't.
           // Like with `sum by(rat)`
           result.push({ kind: ContextKind.Number });
         }
@@ -400,12 +413,18 @@ export function analyzeCompletion(state: EditorState, node: SyntaxNode, pos: num
       // so we have or to autocomplete any kind of labelName or to autocomplete only the labelName associated to the metric
       result.push({ kind: ContextKind.LabelName, metricName: getMetricNameInGroupBy(node, state) });
       break;
-    case LabelMatchers:
+    case LabelMatchers: {
+      if (pos >= node.to) {
+        // Cursor is outside of the label matcher block (e.g. right after `}`),
+        // so don't offer label-related completions anymore.
+        break;
+      }
       // In that case we are in the given situation:
       //       metric_name{} or {}
       // so we have or to autocomplete any kind of labelName or to autocomplete only the labelName associated to the metric
       result.push({ kind: ContextKind.LabelName, metricName: getMetricNameInVectorSelector(node, state) });
       break;
+    }
     case LabelName:
       if (node.parent?.type.id === GroupingLabels) {
         // In this case we are in the given situation:
@@ -471,12 +490,18 @@ export function analyzeCompletion(state: EditorState, node: SyntaxNode, pos: num
         //   Duration, Duration, ⚠(NumberLiteral)
         // )
         // So we should continue to autocomplete a duration
-        result.push({ kind: ContextKind.Duration });
+        if (!hasCompleteDurationUnit(state, node)) {
+          result.push({ kind: ContextKind.Duration });
+        }
       } else {
         result.push({ kind: ContextKind.Number });
       }
       break;
     case NumberDurationLiteralInDurationContext:
+      if (!hasCompleteDurationUnit(state, node)) {
+        result.push({ kind: ContextKind.Duration });
+      }
+      break;
     case OffsetExpr:
       result.push({ kind: ContextKind.Duration });
       break;
@@ -664,11 +689,10 @@ export class HybridComplete implements CompleteStrategy {
       .then((metricMetadata) => {
         if (metricMetadata) {
           for (const [metricName, node] of metricCompletion) {
-            // First check if the full metric name has metadata (even if it has one of the
-            // histogram/summary suffixes, it may be a metric that is not following naming
-            // conventions, see https://github.com/prometheus/prometheus/issues/16907).
-            // Then fall back to the base metric name if full metadata doesn't exist.
-            const metadata = metricMetadata[metricName] ?? metricMetadata[metricName.replace(/(_count|_sum|_bucket)$/, '')];
+            // First check if the full metric name has metadata (even if it has one of the histogram/summary/openmetrics suffixes
+            // it may be a metric that is not following naming conventions)
+            // Then fall back to the base metric name if full metadata doesn't exist
+            const metadata = metricMetadata[metricName] ?? metricMetadata[metricName.replace(/(_count|_sum|_bucket|_total)$/, '')];
             if (metadata) {
               if (metadata.length > 1) {
                 // it means the metricName has different possible helper and type

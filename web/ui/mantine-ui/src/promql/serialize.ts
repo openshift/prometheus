@@ -56,13 +56,18 @@ const serializeSelector = (node: VectorSelector | MatrixSelector): string => {
     node.type === nodeType.matrixSelector
       ? `[${formatPrometheusDuration(node.range)}]`
       : "";
+  const extendedAttribute = node.anchored
+    ? " anchored"
+    : node.smoothed
+      ? " smoothed"
+      : "";
   const atAndOffset = serializeAtAndOffset(
     node.timestamp,
     node.startOrEnd,
     node.offset
   );
 
-  return `${!metricExtendedCharset ? metricName : ""}${matchers.length > 0 ? `{${matchers.join(",")}}` : ""}${range}${atAndOffset}`;
+  return `${!metricExtendedCharset ? metricName : ""}${matchers.length > 0 ? `{${matchers.join(",")}}` : ""}${range}${extendedAttribute}${atAndOffset}`;
 };
 
 const serializeNode = (
@@ -131,11 +136,14 @@ const serializeNode = (
       let matching = "";
       let grouping = "";
       const vm = node.matching;
-      if (vm !== null && (vm.labels.length > 0 || vm.on)) {
-        if (vm.on) {
-          matching = ` on(${labelNameList(vm.labels)})`;
-        } else {
-          matching = ` ignoring(${labelNameList(vm.labels)})`;
+      if (vm !== null) {
+        if (
+          vm.labels.length > 0 ||
+          vm.on ||
+          vm.card === vectorMatchCardinality.manyToOne ||
+          vm.card === vectorMatchCardinality.oneToMany
+        ) {
+          matching = ` ${vm.on ? "on" : "ignoring"}(${labelNameList(vm.labels)})`;
         }
 
         if (

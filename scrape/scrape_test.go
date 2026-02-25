@@ -50,6 +50,8 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.uber.org/atomic"
+	"go.uber.org/goleak"
 
 	"github.com/prometheus/prometheus/config"
 	"github.com/prometheus/prometheus/discovery"
@@ -1257,6 +1259,45 @@ func TestScrapeLoopForcedErr(t *testing.T) {
 	}
 }
 
+func TestScrapeLoopRun_ContextCancelTerminatesBlockedSend(t *testing.T) {
+	// Regression test for issue #17553
+	defer goleak.VerifyNone(t)
+
+	var (
+		signal  = make(chan struct{})
+		errc    = make(chan error)
+		scraper = &testScraper{}
+		app     = func(context.Context) storage.Appender { return &nopAppender{} }
+	)
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	sl := newBasicScrapeLoop(t, ctx, scraper, app, 100*time.Millisecond)
+
+	forcedErr := errors.New("forced err")
+	sl.setForcedError(forcedErr)
+
+	scraper.scrapeFunc = func(context.Context, io.Writer) error {
+		return nil
+	}
+
+	go func() {
+		sl.run(errc)
+		close(signal)
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+
+	cancel()
+
+	select {
+	case <-signal:
+		// success case
+	case <-time.After(3 * time.Second):
+		require.FailNow(t, "Scrape loop failed to exit on context cancellation (goroutine leak detected)")
+	}
+}
+
 func TestScrapeLoopMetadata(t *testing.T) {
 	var (
 		signal        = make(chan struct{})
@@ -1366,8 +1407,7 @@ func TestScrapeLoopSeriesAdded(t *testing.T) {
 func TestScrapeLoopFailWithInvalidLabelsAfterRelabel(t *testing.T) {
 	s := teststorage.New(t)
 	defer s.Close()
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	target := &Target{
 		labels: labels.FromStrings("pod_label_invalid_012\xff", "test"),
@@ -1398,8 +1438,7 @@ func TestScrapeLoopFailLegacyUnderUTF8(t *testing.T) {
 	// legacy.
 	s := teststorage.New(t)
 	defer s.Close()
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	sl := newBasicScrapeLoop(t, ctx, &testScraper{}, s.Appender, 0)
 	sl.validationScheme = model.LegacyValidation
@@ -1544,7 +1583,7 @@ func BenchmarkScrapeLoopAppend(b *testing.B) {
 
 					b.ReportAllocs()
 					b.ResetTimer()
-					for i := 0; i < b.N; i++ {
+					for b.Loop() {
 						ts = ts.Add(time.Second)
 						_, _, _, err := sl.append(slApp, bcase.parsable, bcase.contentType, ts)
 						if err != nil {
@@ -2190,14 +2229,13 @@ func TestScrapeLoop_HistogramBucketLimit(t *testing.T) {
 	app := &bucketLimitAppender{Appender: resApp, limit: 2}
 
 	sl := newBasicScrapeLoop(t, context.Background(), nil, func(context.Context) storage.Appender { return app }, 0)
-	sl.enableNativeHistogramIngestion = true
+	sl.enableNativeHistogramScraping = true
 	sl.sampleMutator = func(l labels.Labels) labels.Labels {
 		if l.Has("deleteme") {
 			return labels.EmptyLabels()
 		}
 		return l
 	}
-	sl.sampleLimit = app.limit
 
 	metric := dto.Metric{}
 	err := sl.metrics.targetScrapeNativeHistogramBucketLimit.Write(&metric)
@@ -2931,6 +2969,11 @@ metric: <
 >
 
 `,
+			floats: []floatSample{
+				{metric: labels.FromStrings("__name__", "test_histogram_count"), t: 1234568, f: 175},
+				{metric: labels.FromStrings("__name__", "test_histogram_sum"), t: 1234568, f: 0.0008280461746287094},
+				{metric: labels.FromStrings("__name__", "test_histogram_bucket", "le", "+Inf"), t: 1234568, f: 175},
+			},
 		},
 	}
 
@@ -2943,7 +2986,7 @@ metric: <
 			}
 
 			sl := newBasicScrapeLoop(t, context.Background(), nil, func(context.Context) storage.Appender { return app }, 0)
-			sl.enableNativeHistogramIngestion = test.enableNativeHistogramsIngestion
+			sl.enableNativeHistogramScraping = test.enableNativeHistogramsIngestion
 			sl.sampleMutator = func(l labels.Labels) labels.Labels {
 				return mutateSampleLabels(l, discoveryLabels, false, nil)
 			}
@@ -3277,9 +3320,9 @@ func TestTargetScraperScrapeOK(t *testing.T) {
 					"Expected Accept header to prefer application/vnd.google.protobuf.")
 			}
 
-			contentTypes := strings.Split(accept, ",")
-			for _, ct := range contentTypes {
-				match := qValuePattern.FindStringSubmatch(ct)
+			contentTypes := strings.SplitSeq(accept, ",")
+			for st := range contentTypes {
+				match := qValuePattern.FindStringSubmatch(st)
 				require.Len(t, match, 3)
 				qValue, err := strconv.ParseFloat(match[1], 64)
 				require.NoError(t, err, "Error parsing q value")
@@ -4100,8 +4143,7 @@ func TestScrapeReportLimit(t *testing.T) {
 		// scrape have been inserted in the database.
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	q, err := s.Querier(time.Time{}.UnixNano(), time.Now().UnixNano())
 	require.NoError(t, err)
 	defer q.Close()
@@ -4155,8 +4197,7 @@ func TestScrapeUTF8(t *testing.T) {
 		// scrape have been inserted in the database.
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	q, err := s.Querier(time.Time{}.UnixNano(), time.Now().UnixNano())
 	require.NoError(t, err)
 	defer q.Close()
@@ -4391,8 +4432,7 @@ test_summary_count 199
 	case <-scrapedTwice:
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	q, err := simpleStorage.Querier(time.Time{}.UnixNano(), time.Now().UnixNano())
 	require.NoError(t, err)
 	defer q.Close()
@@ -4837,7 +4877,7 @@ metric: <
 				sl := newBasicScrapeLoop(t, context.Background(), nil, func(ctx context.Context) storage.Appender { return simpleStorage.Appender(ctx) }, 0)
 				sl.alwaysScrapeClassicHist = tc.alwaysScrapeClassicHistograms
 				sl.convertClassicHistToNHCB = tc.convertClassicHistToNHCB
-				sl.enableNativeHistogramIngestion = true
+				sl.enableNativeHistogramScraping = true
 				app := simpleStorage.Appender(context.Background())
 
 				var content []byte
@@ -4865,8 +4905,7 @@ metric: <
 				sl.append(app, content, contentType, time.Now())
 				require.NoError(t, app.Commit())
 
-				ctx, cancel := context.WithCancel(context.Background())
-				defer cancel()
+				ctx := t.Context()
 				q, err := simpleStorage.Querier(time.Time{}.UnixNano(), time.Now().UnixNano())
 				require.NoError(t, err)
 				defer q.Close()
@@ -4978,8 +5017,7 @@ disk_usage_bytes 456
 	case <-scrapedTwice:
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	q, err := simpleStorage.Querier(time.Time{}.UnixNano(), time.Now().UnixNano())
 	require.NoError(t, err)
 	defer q.Close()
@@ -5244,7 +5282,7 @@ func BenchmarkTargetScraperGzip(b *testing.B) {
 				timeout: time.Second,
 			}
 			b.ResetTimer()
-			for i := 0; i < b.N; i++ {
+			for b.Loop() {
 				_, err = ts.scrape(context.Background())
 				require.NoError(b, err)
 			}
@@ -5356,6 +5394,7 @@ global:
   scrape_timeout: 25ms
 scrape_configs:
   - job_name: test
+    scrape_native_histograms: true
     %s
     static_configs:
       - targets: [%s]
@@ -5363,10 +5402,9 @@ scrape_configs:
 
 	s := teststorage.New(t)
 	defer s.Close()
-	s.EnableNativeHistograms()
 	reg := prometheus.NewRegistry()
 
-	mng, err := NewManager(&Options{DiscoveryReloadInterval: model.Duration(10 * time.Millisecond), EnableNativeHistogramsIngestion: true}, nil, nil, s, reg)
+	mng, err := NewManager(&Options{DiscoveryReloadInterval: model.Duration(10 * time.Millisecond)}, nil, nil, s, reg)
 	require.NoError(t, err)
 	cfg, err := config.Load(configStr, promslog.NewNopLogger())
 	require.NoError(t, err)
@@ -5899,4 +5937,92 @@ func TestScrapeLoopAppendSampleLimitReplaceAllSamples(t *testing.T) {
 		},
 	}...)
 	requireEqual(t, want, resApp.resultFloats, "Appended samples not as expected:\n%s", slApp)
+}
+
+func TestScrapeLoopDisableStalenessMarkerInjection(t *testing.T) {
+	var (
+		loopDone = atomic.NewBool(false)
+		appender = &collectResultAppender{}
+		scraper  = &testScraper{}
+		app      = func(_ context.Context) storage.Appender { return appender }
+	)
+
+	sl := newBasicScrapeLoop(t, context.Background(), scraper, app, 10*time.Millisecond)
+	scraper.scrapeFunc = func(ctx context.Context, w io.Writer) error {
+		if _, err := w.Write([]byte("metric_a 42\n")); err != nil {
+			return err
+		}
+		return ctx.Err()
+	}
+
+	// Start the scrape loop.
+	go func() {
+		sl.run(nil)
+		loopDone.Store(true)
+	}()
+
+	// Wait for some samples to be appended.
+	require.Eventually(t, func() bool {
+		appender.mtx.Lock()
+		defer appender.mtx.Unlock()
+		return len(appender.resultFloats) > 2
+	}, 5*time.Second, 100*time.Millisecond, "Scrape loop didn't append any samples.")
+
+	// Disable end of run staleness markers and stop the loop.
+	sl.disableEndOfRunStalenessMarkers()
+	sl.stop()
+	require.Eventually(t, func() bool {
+		return loopDone.Load()
+	}, 5*time.Second, 100*time.Millisecond, "Scrape loop didn't stop.")
+
+	// No stale markers should be appended, since they were disabled.
+	for _, s := range appender.resultFloats {
+		if value.IsStaleNaN(s.f) {
+			t.Fatalf("Got stale NaN samples while end of run staleness is disabled: %x", math.Float64bits(s.f))
+		}
+	}
+}
+
+func TestDropsSeriesFromRelabeling(t *testing.T) {
+	s := teststorage.New(t)
+	defer s.Close()
+	ctx := t.Context()
+
+	target := &Target{}
+	relabelConfig := []*relabel.Config{
+		{
+			SourceLabels: model.LabelNames{"__name__"},
+			Regex:        relabel.MustNewRegexp(".*_total$"),
+			Action:       relabel.Keep,
+		},
+		{
+			SourceLabels: model.LabelNames{"__name__"},
+			Regex:        relabel.MustNewRegexp("test_metric_2_total$"),
+			Action:       relabel.Drop,
+		},
+	}
+	metricsText := []byte(`
+# HELP test_metric_1_total This is a counter
+# TYPE test_metric_1_total counter
+test_metric_1_total 123
+# HELP test_metric_2_total This is a counter
+# TYPE test_metric_2_total counter
+test_metric_2_total 234
+# HELP disk_usage_bytes This is a gauge
+# TYPE disk_usage_bytes gauge
+disk_usage_bytes 456
+`)
+
+	sl := newBasicScrapeLoop(t, ctx, &testScraper{}, s.Appender, 0)
+	sl.sampleMutator = func(l labels.Labels) labels.Labels {
+		return mutateSampleLabels(l, target, true, relabelConfig)
+	}
+
+	slApp := sl.appender(ctx)
+	total, added, seriesAdded, err := sl.append(slApp, metricsText, "text/plain", time.Time{})
+	require.NoError(t, err)
+	require.NoError(t, slApp.Rollback())
+	require.Equal(t, 3, total)
+	require.Equal(t, 1, added)
+	require.Equal(t, 1, seriesAdded)
 }
