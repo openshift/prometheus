@@ -764,7 +764,7 @@ func main() {
 	klog.SetOutputBySeverity("INFO", klogv1Writer{})
 	// Avoid duplicate API deprecation warnings (e.g., "v1 Endpoints is deprecated in v1.33+...")
 	// that can pollute the logs.
-	rest.SetDefaultWarningHandlerWithContext(logging.NewDedupDeprecationWarningLogger())
+	rest.SetDefaultWarningHandler(logging.NewDedupDeprecationWarningLogger())
 
 	modeAppName := "Prometheus Server"
 	mode := "server"

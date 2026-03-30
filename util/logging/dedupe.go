@@ -148,7 +148,7 @@ const maxDeprecationWarnings = 32
 // DedupDeprecationWarningLogger deduplicates Kube API deprecation warnings by message before logging them.
 // Inspired by https://github.com/kubernetes/kubernetes/blob/3edae6c1c49958fd10a708d9cc8c4c9e7f5fb6e8/staging/src/k8s.io/client-go/rest/warnings.go#L113
 type DedupDeprecationWarningLogger struct {
-	logger rest.WarningHandlerWithContext
+	logger rest.WarningHandler
 	lock   sync.Mutex
 	logged map[string]struct{}
 }
@@ -160,7 +160,7 @@ func NewDedupDeprecationWarningLogger() *DedupDeprecationWarningLogger {
 	}
 }
 
-func (w *DedupDeprecationWarningLogger) HandleWarningHeaderWithContext(ctx context.Context, code int, agent, message string) {
+func (w *DedupDeprecationWarningLogger) HandleWarningHeader(code int, agent, message string) {
 	if code != 299 || message == "" {
 		return
 	}
@@ -176,5 +176,5 @@ func (w *DedupDeprecationWarningLogger) HandleWarningHeaderWithContext(ctx conte
 		w.logged[message] = struct{}{}
 	}
 
-	w.logger.HandleWarningHeaderWithContext(ctx, code, agent, message)
+	w.logger.HandleWarningHeader(code, agent, message)
 }
