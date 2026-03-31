@@ -11,15 +11,16 @@ import (
 	"flag"
 	"fmt"
 	"go/scanner"
-	exec "golang.org/x/sys/execabs"
 	"io"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"runtime/pprof"
 	"strings"
 
+	"golang.org/x/telemetry/counter"
 	"golang.org/x/tools/internal/gocommand"
 	"golang.org/x/tools/internal/imports"
 )
@@ -198,6 +199,9 @@ func walkDir(path string) {
 }
 
 func main() {
+	// is anyone using this command?
+	counter.Open()
+	counter.Inc("tools/cmd:goimports")
 	runtime.GOMAXPROCS(runtime.NumCPU())
 
 	// call gofmtMain in a separate function
@@ -361,8 +365,8 @@ func replaceTempFilename(diff []byte, filename string) ([]byte, error) {
 	}
 	// Always print filepath with slash separator.
 	f := filepath.ToSlash(filename)
-	bs[0] = []byte(fmt.Sprintf("--- %s%s", f+".orig", t0))
-	bs[1] = []byte(fmt.Sprintf("+++ %s%s", f, t1))
+	bs[0] = fmt.Appendf(nil, "--- %s%s", f+".orig", t0)
+	bs[1] = fmt.Appendf(nil, "+++ %s%s", f, t1)
 	return bytes.Join(bs, []byte{'\n'}), nil
 }
 
