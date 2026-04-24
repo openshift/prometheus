@@ -1,4 +1,4 @@
-// Copyright 2021 The Prometheus Authors
+// Copyright The Prometheus Authors
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -115,6 +115,18 @@ func TestUninstallingTracerProvider(t *testing.T) {
 	require.NoError(t, m.ApplyConfig(&cfg2))
 	// Make sure we get a no-op tracer provider after uninstallation.
 	require.Equal(t, noop.NewTracerProvider(), otel.GetTracerProvider())
+}
+
+func TestInstallingTracerProviderHTTPInsecure(t *testing.T) {
+	m := NewManager(promslog.NewNopLogger())
+	cfg := config.Config{
+		TracingConfig: config.TracingConfig{
+			Endpoint:   "localhost:4318",
+			ClientType: config.TracingClientHTTP,
+			Insecure:   true,
+		},
+	}
+	require.NoError(t, m.ApplyConfig(&cfg))
 }
 
 func TestTracerProviderShutdown(t *testing.T) {

@@ -1,4 +1,4 @@
-// Copyright 2022 The Prometheus Authors
+// Copyright The Prometheus Authors
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -120,6 +120,20 @@ func TestStripeSeries_Get(t *testing.T) {
 	require.Same(t, ms1, got)
 	got = s.GetByHash(hash, ms2.lset)
 	require.Same(t, ms2, got)
+}
+
+func TestStripeSeries_GetOrSet(t *testing.T) {
+	lbl := labels.FromStrings("__name__", "metric", "lbl", "HFnEaGl")
+
+	ss := newStripeSeries(1)
+
+	ms, created := ss.GetOrSet(lbl.Hash(), &memSeries{ref: chunks.HeadSeriesRef(1), lset: lbl})
+	require.True(t, created)
+	require.Equal(t, lbl, ms.lset)
+
+	ms2, created := ss.GetOrSet(lbl.Hash(), &memSeries{ref: chunks.HeadSeriesRef(2), lset: lbl})
+	require.False(t, created)
+	require.Equal(t, ms, ms2)
 }
 
 func TestStripeSeries_gc(t *testing.T) {

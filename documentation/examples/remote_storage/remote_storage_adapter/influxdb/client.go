@@ -1,4 +1,4 @@
-// Copyright 2015 The Prometheus Authors
+// Copyright The Prometheus Authors
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -166,9 +166,9 @@ func (c *Client) buildCommand(q *prompb.Query) (string, error) {
 		if m.Name == model.MetricNameLabel {
 			switch m.Type {
 			case prompb.LabelMatcher_EQ:
-				measurement.WriteString(fmt.Sprintf(" == \"%s\"", m.Value))
+				fmt.Fprintf(&measurement, " == \"%s\"", m.Value)
 			case prompb.LabelMatcher_RE:
-				measurement.WriteString(fmt.Sprintf(" =~ /%s/", escapeSlashes(m.Value)))
+				fmt.Fprintf(&measurement, " =~ /%s/", escapeSlashes(m.Value))
 			default:
 				// TODO: Figure out how to support these efficiently.
 				return "", errors.New("non-equal or regex-non-equal matchers are not supported on the metric name yet")

@@ -1,4 +1,4 @@
-// Copyright 2018 The Prometheus Authors
+// Copyright The Prometheus Authors
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -47,11 +47,11 @@ import (
 
 // RulesUnitTest does unit testing of rules based on the unit testing files provided.
 // More info about the file format can be found in the docs.
-func RulesUnitTest(queryOpts promqltest.LazyLoaderOpts, runStrings []string, diffFlag, debug, ignoreUnknownFields bool, files ...string) int {
-	return RulesUnitTestResult(io.Discard, queryOpts, runStrings, diffFlag, debug, ignoreUnknownFields, files...)
+func RulesUnitTest(queryOpts promqltest.LazyLoaderOpts, p parser.Parser, runStrings []string, diffFlag, debug, ignoreUnknownFields bool, files ...string) int {
+	return RulesUnitTestResult(io.Discard, queryOpts, p, runStrings, diffFlag, debug, ignoreUnknownFields, files...)
 }
 
-func RulesUnitTestResult(results io.Writer, queryOpts promqltest.LazyLoaderOpts, runStrings []string, diffFlag, debug, ignoreUnknownFields bool, files ...string) int {
+func RulesUnitTestResult(results io.Writer, queryOpts promqltest.LazyLoaderOpts, p parser.Parser, runStrings []string, diffFlag, debug, ignoreUnknownFields bool, files ...string) int {
 	failed := false
 	junit := &junitxml.JUnitXML{}
 
@@ -61,7 +61,7 @@ func RulesUnitTestResult(results io.Writer, queryOpts promqltest.LazyLoaderOpts,
 	}
 
 	for _, f := range files {
-		if errs := ruleUnitTest(f, queryOpts, run, diffFlag, debug, ignoreUnknownFields, junit.Suite(f)); errs != nil {
+		if errs := ruleUnitTest(f, queryOpts, p, run, diffFlag, debug, ignoreUnknownFields, junit.Suite(f)); errs != nil {
 			fmt.Fprintln(os.Stderr, "  FAILED:")
 			for _, e := range errs {
 				fmt.Fprintln(os.Stderr, e.Error())
@@ -83,7 +83,7 @@ func RulesUnitTestResult(results io.Writer, queryOpts promqltest.LazyLoaderOpts,
 	return successExitCode
 }
 
-func ruleUnitTest(filename string, queryOpts promqltest.LazyLoaderOpts, run *regexp.Regexp, diffFlag, debug, ignoreUnknownFields bool, ts *junitxml.TestSuite) []error {
+func ruleUnitTest(filename string, queryOpts promqltest.LazyLoaderOpts, p parser.Parser, run *regexp.Regexp, diffFlag, debug, ignoreUnknownFields bool, ts *junitxml.TestSuite) []error {
 	b, err := os.ReadFile(filename)
 	if err != nil {
 		ts.Abort(err)
@@ -132,6 +132,7 @@ func ruleUnitTest(filename string, queryOpts promqltest.LazyLoaderOpts, run *reg
 		if t.Interval == 0 {
 			t.Interval = unitTestInp.EvaluationInterval
 		}
+		t.parser = p
 		ers := t.test(testname, evalInterval, groupOrderMap, queryOpts, diffFlag, debug, ignoreUnknownFields, unitTestInp.FuzzyCompare, unitTestInp.RuleFiles...)
 		if ers != nil {
 			for _, e := range ers {
@@ -219,15 +220,17 @@ type testGroup struct {
 	ExternalURL     string             `yaml:"external_url,omitempty"`
 	TestGroupName   string             `yaml:"name,omitempty"`
 	StartTimestamp  testStartTimestamp `yaml:"start_timestamp,omitempty"`
+
+	parser parser.Parser `yaml:"-"`
 }
 
 // test performs the unit tests.
 func (tg *testGroup) test(testname string, evalInterval time.Duration, groupOrderMap map[string]int, queryOpts promqltest.LazyLoaderOpts, diffFlag, debug, ignoreUnknownFields, fuzzyCompare bool, ruleFiles ...string) (outErr []error) {
 	if debug {
 		testStart := time.Now()
-		fmt.Printf("DEBUG: Starting test %s\n", testname)
+		fmt.Fprintf(os.Stderr, "DEBUG: Starting test %s\n", testname)
 		defer func() {
-			fmt.Printf("DEBUG: Test %s finished, took %v\n", testname, time.Since(testStart))
+			fmt.Fprintf(os.Stderr, "DEBUG: Test %s finished, took %v\n", testname, time.Since(testStart))
 		}()
 	}
 	// Setup testing suite.
@@ -252,6 +255,7 @@ func (tg *testGroup) test(testname string, evalInterval time.Duration, groupOrde
 		Context:    context.Background(),
 		NotifyFunc: func(context.Context, string, ...*rules.Alert) {},
 		Logger:     promslog.NewNopLogger(),
+		Parser:     tg.parser,
 	}
 	m := rules.NewManager(opts)
 	groupsMap, ers := m.LoadGroups(time.Duration(tg.Interval), tg.ExternalLabels, tg.ExternalURL, nil, ignoreUnknownFields, ruleFiles...)
@@ -482,10 +486,10 @@ Outer:
 
 		var expSamples []parsedSample
 		for _, s := range testCase.ExpSamples {
-			lb, err := parser.ParseMetric(s.Labels)
+			lb, err := tg.parser.ParseMetric(s.Labels)
 			var hist *histogram.FloatHistogram
 			if err == nil && s.Histogram != "" {
-				_, values, parseErr := parser.ParseSeriesDesc("{} " + s.Histogram)
+				_, values, parseErr := tg.parser.ParseSeriesDesc("{} " + s.Histogram)
 				switch {
 				case parseErr != nil:
 					err = parseErr
@@ -530,20 +534,20 @@ Outer:
 		expr := fmt.Sprintf(`{__name__=~".+"}[%v]`, ts)
 		q, err := suite.QueryEngine().NewInstantQuery(context.Background(), suite.Queryable(), nil, expr, mint.Add(ts))
 		if err != nil {
-			fmt.Printf("DEBUG: Failed querying, expr: %q, err: %v\n", expr, err)
+			fmt.Fprintf(os.Stderr, "DEBUG: Failed querying, expr: %q, err: %v\n", expr, err)
 			return errs
 		}
 		res := q.Exec(suite.Context())
 		if res.Err != nil {
-			fmt.Printf("DEBUG: Failed query exec, expr: %q, err: %v\n", expr, res.Err)
+			fmt.Fprintf(os.Stderr, "DEBUG: Failed query exec, expr: %q, err: %v\n", expr, res.Err)
 			return errs
 		}
 		switch v := res.Value.(type) {
 		case promql.Matrix:
-			fmt.Printf("DEBUG: Dump of all data (input_series and rules) at %v:\n", ts)
-			fmt.Println(v.String())
+			fmt.Fprintf(os.Stderr, "DEBUG: Dump of all data (input_series and rules) at %v:\n", ts)
+			fmt.Fprintln(os.Stderr, v.String())
 		default:
-			fmt.Printf("DEBUG: Got unexpected type %T\n", v)
+			fmt.Fprintf(os.Stderr, "DEBUG: Got unexpected type %T\n", v)
 			return errs
 		}
 	}
@@ -557,9 +561,9 @@ Outer:
 // seriesLoadingString returns the input series in PromQL notation.
 func (tg *testGroup) seriesLoadingString() string {
 	var result strings.Builder
-	result.WriteString(fmt.Sprintf("load %v\n", shortDuration(tg.Interval)))
+	fmt.Fprintf(&result, "load %v\n", shortDuration(tg.Interval))
 	for _, is := range tg.InputSeries {
-		result.WriteString(fmt.Sprintf("  %v %v\n", is.Series, is.Values))
+		fmt.Fprintf(&result, "  %v %v\n", is.Series, is.Values)
 	}
 	return result.String()
 }

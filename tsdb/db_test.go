@@ -1,4 +1,4 @@
-// Copyright 2017 The Prometheus Authors
+// Copyright The Prometheus Authors
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -52,6 +52,7 @@ import (
 	"github.com/prometheus/prometheus/model/histogram"
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/model/metadata"
+	"github.com/prometheus/prometheus/model/value"
 	"github.com/prometheus/prometheus/prompb"
 	"github.com/prometheus/prometheus/storage"
 	"github.com/prometheus/prometheus/storage/remote"
@@ -125,6 +126,7 @@ func newTestDB(t testing.TB, opts ...testDBOpt) (db *DB) {
 		db, err = open(o.dir, nil, nil, o.opts, o.rngs, nil)
 	}
 	require.NoError(t, err)
+
 	t.Cleanup(func() {
 		// Always close. DB is safe for close-after-close.
 		require.NoError(t, db.Close())
@@ -145,6 +147,16 @@ func TestDBClose_AfterClose(t *testing.T) {
 
 // query runs a matcher query against the querier and fully expands its data.
 func query(t testing.TB, q storage.Querier, matchers ...*labels.Matcher) map[string][]chunks.Sample {
+	return queryHelper(t, q, true, matchers...)
+}
+
+// queryWithoutReplacingNaNs runs a matcher query against the querier and fully expands its data.
+func queryWithoutReplacingNaNs(t testing.TB, q storage.Querier, matchers ...*labels.Matcher) map[string][]chunks.Sample {
+	return queryHelper(t, q, false, matchers...)
+}
+
+// queryHelper runs a matcher query against the querier and fully expands its data.
+func queryHelper(t testing.TB, q storage.Querier, withNaNReplacement bool, matchers ...*labels.Matcher) map[string][]chunks.Sample {
 	ss := q.Select(context.Background(), false, nil, matchers...)
 	defer func() {
 		require.NoError(t, q.Close())
@@ -156,7 +168,13 @@ func query(t testing.TB, q storage.Querier, matchers ...*labels.Matcher) map[str
 		series := ss.At()
 
 		it = series.Iterator(it)
-		samples, err := storage.ExpandSamples(it, newSample)
+		var samples []chunks.Sample
+		var err error
+		if withNaNReplacement {
+			samples, err = storage.ExpandSamples(it, newSample)
+		} else {
+			samples, err = storage.ExpandSamplesWithoutReplacingNaNs(it, newSample)
+		}
 		require.NoError(t, err)
 		require.NoError(t, it.Err())
 
@@ -377,7 +395,7 @@ func TestDataNotAvailableAfterRollback(t *testing.T) {
 			require.NoError(t, err)
 			walSeriesCount += len(series)
 
-		case record.Samples:
+		case record.Samples, record.SamplesV2:
 			var samples []record.RefSample
 			samples, err = dec.Samples(rec, samples)
 			require.NoError(t, err)
@@ -546,7 +564,7 @@ func TestDeleteSimple(t *testing.T) {
 
 			expSamples := make([]chunks.Sample, 0, len(c.remaint))
 			for _, ts := range c.remaint {
-				expSamples = append(expSamples, sample{ts, smpls[ts], nil, nil})
+				expSamples = append(expSamples, sample{0, ts, smpls[ts], nil, nil})
 			}
 
 			expss := newMockSeriesSet([]storage.Series{
@@ -691,7 +709,7 @@ func TestSkippingInvalidValuesInSameTxn(t *testing.T) {
 	ssMap := query(t, q, labels.MustNewMatcher(labels.MatchEqual, "a", "b"))
 
 	require.Equal(t, map[string][]chunks.Sample{
-		labels.New(labels.Label{Name: "a", Value: "b"}).String(): {sample{0, 1, nil, nil}},
+		labels.New(labels.Label{Name: "a", Value: "b"}).String(): {sample{0, 0, 1, nil, nil}},
 	}, ssMap)
 
 	// Append Out of Order Value.
@@ -708,7 +726,7 @@ func TestSkippingInvalidValuesInSameTxn(t *testing.T) {
 	ssMap = query(t, q, labels.MustNewMatcher(labels.MatchEqual, "a", "b"))
 
 	require.Equal(t, map[string][]chunks.Sample{
-		labels.New(labels.Label{Name: "a", Value: "b"}).String(): {sample{0, 1, nil, nil}, sample{10, 3, nil, nil}},
+		labels.New(labels.Label{Name: "a", Value: "b"}).String(): {sample{0, 0, 1, nil, nil}, sample{0, 10, 3, nil, nil}},
 	}, ssMap)
 }
 
@@ -853,7 +871,7 @@ func TestDB_SnapshotWithDelete(t *testing.T) {
 
 			expSamples := make([]chunks.Sample, 0, len(c.remaint))
 			for _, ts := range c.remaint {
-				expSamples = append(expSamples, sample{ts, smpls[ts], nil, nil})
+				expSamples = append(expSamples, sample{0, ts, smpls[ts], nil, nil})
 			}
 
 			expss := newMockSeriesSet([]storage.Series{
@@ -956,7 +974,7 @@ func TestDB_e2e(t *testing.T) {
 		for range numDatapoints {
 			v := rand.Float64()
 
-			series = append(series, sample{ts, v, nil, nil})
+			series = append(series, sample{0, ts, v, nil, nil})
 
 			_, err := app.Append(0, lset, ts, v)
 			require.NoError(t, err)
@@ -1152,24 +1170,25 @@ func TestWALReplayRaceOnSamplesLoggedBeforeSeries(t *testing.T) {
 
 	// We test both with few and many samples appended after series creation. If samples are < 120 then there's no
 	// mmap-ed chunk, otherwise there's at least 1 mmap-ed chunk when replaying the WAL.
-	for _, numSamplesAfterSeriesCreation := range []int{1, 1000} {
-		for run := 1; run <= numRuns; run++ {
-			t.Run(fmt.Sprintf("samples after series creation = %d, run = %d", numSamplesAfterSeriesCreation, run), func(t *testing.T) {
-				testWALReplayRaceOnSamplesLoggedBeforeSeries(t, numSamplesBeforeSeriesCreation, numSamplesAfterSeriesCreation)
-			})
+	for _, enableSTStorage := range []bool{false, true} {
+		for _, numSamplesAfterSeriesCreation := range []int{1, 1000} {
+			for run := 1; run <= numRuns; run++ {
+				t.Run(fmt.Sprintf("samples after series creation = %d, run = %d, stStorage=%v", numSamplesAfterSeriesCreation, run, enableSTStorage), func(t *testing.T) {
+					testWALReplayRaceOnSamplesLoggedBeforeSeries(t, numSamplesBeforeSeriesCreation, numSamplesAfterSeriesCreation, enableSTStorage)
+				})
+			}
 		}
 	}
 }
 
-func testWALReplayRaceOnSamplesLoggedBeforeSeries(t *testing.T, numSamplesBeforeSeriesCreation, numSamplesAfterSeriesCreation int) {
+func testWALReplayRaceOnSamplesLoggedBeforeSeries(t *testing.T, numSamplesBeforeSeriesCreation, numSamplesAfterSeriesCreation int, enableSTStorage bool) {
 	const numSeries = 1000
-
 	db := newTestDB(t)
 	db.DisableCompactions()
 
 	for seriesRef := 1; seriesRef <= numSeries; seriesRef++ {
 		// Log samples before the series is logged to the WAL.
-		var enc record.Encoder
+		enc := record.Encoder{EnableSTStorage: enableSTStorage}
 		var samples []record.RefSample
 
 		for ts := range numSamplesBeforeSeriesCreation {
@@ -1278,7 +1297,7 @@ func TestTombstoneClean(t *testing.T) {
 
 		expSamples := make([]chunks.Sample, 0, len(c.remaint))
 		for _, ts := range c.remaint {
-			expSamples = append(expSamples, sample{ts, smpls[ts], nil, nil})
+			expSamples = append(expSamples, sample{0, ts, smpls[ts], nil, nil})
 		}
 
 		expss := newMockSeriesSet([]storage.Series{
@@ -1533,139 +1552,143 @@ func TestRetentionDurationMetric(t *testing.T) {
 
 func TestSizeRetention(t *testing.T) {
 	t.Parallel()
-	opts := DefaultOptions()
-	opts.OutOfOrderTimeWindow = 100
-	db := newTestDB(t, withOpts(opts), withRngs(100))
+	for _, enableSTStorage := range []bool{false, true} {
+		t.Run("enableSTStorage="+strconv.FormatBool(enableSTStorage), func(t *testing.T) {
+			opts := DefaultOptions()
+			opts.OutOfOrderTimeWindow = 100
+			db := newTestDB(t, withOpts(opts), withRngs(100))
 
-	blocks := []*BlockMeta{
-		{MinTime: 100, MaxTime: 200}, // Oldest block
-		{MinTime: 200, MaxTime: 300},
-		{MinTime: 300, MaxTime: 400},
-		{MinTime: 400, MaxTime: 500},
-		{MinTime: 500, MaxTime: 600}, // Newest Block
-	}
+			blocks := []*BlockMeta{
+				{MinTime: 100, MaxTime: 200}, // Oldest block
+				{MinTime: 200, MaxTime: 300},
+				{MinTime: 300, MaxTime: 400},
+				{MinTime: 400, MaxTime: 500},
+				{MinTime: 500, MaxTime: 600}, // Newest Block
+			}
 
-	for _, m := range blocks {
-		createBlock(t, db.Dir(), genSeries(100, 10, m.MinTime, m.MaxTime))
-	}
+			for _, m := range blocks {
+				createBlock(t, db.Dir(), genSeries(100, 10, m.MinTime, m.MaxTime))
+			}
 
-	headBlocks := []*BlockMeta{
-		{MinTime: 700, MaxTime: 800},
-	}
+			headBlocks := []*BlockMeta{
+				{MinTime: 700, MaxTime: 800},
+			}
 
-	// Add some data to the WAL.
-	headApp := db.Head().Appender(context.Background())
-	var aSeries labels.Labels
-	var it chunkenc.Iterator
-	for _, m := range headBlocks {
-		series := genSeries(100, 10, m.MinTime, m.MaxTime+1)
-		for _, s := range series {
-			aSeries = s.Labels()
-			it = s.Iterator(it)
-			for it.Next() == chunkenc.ValFloat {
-				tim, v := it.At()
-				_, err := headApp.Append(0, s.Labels(), tim, v)
+			// Add some data to the WAL.
+			headApp := db.Head().Appender(context.Background())
+			var aSeries labels.Labels
+			var it chunkenc.Iterator
+			for _, m := range headBlocks {
+				series := genSeries(100, 10, m.MinTime, m.MaxTime+1)
+				for _, s := range series {
+					aSeries = s.Labels()
+					it = s.Iterator(it)
+					for it.Next() == chunkenc.ValFloat {
+						tim, v := it.At()
+						_, err := headApp.Append(0, s.Labels(), tim, v)
+						require.NoError(t, err)
+					}
+					require.NoError(t, it.Err())
+				}
+			}
+			require.NoError(t, headApp.Commit())
+			db.Head().mmapHeadChunks()
+
+			require.Eventually(t, func() bool {
+				return db.Head().chunkDiskMapper.IsQueueEmpty()
+			}, 2*time.Second, 100*time.Millisecond)
+
+			// Test that registered size matches the actual disk size.
+			require.NoError(t, db.reloadBlocks())                               // Reload the db to register the new db size.
+			require.Len(t, db.Blocks(), len(blocks))                            // Ensure all blocks are registered.
+			blockSize := int64(prom_testutil.ToFloat64(db.metrics.blocksBytes)) // Use the actual internal metrics.
+			walSize, err := db.Head().wal.Size()
+			require.NoError(t, err)
+			cdmSize, err := db.Head().chunkDiskMapper.Size()
+			require.NoError(t, err)
+			require.NotZero(t, cdmSize)
+			// Expected size should take into account block size + WAL size + Head
+			// chunks size
+			expSize := blockSize + walSize + cdmSize
+			actSize, err := fileutil.DirSize(db.Dir())
+			require.NoError(t, err)
+			require.Equal(t, expSize, actSize, "registered size doesn't match actual disk size")
+
+			// Create a WAL checkpoint, and compare sizes.
+			first, last, err := wlog.Segments(db.Head().wal.Dir())
+			require.NoError(t, err)
+			_, err = wlog.Checkpoint(promslog.NewNopLogger(), db.Head().wal, first, last-1, func(chunks.HeadSeriesRef) bool { return false }, 0, enableSTStorage)
+			require.NoError(t, err)
+			blockSize = int64(prom_testutil.ToFloat64(db.metrics.blocksBytes)) // Use the actual internal metrics.
+			walSize, err = db.Head().wal.Size()
+			require.NoError(t, err)
+			cdmSize, err = db.Head().chunkDiskMapper.Size()
+			require.NoError(t, err)
+			require.NotZero(t, cdmSize)
+			expSize = blockSize + walSize + cdmSize
+			actSize, err = fileutil.DirSize(db.Dir())
+			require.NoError(t, err)
+			require.Equal(t, expSize, actSize, "registered size doesn't match actual disk size")
+
+			// Truncate Chunk Disk Mapper and compare sizes.
+			require.NoError(t, db.Head().chunkDiskMapper.Truncate(900))
+			cdmSize, err = db.Head().chunkDiskMapper.Size()
+			require.NoError(t, err)
+			require.NotZero(t, cdmSize)
+			expSize = blockSize + walSize + cdmSize
+			actSize, err = fileutil.DirSize(db.Dir())
+			require.NoError(t, err)
+			require.Equal(t, expSize, actSize, "registered size doesn't match actual disk size")
+
+			// Add some out of order samples to check the size of WBL.
+			headApp = db.Head().Appender(context.Background())
+			for ts := int64(750); ts < 800; ts++ {
+				_, err := headApp.Append(0, aSeries, ts, float64(ts))
 				require.NoError(t, err)
 			}
-			require.NoError(t, it.Err())
-		}
+			require.NoError(t, headApp.Commit())
+
+			walSize, err = db.Head().wal.Size()
+			require.NoError(t, err)
+			wblSize, err := db.Head().wbl.Size()
+			require.NoError(t, err)
+			require.NotZero(t, wblSize)
+			cdmSize, err = db.Head().chunkDiskMapper.Size()
+			require.NoError(t, err)
+			expSize = blockSize + walSize + wblSize + cdmSize
+			actSize, err = fileutil.DirSize(db.Dir())
+			require.NoError(t, err)
+			require.Equal(t, expSize, actSize, "registered size doesn't match actual disk size")
+
+			// Decrease the max bytes limit so that a delete is triggered.
+			// Check total size, total count and check that the oldest block was deleted.
+			firstBlockSize := db.Blocks()[0].Size()
+			sizeLimit := actSize - firstBlockSize
+			db.opts.MaxBytes = sizeLimit          // Set the new db size limit one block smaller that the actual size.
+			require.NoError(t, db.reloadBlocks()) // Reload the db to register the new db size.
+
+			expBlocks := blocks[1:]
+			actBlocks := db.Blocks()
+			blockSize = int64(prom_testutil.ToFloat64(db.metrics.blocksBytes))
+			walSize, err = db.Head().wal.Size()
+			require.NoError(t, err)
+			cdmSize, err = db.Head().chunkDiskMapper.Size()
+			require.NoError(t, err)
+			require.NotZero(t, cdmSize)
+			// Expected size should take into account block size + WAL size + WBL size
+			expSize = blockSize + walSize + wblSize + cdmSize
+			actRetentionCount := int(prom_testutil.ToFloat64(db.metrics.sizeRetentionCount))
+			actSize, err = fileutil.DirSize(db.Dir())
+			require.NoError(t, err)
+
+			require.Equal(t, 1, actRetentionCount, "metric retention count mismatch")
+			require.Equal(t, expSize, actSize, "metric db size doesn't match actual disk size")
+			require.LessOrEqual(t, expSize, sizeLimit, "actual size (%v) is expected to be less than or equal to limit (%v)", expSize, sizeLimit)
+			require.Len(t, actBlocks, len(blocks)-1, "new block count should be decreased from:%v to:%v", len(blocks), len(blocks)-1)
+			require.Equal(t, expBlocks[0].MaxTime, actBlocks[0].meta.MaxTime, "maxT mismatch of the first block")
+			require.Equal(t, expBlocks[len(expBlocks)-1].MaxTime, actBlocks[len(actBlocks)-1].meta.MaxTime, "maxT mismatch of the last block")
+		})
 	}
-	require.NoError(t, headApp.Commit())
-	db.Head().mmapHeadChunks()
-
-	require.Eventually(t, func() bool {
-		return db.Head().chunkDiskMapper.IsQueueEmpty()
-	}, 2*time.Second, 100*time.Millisecond)
-
-	// Test that registered size matches the actual disk size.
-	require.NoError(t, db.reloadBlocks())                               // Reload the db to register the new db size.
-	require.Len(t, db.Blocks(), len(blocks))                            // Ensure all blocks are registered.
-	blockSize := int64(prom_testutil.ToFloat64(db.metrics.blocksBytes)) // Use the actual internal metrics.
-	walSize, err := db.Head().wal.Size()
-	require.NoError(t, err)
-	cdmSize, err := db.Head().chunkDiskMapper.Size()
-	require.NoError(t, err)
-	require.NotZero(t, cdmSize)
-	// Expected size should take into account block size + WAL size + Head
-	// chunks size
-	expSize := blockSize + walSize + cdmSize
-	actSize, err := fileutil.DirSize(db.Dir())
-	require.NoError(t, err)
-	require.Equal(t, expSize, actSize, "registered size doesn't match actual disk size")
-
-	// Create a WAL checkpoint, and compare sizes.
-	first, last, err := wlog.Segments(db.Head().wal.Dir())
-	require.NoError(t, err)
-	_, err = wlog.Checkpoint(promslog.NewNopLogger(), db.Head().wal, first, last-1, func(chunks.HeadSeriesRef) bool { return false }, 0)
-	require.NoError(t, err)
-	blockSize = int64(prom_testutil.ToFloat64(db.metrics.blocksBytes)) // Use the actual internal metrics.
-	walSize, err = db.Head().wal.Size()
-	require.NoError(t, err)
-	cdmSize, err = db.Head().chunkDiskMapper.Size()
-	require.NoError(t, err)
-	require.NotZero(t, cdmSize)
-	expSize = blockSize + walSize + cdmSize
-	actSize, err = fileutil.DirSize(db.Dir())
-	require.NoError(t, err)
-	require.Equal(t, expSize, actSize, "registered size doesn't match actual disk size")
-
-	// Truncate Chunk Disk Mapper and compare sizes.
-	require.NoError(t, db.Head().chunkDiskMapper.Truncate(900))
-	cdmSize, err = db.Head().chunkDiskMapper.Size()
-	require.NoError(t, err)
-	require.NotZero(t, cdmSize)
-	expSize = blockSize + walSize + cdmSize
-	actSize, err = fileutil.DirSize(db.Dir())
-	require.NoError(t, err)
-	require.Equal(t, expSize, actSize, "registered size doesn't match actual disk size")
-
-	// Add some out of order samples to check the size of WBL.
-	headApp = db.Head().Appender(context.Background())
-	for ts := int64(750); ts < 800; ts++ {
-		_, err := headApp.Append(0, aSeries, ts, float64(ts))
-		require.NoError(t, err)
-	}
-	require.NoError(t, headApp.Commit())
-
-	walSize, err = db.Head().wal.Size()
-	require.NoError(t, err)
-	wblSize, err := db.Head().wbl.Size()
-	require.NoError(t, err)
-	require.NotZero(t, wblSize)
-	cdmSize, err = db.Head().chunkDiskMapper.Size()
-	require.NoError(t, err)
-	expSize = blockSize + walSize + wblSize + cdmSize
-	actSize, err = fileutil.DirSize(db.Dir())
-	require.NoError(t, err)
-	require.Equal(t, expSize, actSize, "registered size doesn't match actual disk size")
-
-	// Decrease the max bytes limit so that a delete is triggered.
-	// Check total size, total count and check that the oldest block was deleted.
-	firstBlockSize := db.Blocks()[0].Size()
-	sizeLimit := actSize - firstBlockSize
-	db.opts.MaxBytes = sizeLimit          // Set the new db size limit one block smaller that the actual size.
-	require.NoError(t, db.reloadBlocks()) // Reload the db to register the new db size.
-
-	expBlocks := blocks[1:]
-	actBlocks := db.Blocks()
-	blockSize = int64(prom_testutil.ToFloat64(db.metrics.blocksBytes))
-	walSize, err = db.Head().wal.Size()
-	require.NoError(t, err)
-	cdmSize, err = db.Head().chunkDiskMapper.Size()
-	require.NoError(t, err)
-	require.NotZero(t, cdmSize)
-	// Expected size should take into account block size + WAL size + WBL size
-	expSize = blockSize + walSize + wblSize + cdmSize
-	actRetentionCount := int(prom_testutil.ToFloat64(db.metrics.sizeRetentionCount))
-	actSize, err = fileutil.DirSize(db.Dir())
-	require.NoError(t, err)
-
-	require.Equal(t, 1, actRetentionCount, "metric retention count mismatch")
-	require.Equal(t, expSize, actSize, "metric db size doesn't match actual disk size")
-	require.LessOrEqual(t, expSize, sizeLimit, "actual size (%v) is expected to be less than or equal to limit (%v)", expSize, sizeLimit)
-	require.Len(t, actBlocks, len(blocks)-1, "new block count should be decreased from:%v to:%v", len(blocks), len(blocks)-1)
-	require.Equal(t, expBlocks[0].MaxTime, actBlocks[0].meta.MaxTime, "maxT mismatch of the first block")
-	require.Equal(t, expBlocks[len(expBlocks)-1].MaxTime, actBlocks[len(actBlocks)-1].meta.MaxTime, "maxT mismatch of the last block")
 }
 
 func TestSizeRetentionMetric(t *testing.T) {
@@ -1725,7 +1748,7 @@ func TestRuntimeRetentionConfigChange(t *testing.T) {
 		StorageConfig: config.StorageConfig{
 			TSDBConfig: &config.TSDBConfig{
 				Retention: &config.TSDBRetentionConfig{
-					Time: model.Duration(shorterRetentionDuration),
+					Time: model.Duration(time.Duration(shorterRetentionDuration) * time.Millisecond),
 				},
 			},
 		},
@@ -1752,6 +1775,31 @@ func TestRuntimeRetentionConfigChange(t *testing.T) {
 	require.Equal(t, nineAndHalfHoursMs, actBlocks[1].meta.MinTime, "last remaining block should be the newest")
 
 	require.Positive(t, int(prom_testutil.ToFloat64(db.metrics.timeRetentionCount)), "time retention count should be incremented")
+}
+
+// TestApplyConfigRetentionDurationMetricUnit verifies that after a config
+// reload the prometheus_tsdb_retention_limit_seconds metric reports the
+// retention in seconds.
+func TestApplyConfigRetentionDurationMetricUnit(t *testing.T) {
+	oneHourMs := int64(time.Hour / time.Millisecond)
+	db := newTestDB(t, withOpts(&Options{RetentionDuration: oneHourMs}))
+
+	cfg := &config.Config{
+		StorageConfig: config.StorageConfig{
+			TSDBConfig: &config.TSDBConfig{
+				Retention: &config.TSDBRetentionConfig{
+					Time: model.Duration(time.Hour),
+				},
+			},
+		},
+	}
+	require.NoError(t, db.ApplyConfig(cfg))
+
+	require.Equal(t, oneHourMs, db.getRetentionDuration())
+
+	gotSeconds := prom_testutil.ToFloat64(db.metrics.retentionDuration)
+	wantSeconds := time.Hour.Seconds()
+	require.Equal(t, wantSeconds, gotSeconds)
 }
 
 func TestNotMatcherSelectsLabelsUnsetSeries(t *testing.T) {
@@ -2054,33 +2102,36 @@ func TestInitializeHeadTimestamp(t *testing.T) {
 		require.Equal(t, int64(1000), db.head.MaxTime())
 		require.True(t, db.head.initialized())
 	})
-	t.Run("wal-only", func(t *testing.T) {
-		dir := t.TempDir()
 
-		require.NoError(t, os.MkdirAll(path.Join(dir, "wal"), 0o777))
-		w, err := wlog.New(nil, nil, path.Join(dir, "wal"), compression.None)
-		require.NoError(t, err)
+	for _, enableSTStorage := range []bool{false, true} {
+		t.Run("wal-only-st-"+strconv.FormatBool(enableSTStorage), func(t *testing.T) {
+			dir := t.TempDir()
 
-		var enc record.Encoder
-		err = w.Log(
-			enc.Series([]record.RefSeries{
-				{Ref: 123, Labels: labels.FromStrings("a", "1")},
-				{Ref: 124, Labels: labels.FromStrings("a", "2")},
-			}, nil),
-			enc.Samples([]record.RefSample{
-				{Ref: 123, T: 5000, V: 1},
-				{Ref: 124, T: 15000, V: 1},
-			}, nil),
-		)
-		require.NoError(t, err)
-		require.NoError(t, w.Close())
+			require.NoError(t, os.MkdirAll(path.Join(dir, "wal"), 0o777))
+			w, err := wlog.New(nil, nil, path.Join(dir, "wal"), compression.None)
+			require.NoError(t, err)
 
-		db := newTestDB(t, withDir(dir))
+			enc := record.Encoder{EnableSTStorage: enableSTStorage}
+			err = w.Log(
+				enc.Series([]record.RefSeries{
+					{Ref: 123, Labels: labels.FromStrings("a", "1")},
+					{Ref: 124, Labels: labels.FromStrings("a", "2")},
+				}, nil),
+				enc.Samples([]record.RefSample{
+					{Ref: 123, T: 5000, V: 1},
+					{Ref: 124, T: 15000, V: 1},
+				}, nil),
+			)
+			require.NoError(t, err)
+			require.NoError(t, w.Close())
 
-		require.Equal(t, int64(5000), db.head.MinTime())
-		require.Equal(t, int64(15000), db.head.MaxTime())
-		require.True(t, db.head.initialized())
-	})
+			db := newTestDB(t, withDir(dir))
+
+			require.Equal(t, int64(5000), db.head.MinTime())
+			require.Equal(t, int64(15000), db.head.MaxTime())
+			require.True(t, db.head.initialized())
+		})
+	}
 	t.Run("existing-block", func(t *testing.T) {
 		dir := t.TempDir()
 
@@ -2092,37 +2143,40 @@ func TestInitializeHeadTimestamp(t *testing.T) {
 		require.Equal(t, int64(2000), db.head.MaxTime())
 		require.True(t, db.head.initialized())
 	})
-	t.Run("existing-block-and-wal", func(t *testing.T) {
-		dir := t.TempDir()
 
-		createBlock(t, dir, genSeries(1, 1, 1000, 6000))
+	for _, enableSTStorage := range []bool{false, true} {
+		t.Run("existing-block-and-wal,enableSTStorage="+strconv.FormatBool(enableSTStorage), func(t *testing.T) {
+			dir := t.TempDir()
 
-		require.NoError(t, os.MkdirAll(path.Join(dir, "wal"), 0o777))
-		w, err := wlog.New(nil, nil, path.Join(dir, "wal"), compression.None)
-		require.NoError(t, err)
+			createBlock(t, dir, genSeries(1, 1, 1000, 6000))
 
-		var enc record.Encoder
-		err = w.Log(
-			enc.Series([]record.RefSeries{
-				{Ref: 123, Labels: labels.FromStrings("a", "1")},
-				{Ref: 124, Labels: labels.FromStrings("a", "2")},
-			}, nil),
-			enc.Samples([]record.RefSample{
-				{Ref: 123, T: 5000, V: 1},
-				{Ref: 124, T: 15000, V: 1},
-			}, nil),
-		)
-		require.NoError(t, err)
-		require.NoError(t, w.Close())
+			require.NoError(t, os.MkdirAll(path.Join(dir, "wal"), 0o777))
+			w, err := wlog.New(nil, nil, path.Join(dir, "wal"), compression.None)
+			require.NoError(t, err)
 
-		db := newTestDB(t, withDir(dir))
+			enc := record.Encoder{EnableSTStorage: enableSTStorage}
+			err = w.Log(
+				enc.Series([]record.RefSeries{
+					{Ref: 123, Labels: labels.FromStrings("a", "1")},
+					{Ref: 124, Labels: labels.FromStrings("a", "2")},
+				}, nil),
+				enc.Samples([]record.RefSample{
+					{Ref: 123, T: 5000, V: 1},
+					{Ref: 124, T: 15000, V: 1},
+				}, nil),
+			)
+			require.NoError(t, err)
+			require.NoError(t, w.Close())
 
-		require.Equal(t, int64(6000), db.head.MinTime())
-		require.Equal(t, int64(15000), db.head.MaxTime())
-		require.True(t, db.head.initialized())
-		// Check that old series has been GCed.
-		require.Equal(t, 1.0, prom_testutil.ToFloat64(db.head.metrics.series))
-	})
+			db := newTestDB(t, withDir(dir))
+
+			require.Equal(t, int64(6000), db.head.MinTime())
+			require.Equal(t, int64(15000), db.head.MaxTime())
+			require.True(t, db.head.initialized())
+			// Check that old series has been GCed.
+			require.Equal(t, 1.0, prom_testutil.ToFloat64(db.head.metrics.series))
+		})
+	}
 }
 
 func TestNoEmptyBlocks(t *testing.T) {
@@ -2390,6 +2444,7 @@ func TestBlockRanges(t *testing.T) {
 	createBlock(t, dir, genSeries(1, 1, 0, firstBlockMaxT))
 	db, err := open(dir, logger, nil, DefaultOptions(), []int64{10000}, nil)
 	require.NoError(t, err)
+	db.DisableCompactions()
 
 	rangeToTriggerCompaction := db.compactor.(*LeveledCompactor).ranges[0]/2*3 + 1
 
@@ -2406,21 +2461,16 @@ func TestBlockRanges(t *testing.T) {
 
 	require.NoError(t, err)
 	require.NoError(t, app.Commit())
-	for range 100 {
-		if len(db.Blocks()) == 2 {
-			break
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-	require.Len(t, db.Blocks(), 2, "no new block created after the set timeout")
+	require.NoError(t, db.Compact(ctx))
+	blocks := db.Blocks()
+	require.Len(t, blocks, 2, "no new block after compaction")
 
-	require.LessOrEqual(t, db.Blocks()[1].Meta().MinTime, db.Blocks()[0].Meta().MaxTime,
-		"new block overlaps  old:%v,new:%v", db.Blocks()[0].Meta(), db.Blocks()[1].Meta())
+	require.GreaterOrEqual(t, blocks[1].Meta().MinTime, blocks[0].Meta().MaxTime,
+		"new block overlaps  old:%v,new:%v", blocks[0].Meta(), blocks[1].Meta())
 
 	// Test that wal records are skipped when an existing block covers the same time ranges
 	// and compaction doesn't create an overlapping block.
 	app = db.Appender(ctx)
-	db.DisableCompactions()
 	_, err = app.Append(0, lbl, secondBlockMaxt+1, rand.Float64())
 	require.NoError(t, err)
 	_, err = app.Append(0, lbl, secondBlockMaxt+2, rand.Float64())
@@ -2437,6 +2487,7 @@ func TestBlockRanges(t *testing.T) {
 
 	db, err = open(dir, logger, nil, DefaultOptions(), []int64{10000}, nil)
 	require.NoError(t, err)
+	db.DisableCompactions()
 
 	defer db.Close()
 	require.Len(t, db.Blocks(), 3, "db doesn't include expected number of blocks")
@@ -2446,17 +2497,12 @@ func TestBlockRanges(t *testing.T) {
 	_, err = app.Append(0, lbl, thirdBlockMaxt+rangeToTriggerCompaction, rand.Float64()) // Trigger a compaction
 	require.NoError(t, err)
 	require.NoError(t, app.Commit())
-	for range 100 {
-		if len(db.Blocks()) == 4 {
-			break
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
+	require.NoError(t, db.Compact(ctx))
+	blocks = db.Blocks()
+	require.Len(t, blocks, 4, "no new block after compaction")
 
-	require.Len(t, db.Blocks(), 4, "no new block created after the set timeout")
-
-	require.LessOrEqual(t, db.Blocks()[3].Meta().MinTime, db.Blocks()[2].Meta().MaxTime,
-		"new block overlaps  old:%v,new:%v", db.Blocks()[2].Meta(), db.Blocks()[3].Meta())
+	require.GreaterOrEqual(t, blocks[3].Meta().MinTime, blocks[2].Meta().MaxTime,
+		"new block overlaps  old:%v,new:%v", blocks[2].Meta(), blocks[3].Meta())
 }
 
 // TestDBReadOnly ensures that opening a DB in readonly mode doesn't modify any files on the disk.
@@ -2610,7 +2656,7 @@ func TestDBReadOnly_FlushWAL(t *testing.T) {
 		db.DisableCompactions()
 		app := db.Appender(ctx)
 		maxt = 1000
-		for i := 0; i < maxt; i++ {
+		for i := range maxt {
 			_, err := app.Append(0, labels.FromStrings(defaultLabelName, "flush"), int64(i), 1.0)
 			require.NoError(t, err)
 		}
@@ -2863,11 +2909,11 @@ func assureChunkFromSamples(t *testing.T, samples []chunks.Sample) chunks.Meta {
 // TestChunkWriter_ReadAfterWrite ensures that chunk segment are cut at the set segment size and
 // that the resulted segments includes the expected chunks data.
 func TestChunkWriter_ReadAfterWrite(t *testing.T) {
-	chk1 := assureChunkFromSamples(t, []chunks.Sample{sample{1, 1, nil, nil}})
-	chk2 := assureChunkFromSamples(t, []chunks.Sample{sample{1, 2, nil, nil}})
-	chk3 := assureChunkFromSamples(t, []chunks.Sample{sample{1, 3, nil, nil}})
-	chk4 := assureChunkFromSamples(t, []chunks.Sample{sample{1, 4, nil, nil}})
-	chk5 := assureChunkFromSamples(t, []chunks.Sample{sample{1, 5, nil, nil}})
+	chk1 := assureChunkFromSamples(t, []chunks.Sample{sample{0, 1, 1, nil, nil}})
+	chk2 := assureChunkFromSamples(t, []chunks.Sample{sample{0, 1, 2, nil, nil}})
+	chk3 := assureChunkFromSamples(t, []chunks.Sample{sample{0, 1, 3, nil, nil}})
+	chk4 := assureChunkFromSamples(t, []chunks.Sample{sample{0, 1, 4, nil, nil}})
+	chk5 := assureChunkFromSamples(t, []chunks.Sample{sample{0, 1, 5, nil, nil}})
 	chunkSize := len(chk1.Chunk.Bytes()) + chunks.MaxChunkLengthFieldSize + chunks.ChunkEncodingSize + crc32.Size
 
 	tests := []struct {
@@ -3069,11 +3115,11 @@ func TestRangeForTimestamp(t *testing.T) {
 func TestChunkReader_ConcurrentReads(t *testing.T) {
 	t.Parallel()
 	chks := []chunks.Meta{
-		assureChunkFromSamples(t, []chunks.Sample{sample{1, 1, nil, nil}}),
-		assureChunkFromSamples(t, []chunks.Sample{sample{1, 2, nil, nil}}),
-		assureChunkFromSamples(t, []chunks.Sample{sample{1, 3, nil, nil}}),
-		assureChunkFromSamples(t, []chunks.Sample{sample{1, 4, nil, nil}}),
-		assureChunkFromSamples(t, []chunks.Sample{sample{1, 5, nil, nil}}),
+		assureChunkFromSamples(t, []chunks.Sample{sample{0, 1, 1, nil, nil}}),
+		assureChunkFromSamples(t, []chunks.Sample{sample{0, 1, 2, nil, nil}}),
+		assureChunkFromSamples(t, []chunks.Sample{sample{0, 1, 3, nil, nil}}),
+		assureChunkFromSamples(t, []chunks.Sample{sample{0, 1, 4, nil, nil}}),
+		assureChunkFromSamples(t, []chunks.Sample{sample{0, 1, 5, nil, nil}}),
 	}
 
 	tempDir := t.TempDir()
@@ -3133,7 +3179,7 @@ func TestCompactHead(t *testing.T) {
 		val := rand.Float64()
 		_, err := app.Append(0, labels.FromStrings("a", "b"), int64(i), val)
 		require.NoError(t, err)
-		expSamples = append(expSamples, sample{int64(i), val, nil, nil})
+		expSamples = append(expSamples, sample{0, int64(i), val, nil, nil})
 	}
 	require.NoError(t, app.Commit())
 
@@ -3160,7 +3206,7 @@ func TestCompactHead(t *testing.T) {
 		series = seriesSet.At().Iterator(series)
 		for series.Next() == chunkenc.ValFloat {
 			time, val := series.At()
-			actSamples = append(actSamples, sample{time, val, nil, nil})
+			actSamples = append(actSamples, sample{0, time, val, nil, nil})
 		}
 		require.NoError(t, series.Err())
 	}
@@ -4513,7 +4559,7 @@ func testOOOWALWrite(t *testing.T,
 				series, err := dec.Series(rec, nil)
 				require.NoError(t, err)
 				records = append(records, series)
-			case record.Samples:
+			case record.Samples, record.SamplesV2:
 				samples, err := dec.Samples(rec, nil)
 				require.NoError(t, err)
 				records = append(records, samples)
@@ -4674,102 +4720,106 @@ func TestMetadataCheckpointingOnlyKeepsLatestEntry(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	ctx := context.Background()
-	numSamples := 10000
-	hb, w := newTestHead(t, int64(numSamples)*10, compression.None, false)
+	for _, enableSTStorage := range []bool{false, true} {
+		t.Run("enableSTStorage="+strconv.FormatBool(enableSTStorage), func(t *testing.T) {
+			ctx := context.Background()
+			numSamples := 10000
+			hb, w := newTestHead(t, int64(numSamples)*10, compression.None, false)
 
-	// Add some series so we can append metadata to them.
-	app := hb.Appender(ctx)
-	s1 := labels.FromStrings("a", "b")
-	s2 := labels.FromStrings("c", "d")
-	s3 := labels.FromStrings("e", "f")
-	s4 := labels.FromStrings("g", "h")
+			// Add some series so we can append metadata to them.
+			app := hb.Appender(ctx)
+			s1 := labels.FromStrings("a", "b")
+			s2 := labels.FromStrings("c", "d")
+			s3 := labels.FromStrings("e", "f")
+			s4 := labels.FromStrings("g", "h")
 
-	for _, s := range []labels.Labels{s1, s2, s3, s4} {
-		_, err := app.Append(0, s, 0, 0)
-		require.NoError(t, err)
+			for _, s := range []labels.Labels{s1, s2, s3, s4} {
+				_, err := app.Append(0, s, 0, 0)
+				require.NoError(t, err)
+			}
+			require.NoError(t, app.Commit())
+
+			// Add a first round of metadata to the first three series.
+			// Re-take the Appender, as the previous Commit will have it closed.
+			m1 := metadata.Metadata{Type: "gauge", Unit: "unit_1", Help: "help_1"}
+			m2 := metadata.Metadata{Type: "gauge", Unit: "unit_2", Help: "help_2"}
+			m3 := metadata.Metadata{Type: "gauge", Unit: "unit_3", Help: "help_3"}
+			m4 := metadata.Metadata{Type: "gauge", Unit: "unit_4", Help: "help_4"}
+			app = hb.Appender(ctx)
+			updateMetadata(t, app, s1, m1)
+			updateMetadata(t, app, s2, m2)
+			updateMetadata(t, app, s3, m3)
+			updateMetadata(t, app, s4, m4)
+			require.NoError(t, app.Commit())
+
+			// Update metadata for first series.
+			m5 := metadata.Metadata{Type: "counter", Unit: "unit_5", Help: "help_5"}
+			app = hb.Appender(ctx)
+			updateMetadata(t, app, s1, m5)
+			require.NoError(t, app.Commit())
+
+			// Switch back-and-forth metadata for second series.
+			// Since it ended on a new metadata record, we expect a single new entry.
+			m6 := metadata.Metadata{Type: "counter", Unit: "unit_6", Help: "help_6"}
+
+			app = hb.Appender(ctx)
+			updateMetadata(t, app, s2, m6)
+			require.NoError(t, app.Commit())
+
+			app = hb.Appender(ctx)
+			updateMetadata(t, app, s2, m2)
+			require.NoError(t, app.Commit())
+
+			app = hb.Appender(ctx)
+			updateMetadata(t, app, s2, m6)
+			require.NoError(t, app.Commit())
+
+			app = hb.Appender(ctx)
+			updateMetadata(t, app, s2, m2)
+			require.NoError(t, app.Commit())
+
+			app = hb.Appender(ctx)
+			updateMetadata(t, app, s2, m6)
+			require.NoError(t, app.Commit())
+
+			// Let's create a checkpoint.
+			first, last, err := wlog.Segments(w.Dir())
+			require.NoError(t, err)
+			keep := func(id chunks.HeadSeriesRef) bool {
+				return id != 3
+			}
+			_, err = wlog.Checkpoint(promslog.NewNopLogger(), w, first, last-1, keep, 0, enableSTStorage)
+			require.NoError(t, err)
+
+			// Confirm there's been a checkpoint.
+			cdir, _, err := wlog.LastCheckpoint(w.Dir())
+			require.NoError(t, err)
+
+			// Read in checkpoint and WAL.
+			recs := readTestWAL(t, cdir)
+			var gotMetadataBlocks [][]record.RefMetadata
+			for _, rec := range recs {
+				if mr, ok := rec.([]record.RefMetadata); ok {
+					gotMetadataBlocks = append(gotMetadataBlocks, mr)
+				}
+			}
+
+			// There should only be 1 metadata block present, with only the latest
+			// metadata kept around.
+			wantMetadata := []record.RefMetadata{
+				{Ref: 1, Type: record.GetMetricType(m5.Type), Unit: m5.Unit, Help: m5.Help},
+				{Ref: 2, Type: record.GetMetricType(m6.Type), Unit: m6.Unit, Help: m6.Help},
+				{Ref: 4, Type: record.GetMetricType(m4.Type), Unit: m4.Unit, Help: m4.Help},
+			}
+			require.Len(t, gotMetadataBlocks, 1)
+			require.Len(t, gotMetadataBlocks[0], 3)
+			gotMetadataBlock := gotMetadataBlocks[0]
+
+			sort.Slice(gotMetadataBlock, func(i, j int) bool { return gotMetadataBlock[i].Ref < gotMetadataBlock[j].Ref })
+			require.Equal(t, wantMetadata, gotMetadataBlock)
+			require.NoError(t, hb.Close())
+		})
 	}
-	require.NoError(t, app.Commit())
-
-	// Add a first round of metadata to the first three series.
-	// Re-take the Appender, as the previous Commit will have it closed.
-	m1 := metadata.Metadata{Type: "gauge", Unit: "unit_1", Help: "help_1"}
-	m2 := metadata.Metadata{Type: "gauge", Unit: "unit_2", Help: "help_2"}
-	m3 := metadata.Metadata{Type: "gauge", Unit: "unit_3", Help: "help_3"}
-	m4 := metadata.Metadata{Type: "gauge", Unit: "unit_4", Help: "help_4"}
-	app = hb.Appender(ctx)
-	updateMetadata(t, app, s1, m1)
-	updateMetadata(t, app, s2, m2)
-	updateMetadata(t, app, s3, m3)
-	updateMetadata(t, app, s4, m4)
-	require.NoError(t, app.Commit())
-
-	// Update metadata for first series.
-	m5 := metadata.Metadata{Type: "counter", Unit: "unit_5", Help: "help_5"}
-	app = hb.Appender(ctx)
-	updateMetadata(t, app, s1, m5)
-	require.NoError(t, app.Commit())
-
-	// Switch back-and-forth metadata for second series.
-	// Since it ended on a new metadata record, we expect a single new entry.
-	m6 := metadata.Metadata{Type: "counter", Unit: "unit_6", Help: "help_6"}
-
-	app = hb.Appender(ctx)
-	updateMetadata(t, app, s2, m6)
-	require.NoError(t, app.Commit())
-
-	app = hb.Appender(ctx)
-	updateMetadata(t, app, s2, m2)
-	require.NoError(t, app.Commit())
-
-	app = hb.Appender(ctx)
-	updateMetadata(t, app, s2, m6)
-	require.NoError(t, app.Commit())
-
-	app = hb.Appender(ctx)
-	updateMetadata(t, app, s2, m2)
-	require.NoError(t, app.Commit())
-
-	app = hb.Appender(ctx)
-	updateMetadata(t, app, s2, m6)
-	require.NoError(t, app.Commit())
-
-	// Let's create a checkpoint.
-	first, last, err := wlog.Segments(w.Dir())
-	require.NoError(t, err)
-	keep := func(id chunks.HeadSeriesRef) bool {
-		return id != 3
-	}
-	_, err = wlog.Checkpoint(promslog.NewNopLogger(), w, first, last-1, keep, 0)
-	require.NoError(t, err)
-
-	// Confirm there's been a checkpoint.
-	cdir, _, err := wlog.LastCheckpoint(w.Dir())
-	require.NoError(t, err)
-
-	// Read in checkpoint and WAL.
-	recs := readTestWAL(t, cdir)
-	var gotMetadataBlocks [][]record.RefMetadata
-	for _, rec := range recs {
-		if mr, ok := rec.([]record.RefMetadata); ok {
-			gotMetadataBlocks = append(gotMetadataBlocks, mr)
-		}
-	}
-
-	// There should only be 1 metadata block present, with only the latest
-	// metadata kept around.
-	wantMetadata := []record.RefMetadata{
-		{Ref: 1, Type: record.GetMetricType(m5.Type), Unit: m5.Unit, Help: m5.Help},
-		{Ref: 2, Type: record.GetMetricType(m6.Type), Unit: m6.Unit, Help: m6.Help},
-		{Ref: 4, Type: record.GetMetricType(m4.Type), Unit: m4.Unit, Help: m4.Help},
-	}
-	require.Len(t, gotMetadataBlocks, 1)
-	require.Len(t, gotMetadataBlocks[0], 3)
-	gotMetadataBlock := gotMetadataBlocks[0]
-
-	sort.Slice(gotMetadataBlock, func(i, j int) bool { return gotMetadataBlock[i].Ref < gotMetadataBlock[j].Ref })
-	require.Equal(t, wantMetadata, gotMetadataBlock)
-	require.NoError(t, hb.Close())
 }
 
 func TestMetadataAssertInMemoryData(t *testing.T) {
@@ -8287,32 +8337,47 @@ func testPanicOnApplyConfig(t *testing.T, scenario sampleTypeScenario) {
 
 func TestDiskFillingUpAfterDisablingOOO(t *testing.T) {
 	t.Parallel()
-	for name, scenario := range sampleTypeScenarios {
-		t.Run(name, func(t *testing.T) {
-			testDiskFillingUpAfterDisablingOOO(t, scenario)
-		})
+	for _, appV2 := range []bool{true, false} {
+		for name, scenario := range sampleTypeScenarios {
+			t.Run(fmt.Sprintf("sample=%v/appV2=%v", name, appV2), func(t *testing.T) {
+				testDiskFillingUpAfterDisablingOOO(t, scenario, func(db *DB, ctx context.Context) storage.LimitedAppenderV1 {
+					if appV2 {
+						return storage.AppenderV2AsLimitedV1(db.AppenderV2(ctx))
+					}
+					return db.Appender(ctx)
+				})
+			})
+		}
 	}
 }
 
-func testDiskFillingUpAfterDisablingOOO(t *testing.T, scenario sampleTypeScenario) {
+func testDiskFillingUpAfterDisablingOOO(t *testing.T, scenario sampleTypeScenario, appenderFn func(db *DB, ctx context.Context) storage.LimitedAppenderV1) {
 	t.Parallel()
-	ctx := context.Background()
 
 	opts := DefaultOptions()
 	opts.OutOfOrderTimeWindow = 60 * time.Minute.Milliseconds()
+	// Use lower SamplesPerChunk and OutOfOrderCapMax so we need fewer samples
+	// to fill chunks, reducing the overall test time significantly
+	// (important for slow CI like i386 which can be 60x+ slower).
+	opts.SamplesPerChunk = 15
+	opts.OutOfOrderCapMax = 5
 
 	db := newTestDB(t, withOpts(opts))
 	db.DisableCompactions()
 
-	series1 := labels.FromStrings("foo", "bar1")
-	var allSamples []chunks.Sample
+	var (
+		ctx     = t.Context()
+		series1 = labels.FromStrings("foo", "bar1")
+	)
+
+	// Use step of 5 minutes to reduce sample count while preserving time ranges
+	// needed for compaction triggers. This reduces total samples from ~411 to ~83.
 	addSamples := func(fromMins, toMins int64) {
-		app := db.Appender(context.Background())
-		for m := fromMins; m <= toMins; m++ {
+		app := appenderFn(db, ctx)
+		for m := fromMins; m <= toMins; m += 5 {
 			ts := m * time.Minute.Milliseconds()
-			_, s, err := scenario.appendFunc(app, series1, ts, ts)
+			_, _, err := scenario.appendFunc(app, series1, ts, ts)
 			require.NoError(t, err)
-			allSamples = append(allSamples, s)
 		}
 		require.NoError(t, app.Commit())
 	}
@@ -8350,21 +8415,36 @@ func testDiskFillingUpAfterDisablingOOO(t *testing.T, scenario sampleTypeScenari
 		}
 	}
 
-	// Add in-order samples until ready for compaction..
+	// Add in-order samples until ready for compaction.
 	addSamples(301, 500)
 
 	// Check that m-map files gets deleted properly after compactions.
 
 	db.head.mmapHeadChunks()
 	checkMmapFileContents([]string{"000001", "000002"}, nil)
-	require.NoError(t, db.Compact(ctx))
+
+	// NOTE: We are investigating flaky errors from this compaction on i386 architecture. Compaction panics due to chunk
+	// mapper fatal error. Recover here to understand the error cause. Leaving panic recovery to test causes deadlock
+	// as t.Cleanup tries to close DB with open locks.
+	// See https://github.com/prometheus/prometheus/issues/17941#issuecomment-3846381263
+	require.NotPanics(t, func() {
+		require.NoError(t, db.Compact(ctx))
+	})
+
 	checkMmapFileContents([]string{"000002"}, []string{"000001"})
 	require.Nil(t, ms.ooo, "OOO mmap chunk was not compacted")
 
 	addSamples(501, 650)
 	db.head.mmapHeadChunks()
 	checkMmapFileContents([]string{"000002", "000003"}, []string{"000001"})
-	require.NoError(t, db.Compact(ctx))
+
+	// NOTE: We are investigating flaky errors from this compaction on i386 architecture. Compaction panics due to chunk
+	// mapper fatal error. Recover here to understand the error cause. Leaving panic recovery to test causes deadlock
+	// as t.Cleanup tries to close DB with open locks.
+	// See https://github.com/prometheus/prometheus/issues/17941#issuecomment-3846381263
+	require.NotPanics(t, func() {
+		require.NoError(t, db.Compact(ctx))
+	})
 	checkMmapFileContents(nil, []string{"000001", "000002", "000003"})
 
 	// Verify that WBL is empty.
@@ -9322,4 +9402,285 @@ func TestBlockReloadInterval(t *testing.T) {
 			)
 		})
 	}
+}
+
+func TestStaleSeriesCompaction(t *testing.T) {
+	opts := DefaultOptions()
+	opts.MinBlockDuration = 1000
+	opts.MaxBlockDuration = 1000
+	db := newTestDB(t, withOpts(opts))
+	db.DisableCompactions()
+	t.Cleanup(func() {
+		require.NoError(t, db.Close())
+	})
+
+	var (
+		nonStaleSeries, staleSeries,
+		nonStaleHist, staleHist,
+		nonStaleFHist, staleFHist,
+		staleSeriesCrossingBoundary, staleHistCrossingBoundary, staleFHistCrossingBoundary []labels.Labels
+		numSeriesPerCategory = 1
+	)
+	for i := range numSeriesPerCategory {
+		nonStaleSeries = append(nonStaleSeries, labels.FromStrings("name", fmt.Sprintf("series%d", 1000+i)))
+		nonStaleHist = append(nonStaleHist, labels.FromStrings("name", fmt.Sprintf("series%d", 2000+i)))
+		nonStaleFHist = append(nonStaleFHist, labels.FromStrings("name", fmt.Sprintf("series%d", 3000+i)))
+
+		staleSeries = append(staleSeries, labels.FromStrings("name", fmt.Sprintf("series%d", 4000+i)))
+		staleHist = append(staleHist, labels.FromStrings("name", fmt.Sprintf("series%d", 5000+i)))
+		staleFHist = append(staleFHist, labels.FromStrings("name", fmt.Sprintf("series%d", 6000+i)))
+
+		staleSeriesCrossingBoundary = append(staleSeriesCrossingBoundary, labels.FromStrings("name", fmt.Sprintf("series%d", 7000+i)))
+		staleHistCrossingBoundary = append(staleHistCrossingBoundary, labels.FromStrings("name", fmt.Sprintf("series%d", 8000+i)))
+		staleFHistCrossingBoundary = append(staleFHistCrossingBoundary, labels.FromStrings("name", fmt.Sprintf("series%d", 9000+i)))
+	}
+
+	var (
+		v       = 10.0
+		staleV  = math.Float64frombits(value.StaleNaN)
+		h       = tsdbutil.GenerateTestHistograms(1)[0]
+		fh      = tsdbutil.GenerateTestFloatHistograms(1)[0]
+		staleH  = &histogram.Histogram{Sum: staleV}
+		staleFH = &histogram.FloatHistogram{Sum: staleV}
+	)
+
+	addNormalSamples := func(ts int64, floatSeries, histSeries, floatHistSeries []labels.Labels) {
+		app := db.Appender(context.Background())
+		for i := range len(floatSeries) {
+			_, err := app.Append(0, floatSeries[i], ts, v)
+			require.NoError(t, err)
+			_, err = app.AppendHistogram(0, histSeries[i], ts, h, nil)
+			require.NoError(t, err)
+			_, err = app.AppendHistogram(0, floatHistSeries[i], ts, nil, fh)
+			require.NoError(t, err)
+		}
+		require.NoError(t, app.Commit())
+	}
+	addStaleSamples := func(ts int64, floatSeries, histSeries, floatHistSeries []labels.Labels) {
+		app := db.Appender(context.Background())
+		for i := range len(floatSeries) {
+			_, err := app.Append(0, floatSeries[i], ts, staleV)
+			require.NoError(t, err)
+			_, err = app.AppendHistogram(0, histSeries[i], ts, staleH, nil)
+			require.NoError(t, err)
+			_, err = app.AppendHistogram(0, floatHistSeries[i], ts, nil, staleFH)
+			require.NoError(t, err)
+		}
+		require.NoError(t, app.Commit())
+	}
+
+	// Normal sample for all.
+	addNormalSamples(100, nonStaleSeries, nonStaleHist, nonStaleFHist)
+	addNormalSamples(100, staleSeries, staleHist, staleFHist)
+
+	// Stale sample for the stale series. Normal sample for the non-stale series.
+	addNormalSamples(200, nonStaleSeries, nonStaleHist, nonStaleFHist)
+	addStaleSamples(200, staleSeries, staleHist, staleFHist)
+
+	// Normal samples for the non-stale series later
+	addNormalSamples(300, nonStaleSeries, nonStaleHist, nonStaleFHist)
+
+	require.Equal(t, uint64(6*numSeriesPerCategory), db.Head().NumSeries())
+	require.Equal(t, uint64(3*numSeriesPerCategory), db.Head().NumStaleSeries())
+
+	// Series crossing block boundary and gets stale.
+	addNormalSamples(300, staleSeriesCrossingBoundary, staleHistCrossingBoundary, staleFHistCrossingBoundary)
+	addNormalSamples(700, staleSeriesCrossingBoundary, staleHistCrossingBoundary, staleFHistCrossingBoundary)
+	addNormalSamples(1100, staleSeriesCrossingBoundary, staleHistCrossingBoundary, staleFHistCrossingBoundary)
+	addStaleSamples(1200, staleSeriesCrossingBoundary, staleHistCrossingBoundary, staleFHistCrossingBoundary)
+
+	require.NoError(t, db.CompactStaleHead())
+
+	require.Equal(t, uint64(3*numSeriesPerCategory), db.Head().NumSeries())
+	require.Equal(t, uint64(0), db.Head().NumStaleSeries())
+
+	require.Len(t, db.Blocks(), 2)
+	m := db.Blocks()[0].Meta()
+	require.Equal(t, int64(0), m.MinTime)
+	require.Equal(t, int64(1000), m.MaxTime)
+	require.Truef(t, m.Compaction.FromStaleSeries(), "stale series info not found in block meta")
+	m = db.Blocks()[1].Meta()
+	require.Equal(t, int64(1000), m.MinTime)
+	require.Equal(t, int64(2000), m.MaxTime)
+	require.Truef(t, m.Compaction.FromStaleSeries(), "stale series info not found in block meta")
+
+	// To make sure that Head is not truncated based on stale series block.
+	require.NoError(t, db.reload())
+
+	nonFirstH := h.Copy()
+	nonFirstH.CounterResetHint = histogram.NotCounterReset
+	nonFirstFH := fh.Copy()
+	nonFirstFH.CounterResetHint = histogram.NotCounterReset
+
+	// Verify head block.
+	verifyHeadBlock := func() {
+		require.Equal(t, uint64(3), db.head.NumSeries())
+		require.Equal(t, uint64(0), db.head.NumStaleSeries())
+
+		expHeadQuery := make(map[string][]chunks.Sample)
+		for i := range numSeriesPerCategory {
+			expHeadQuery[fmt.Sprintf(`{name="%s"}`, nonStaleSeries[i].Get("name"))] = []chunks.Sample{
+				sample{t: 100, f: v}, sample{t: 200, f: v}, sample{t: 300, f: v},
+			}
+			expHeadQuery[fmt.Sprintf(`{name="%s"}`, nonStaleHist[i].Get("name"))] = []chunks.Sample{
+				sample{t: 100, h: h}, sample{t: 200, h: nonFirstH}, sample{t: 300, h: nonFirstH},
+			}
+			expHeadQuery[fmt.Sprintf(`{name="%s"}`, nonStaleFHist[i].Get("name"))] = []chunks.Sample{
+				sample{t: 100, fh: fh}, sample{t: 200, fh: nonFirstFH}, sample{t: 300, fh: nonFirstFH},
+			}
+		}
+
+		querier, err := NewBlockQuerier(NewRangeHead(db.head, 0, 300), 0, 300)
+		require.NoError(t, err)
+		t.Cleanup(func() {
+			querier.Close()
+		})
+		seriesSet := query(t, querier, labels.MustNewMatcher(labels.MatchRegexp, "name", "series.*"))
+		require.Equal(t, expHeadQuery, seriesSet)
+	}
+
+	verifyHeadBlock()
+
+	// Verify blocks from stale series.
+	{
+		expBlockQuery := make(map[string][]chunks.Sample)
+		for i := range numSeriesPerCategory {
+			expBlockQuery[fmt.Sprintf(`{name="%s"}`, staleSeries[i].Get("name"))] = []chunks.Sample{
+				sample{t: 100, f: v}, sample{t: 200, f: staleV},
+			}
+			expBlockQuery[fmt.Sprintf(`{name="%s"}`, staleHist[i].Get("name"))] = []chunks.Sample{
+				sample{t: 100, h: h}, sample{t: 200, h: staleH},
+			}
+			expBlockQuery[fmt.Sprintf(`{name="%s"}`, staleFHist[i].Get("name"))] = []chunks.Sample{
+				sample{t: 100, fh: fh}, sample{t: 200, fh: staleFH},
+			}
+			expBlockQuery[fmt.Sprintf(`{name="%s"}`, staleSeriesCrossingBoundary[i].Get("name"))] = []chunks.Sample{
+				sample{t: 300, f: v}, sample{t: 700, f: v}, sample{t: 1100, f: v}, sample{t: 1200, f: staleV},
+			}
+			expBlockQuery[fmt.Sprintf(`{name="%s"}`, staleHistCrossingBoundary[i].Get("name"))] = []chunks.Sample{
+				sample{t: 300, h: h}, sample{t: 700, h: nonFirstH}, sample{t: 1100, h: h}, sample{t: 1200, h: staleH},
+			}
+			expBlockQuery[fmt.Sprintf(`{name="%s"}`, staleFHistCrossingBoundary[i].Get("name"))] = []chunks.Sample{
+				sample{t: 300, fh: fh}, sample{t: 700, fh: nonFirstFH}, sample{t: 1100, fh: fh}, sample{t: 1200, fh: staleFH},
+			}
+		}
+
+		querier, err := NewBlockQuerier(db.Blocks()[0], 0, 1000)
+		require.NoError(t, err)
+		t.Cleanup(func() {
+			querier.Close()
+		})
+		seriesSet := queryWithoutReplacingNaNs(t, querier, labels.MustNewMatcher(labels.MatchRegexp, "name", "series.*"))
+
+		querier, err = NewBlockQuerier(db.Blocks()[1], 1000, 2000)
+		require.NoError(t, err)
+		t.Cleanup(func() {
+			querier.Close()
+		})
+		seriesSet2 := queryWithoutReplacingNaNs(t, querier, labels.MustNewMatcher(labels.MatchRegexp, "name", "series.*"))
+		for k, v := range seriesSet2 {
+			seriesSet[k] = append(seriesSet[k], v...)
+		}
+
+		require.Len(t, seriesSet, len(expBlockQuery))
+
+		// Compare all the samples except the stale value that needs special handling.
+		for _, category := range [][]labels.Labels{
+			staleSeries, staleHist, staleFHist,
+			staleSeriesCrossingBoundary, staleHistCrossingBoundary, staleFHistCrossingBoundary,
+		} {
+			for i := range numSeriesPerCategory {
+				seriesKey := fmt.Sprintf(`{name="%s"}`, category[i].Get("name"))
+				samples := expBlockQuery[seriesKey]
+				actSamples, exists := seriesSet[seriesKey]
+				require.Truef(t, exists, "series not found in result %s", seriesKey)
+				require.Len(t, actSamples, len(samples))
+
+				for i := range len(samples) - 1 {
+					require.Equal(t, samples[i], actSamples[i])
+				}
+
+				l := len(samples) - 1
+				require.Equal(t, samples[l].T(), actSamples[l].T())
+				switch {
+				case value.IsStaleNaN(samples[l].F()):
+					require.True(t, value.IsStaleNaN(actSamples[l].F()))
+				case samples[l].H() != nil:
+					require.True(t, value.IsStaleNaN(actSamples[l].H().Sum))
+				default:
+					require.True(t, value.IsStaleNaN(actSamples[l].FH().Sum))
+				}
+			}
+		}
+	}
+
+	{
+		// Restart DB and verify that stale series were discarded from WAL replay.
+		require.NoError(t, db.Close())
+		var err error
+		db, err = Open(db.Dir(), db.logger, db.registerer, db.opts, nil)
+		require.NoError(t, err)
+
+		verifyHeadBlock()
+	}
+}
+
+// TestStaleSeriesCompactionWithZeroSeries verifies that CompactStaleHead handles
+// an empty head (0 series) gracefully without division by zero or incorrectly
+// triggering compaction. This is a regression test for issue #17949.
+func TestStaleSeriesCompactionWithZeroSeries(t *testing.T) {
+	opts := DefaultOptions()
+	opts.MinBlockDuration = 1000
+	opts.MaxBlockDuration = 1000
+	db := newTestDB(t, withOpts(opts))
+	db.DisableCompactions()
+	t.Cleanup(func() {
+		require.NoError(t, db.Close())
+	})
+
+	// Verify the head is empty.
+	require.Equal(t, uint64(0), db.Head().NumSeries())
+	require.Equal(t, uint64(0), db.Head().NumStaleSeries())
+
+	// CompactStaleHead should handle zero series gracefully (no panic, no error).
+	require.NoError(t, db.CompactStaleHead())
+
+	// Should still have no blocks since there was nothing to compact.
+	require.Empty(t, db.Blocks())
+}
+
+func TestBeyondSizeRetentionWithPercentage(t *testing.T) {
+	const maxBlock = 100
+	const numBytesChunks = 1024
+	const diskSize = maxBlock * numBytesChunks
+
+	opts := DefaultOptions()
+	opts.MaxPercentage = 10
+	opts.FsSizeFunc = func(_ string) uint64 {
+		return uint64(diskSize)
+	}
+
+	db := newTestDB(t, withOpts(opts))
+	require.Zero(t, db.Head().Size())
+
+	blocks := make([]*Block, 0, int(opts.MaxPercentage)+1)
+	for range int(opts.MaxPercentage) {
+		blocks = append(blocks, &Block{
+			numBytesChunks: numBytesChunks,
+			meta:           BlockMeta{ULID: ulid.Make()},
+		})
+	}
+
+	deletable := BeyondSizeRetention(db, blocks)
+	require.Empty(t, deletable)
+
+	ulid := ulid.Make()
+	blocks = append(blocks, &Block{
+		numBytesChunks: numBytesChunks,
+		meta:           BlockMeta{ULID: ulid},
+	})
+
+	deletable = BeyondSizeRetention(db, blocks)
+	require.Len(t, deletable, 1)
+	require.Contains(t, deletable, ulid)
 }

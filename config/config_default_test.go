@@ -1,4 +1,4 @@
-// Copyright 2017 The Prometheus Authors
+// Copyright The Prometheus Authors
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -20,9 +20,10 @@ const ruleFilesConfigFile = "testdata/rules_abs_path.good.yml"
 var ruleFilesExpectedConf = &Config{
 	loaded: true,
 
-	GlobalConfig: DefaultGlobalConfig,
-	Runtime:      DefaultRuntimeConfig,
-	OTLPConfig:   DefaultOTLPConfig,
+	GlobalConfig:  DefaultGlobalConfig,
+	Runtime:       DefaultRuntimeConfig,
+	OTLPConfig:    DefaultOTLPConfig,
+	StorageConfig: StorageConfig{TSDBConfig: &TSDBConfig{Retention: &TSDBRetentionConfig{}}},
 	RuleFiles: []string{
 		"testdata/first.rules",
 		"testdata/rules/second.rules",

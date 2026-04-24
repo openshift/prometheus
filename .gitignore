@@ -29,6 +29,7 @@ npm_licenses.tar.bz2
 
 #/vendor
 /.build
+/go.work.sum
 
 /**/node_modules
 

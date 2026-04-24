@@ -182,6 +182,7 @@ scrape_configs:
         token: mysecret
         path_prefix: /consul
         services: ["nginx", "cache", "mysql"]
+        health_filter: 'Service.Tags contains "canary"'
         tags: ["canary", "v1"]
         node_meta:
           rack: "123"
@@ -453,9 +454,11 @@ alerting:
 storage:
   tsdb:
     out_of_order_time_window: 30m
+    stale_series_compaction_threshold: 0.5
     retention:
       time: 1d
       size: 1GB
+      percentage: 28
 
 tracing:
   endpoint: "localhost:4317"
