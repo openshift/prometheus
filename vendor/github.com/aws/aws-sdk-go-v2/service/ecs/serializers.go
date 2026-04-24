@@ -4270,6 +4270,23 @@ func awsAwsjson11_serializeDocumentCapacityProviderStrategyItem(v *types.Capacit
 	return nil
 }
 
+func awsAwsjson11_serializeDocumentCapacityReservationRequest(v *types.CapacityReservationRequest, value smithyjson.Value) error {
+	object := value.Object()
+	defer object.Close()
+
+	if v.ReservationGroupArn != nil {
+		ok := object.Key("reservationGroupArn")
+		ok.String(*v.ReservationGroupArn)
+	}
+
+	if len(v.ReservationPreference) > 0 {
+		ok := object.Key("reservationPreference")
+		ok.String(string(v.ReservationPreference))
+	}
+
+	return nil
+}
+
 func awsAwsjson11_serializeDocumentClusterConfiguration(v *types.ClusterConfiguration, value smithyjson.Value) error {
 	object := value.Object()
 	defer object.Close()
@@ -5748,9 +5765,31 @@ func awsAwsjson11_serializeDocumentInstanceLaunchTemplate(v *types.InstanceLaunc
 	object := value.Object()
 	defer object.Close()
 
+	if len(v.CapacityOptionType) > 0 {
+		ok := object.Key("capacityOptionType")
+		ok.String(string(v.CapacityOptionType))
+	}
+
+	if v.CapacityReservations != nil {
+		ok := object.Key("capacityReservations")
+		if err := awsAwsjson11_serializeDocumentCapacityReservationRequest(v.CapacityReservations, ok); err != nil {
+			return err
+		}
+	}
+
 	if v.Ec2InstanceProfileArn != nil {
 		ok := object.Key("ec2InstanceProfileArn")
 		ok.String(*v.Ec2InstanceProfileArn)
+	}
+
+	if v.FipsEnabled != nil {
+		ok := object.Key("fipsEnabled")
+		ok.Boolean(*v.FipsEnabled)
+	}
+
+	if v.InstanceMetadataTagsPropagation != nil {
+		ok := object.Key("instanceMetadataTagsPropagation")
+		ok.Boolean(*v.InstanceMetadataTagsPropagation)
 	}
 
 	if v.InstanceRequirements != nil {
@@ -5786,9 +5825,21 @@ func awsAwsjson11_serializeDocumentInstanceLaunchTemplateUpdate(v *types.Instanc
 	object := value.Object()
 	defer object.Close()
 
+	if v.CapacityReservations != nil {
+		ok := object.Key("capacityReservations")
+		if err := awsAwsjson11_serializeDocumentCapacityReservationRequest(v.CapacityReservations, ok); err != nil {
+			return err
+		}
+	}
+
 	if v.Ec2InstanceProfileArn != nil {
 		ok := object.Key("ec2InstanceProfileArn")
 		ok.String(*v.Ec2InstanceProfileArn)
+	}
+
+	if v.InstanceMetadataTagsPropagation != nil {
+		ok := object.Key("instanceMetadataTagsPropagation")
+		ok.Boolean(*v.InstanceMetadataTagsPropagation)
 	}
 
 	if v.InstanceRequirements != nil {

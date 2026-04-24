@@ -234,6 +234,27 @@ func (BurstablePerformance) Values() []BurstablePerformance {
 	}
 }
 
+type CapacityOptionType string
+
+// Enum values for CapacityOptionType
+const (
+	CapacityOptionTypeOnDemand CapacityOptionType = "ON_DEMAND"
+	CapacityOptionTypeSpot     CapacityOptionType = "SPOT"
+	CapacityOptionTypeReserved CapacityOptionType = "RESERVED"
+)
+
+// Values returns all known values for CapacityOptionType. Note that this can be
+// expanded in the future, and so it is only as up to date as the client.
+//
+// The ordering of this slice is not guaranteed to be stable across updates.
+func (CapacityOptionType) Values() []CapacityOptionType {
+	return []CapacityOptionType{
+		"ON_DEMAND",
+		"SPOT",
+		"RESERVED",
+	}
+}
+
 type CapacityProviderField string
 
 // Enum values for CapacityProviderField
@@ -328,6 +349,28 @@ func (CapacityProviderUpdateStatus) Values() []CapacityProviderUpdateStatus {
 		"UPDATE_IN_PROGRESS",
 		"UPDATE_COMPLETE",
 		"UPDATE_FAILED",
+	}
+}
+
+type CapacityReservationPreference string
+
+// Enum values for CapacityReservationPreference
+const (
+	CapacityReservationPreferenceReservationsOnly     CapacityReservationPreference = "RESERVATIONS_ONLY"
+	CapacityReservationPreferenceReservationsFirst    CapacityReservationPreference = "RESERVATIONS_FIRST"
+	CapacityReservationPreferenceReservationsExcluded CapacityReservationPreference = "RESERVATIONS_EXCLUDED"
+)
+
+// Values returns all known values for CapacityReservationPreference. Note that
+// this can be expanded in the future, and so it is only as up to date as the
+// client.
+//
+// The ordering of this slice is not guaranteed to be stable across updates.
+func (CapacityReservationPreference) Values() []CapacityReservationPreference {
+	return []CapacityReservationPreference{
+		"RESERVATIONS_ONLY",
+		"RESERVATIONS_FIRST",
+		"RESERVATIONS_EXCLUDED",
 	}
 }
 
@@ -1596,6 +1639,7 @@ const (
 	SettingNameFargateTaskRetirementWaitPeriod SettingName = "fargateTaskRetirementWaitPeriod"
 	SettingNameGuardDutyActivate               SettingName = "guardDutyActivate"
 	SettingNameDefaultLogDriverMode            SettingName = "defaultLogDriverMode"
+	SettingNameFargateEventWindows             SettingName = "fargateEventWindows"
 )
 
 // Values returns all known values for SettingName. Note that this can be expanded
@@ -1614,6 +1658,7 @@ func (SettingName) Values() []SettingName {
 		"fargateTaskRetirementWaitPeriod",
 		"guardDutyActivate",
 		"defaultLogDriverMode",
+		"fargateEventWindows",
 	}
 }
 

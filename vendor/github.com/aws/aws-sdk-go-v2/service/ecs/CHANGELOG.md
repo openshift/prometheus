@@ -1,3 +1,40 @@
+# v1.74.0 (2026-03-16)
+
+* **Feature**: Amazon ECS now supports configuring whether tags are propagated to the EC2 Instance Metadata Service (IMDS) for instances launched by the Managed Instances capacity provider. This gives customers control over tag visibility in IMDS when using ECS Managed Instances.
+
+# v1.73.2 (2026-03-13)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.73.1 (2026-03-03)
+
+* **Dependency Update**: Bump minimum Go version to 1.24
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.73.0 (2026-02-26)
+
+* **Feature**: Adding support for Capacity Reservations for ECS Managed Instances by introducing a new "capacityOptionType" value of "RESERVED" and new field "capacityReservations" for CreateCapacityProvider and UpdateCapacityProvider APIs.
+
+# v1.72.1 (2026-02-23)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.72.0 (2026-02-20)
+
+* **Feature**: Migrated to Smithy. No functional changes
+
+# v1.71.0 (2026-01-15)
+
+* **Feature**: Adds support for configuring FIPS in AWS GovCloud (US) Regions via a new ECS Capacity Provider field fipsEnabled. When enabled, instances launched by the capacity provider will use a FIPS-140 enabled AMI. Instances will use FIPS-140 compliant cryptographic modules and AWS FIPS endpoints.
+
+# v1.70.1 (2026-01-09)
+
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.70.0 (2025-12-18)
+
+* **Feature**: Adding support for Event Windows via a new ECS account setting "fargateEventWindows". When enabled, ECS Fargate will use the configured event window for patching tasks. Introducing "CapacityOptionType" for CreateCapacityProvider API, allowing support for Spot capacity for ECS Managed Instances.
+
 # v1.69.5 (2025-12-09)
 
 * No change notes available for this release.

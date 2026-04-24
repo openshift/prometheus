@@ -1,3 +1,27 @@
+## v2.11.0 (2026-03-04)
+
+* [GH-3602](https://github.com/gophercloud/gophercloud/pull/3602) [v2] Add PCIAddress field to baremetal InterfaceType
+* [GH-3610](https://github.com/gophercloud/gophercloud/pull/3610) [v2] Networking V2: Added support for ML2 extension port_trusted_vif
+* [GH-3611](https://github.com/gophercloud/gophercloud/pull/3611) [v2] networking/v2/layer3/routers: Add external gateways management
+* [GH-3625](https://github.com/gophercloud/gophercloud/pull/3625) [v2] Use jimmy amphora in octavia job
+* [GH-3629](https://github.com/gophercloud/gophercloud/pull/3629) [v2] Add a new Ironic field representing node health to Gophercloud
+* [GH-3630](https://github.com/gophercloud/gophercloud/pull/3630) [v2] Bump go
+* [GH-3632](https://github.com/gophercloud/gophercloud/pull/3632) [v2] CI: Fix fwaas jobs
+* [GH-3633](https://github.com/gophercloud/gophercloud/pull/3633) [v2] Add TSIG key support for OpenStack DNS v2 API
+* [GH-3640](https://github.com/gophercloud/gophercloud/pull/3640) [v2] fix: networkipavailabilities: handle scientific notation in IP counts
+
+## v2.10.0 (2026-01-05)
+
+* [GH-3569](https://github.com/gophercloud/gophercloud/pull/3569) identity/role: restore backward compatibility for description
+* [GH-3570](https://github.com/gophercloud/gophercloud/pull/3570) [v2] identityv3/service: add `name` and `description` fields
+* [GH-3577](https://github.com/gophercloud/gophercloud/pull/3577) [v2] add: description field to identity.v3.Endpoint
+* [GH-3580](https://github.com/gophercloud/gophercloud/pull/3580) [v2] keystone: add support for per page limit
+* [GH-3582](https://github.com/gophercloud/gophercloud/pull/3582) [v2] network.v2.Port: add support for update mac_address
+* [GH-3585](https://github.com/gophercloud/gophercloud/pull/3585) [v2] identity.v3.Endpoint: add enabled field on creation and on update
+* [GH-3590](https://github.com/gophercloud/gophercloud/pull/3590) [v2] fix (image/v2/images): image v2 unmarshal issue
+* [GH-3594](https://github.com/gophercloud/gophercloud/pull/3594) [v2] Add new fields for ListOpts volumetypes
+* [GH-3595](https://github.com/gophercloud/gophercloud/pull/3595) [v2] identity.v3.Endpoint: make name as optional on creation
+
 ## v2.9.0 (2025-11-17)
 
 * [GH-3508](https://github.com/gophercloud/gophercloud/pull/3508) [v2] Trigger "hold" workflow on merge groups
