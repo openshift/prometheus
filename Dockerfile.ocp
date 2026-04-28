@@ -8,6 +8,8 @@ COPY . .
 # 'BUILD_UI=mantine make assets-compress' should be run locally and the
 # resulting file (web/ui/embed.go) and ui assets (web/ui/static/**/*.gz) should
 # be committed to the repository.
+# Ensure only the Mantine UI assets are embedded, the old React UI is not used in OCP.
+RUN grep -q 'mantine-ui' web/ui/embed.go && ! grep -q 'react-app' web/ui/embed.go
 RUN if yum install -y prometheus-promu; then export BUILD_PROMU=false; fi && make common-build
 
 FROM registry.ci.openshift.org/ocp/4.22:base-rhel9
