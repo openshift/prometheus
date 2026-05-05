@@ -1,7 +1,7 @@
 go:
     # Whenever the Go version is updated here,
     # .github/workflows should also be updated.
-    version: 1.25
+    version: 1.26
 repository:
     path: github.com/prometheus/prometheus
 build:
@@ -14,6 +14,8 @@ build:
         all:
             - netgo
             - builtinassets
+            # Reduce binary size by excluding unused SD deps.
+            - remove_all_sd,enable_kubernetes_sd
         windows:
             - builtinassets
     ldflags: |

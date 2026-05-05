@@ -17,5 +17,5 @@ package ui
 
 import "embed"
 
-//go:embed static/mantine-ui/assets/codicon-B_nZgZYP.ttf.gz static/mantine-ui/assets/index-BWib6wNA.css.gz static/mantine-ui/assets/index-DnfzzHzL.js.gz static/mantine-ui/favicon.svg.gz static/mantine-ui/index.html.gz static/react-app/asset-manifest.json.gz static/react-app/favicon.ico.gz static/react-app/index.html.gz static/react-app/manifest.json.gz static/react-app/static/css/main.953e44df.css.gz static/react-app/static/css/main.953e44df.css.map.gz static/react-app/static/js/main.b9ad08e6.js.LICENSE.txt.gz static/react-app/static/js/main.b9ad08e6.js.gz static/react-app/static/js/main.b9ad08e6.js.map.gz static/react-app/static/media/codicon.b3726f0165bf67ac6849.ttf.gz static/react-app/static/media/index.f6d03137e8c9dd0de04c.cjs.gz static/react-app/static/media/prometheus_logo_grey.3cf697e5443028ca5e5255b93c7906c5.svg.gz
+//go:embed static/mantine-ui/assets/codicon-B_nZgZYP.ttf.gz static/mantine-ui/assets/index-9NMa8IxZ.js.gz static/mantine-ui/assets/index-DpomRM9D.css.gz static/mantine-ui/favicon.svg.gz static/mantine-ui/index.html.gz
 var EmbedFS embed.FS

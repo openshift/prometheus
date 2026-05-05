@@ -1,4 +1,4 @@
-// Copyright 2023 The Prometheus Authors
+// Copyright The Prometheus Authors
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -64,7 +64,7 @@ title: %s
 
 func createFlagRow(flag *kingpin.FlagModel) []string {
 	defaultVal := ""
-	if len(flag.Default) > 0 && len(flag.Default[0]) > 0 {
+	if len(flag.Default) > 0 && flag.Default[0] != "" {
 		defaultVal = fmt.Sprintf("`%s`", flag.Default[0])
 	}
 

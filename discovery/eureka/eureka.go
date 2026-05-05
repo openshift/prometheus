@@ -1,4 +1,4 @@
-// Copyright 2020 The Prometheus Authors
+// Copyright The Prometheus Authors
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -103,14 +103,14 @@ func (c *SDConfig) UnmarshalYAML(unmarshal func(any) error) error {
 	if err != nil {
 		return err
 	}
-	if len(c.Server) == 0 {
+	if c.Server == "" {
 		return errors.New("eureka_sd: empty or null eureka server")
 	}
 	url, err := url.Parse(c.Server)
 	if err != nil {
 		return err
 	}
-	if len(url.Scheme) == 0 || len(url.Host) == 0 {
+	if url.Scheme == "" || url.Host == "" {
 		return errors.New("eureka_sd: invalid eureka server URL")
 	}
 	return c.HTTPClientConfig.Validate()

@@ -1,12 +1,15 @@
 FROM registry.ci.openshift.org/ocp/builder:rhel-9-golang-1.25-openshift-4.22 AS builder
 WORKDIR /go/src/github.com/prometheus/prometheus
 COPY . .
-# NOTE(spasquie): the 'build' target regenerates the ReactJS code and the Go
+# NOTE(spasquie): the 'build' target regenerates the UI code and the Go
 # assets on the fly.  Build environments don't have access to Yarn and external
 # package repositories so we use the 'common-build' target instead.
-# It means that every time we update to a new Prometheus version, 'make assets'
-# should be run locally and the resulting file (web/ui/embed.go) and ui assets
-# (web/ui/static/**/*.gz) should be committed to the repository.
+# It means that every time we update to a new Prometheus version,
+# 'BUILD_UI=mantine make assets-compress' should be run locally and the
+# resulting file (web/ui/embed.go) and ui assets (web/ui/static/**/*.gz) should
+# be committed to the repository.
+# Ensure only the Mantine UI assets are embedded, the old React UI is not used in OCP.
+RUN grep -q 'mantine-ui' web/ui/embed.go && ! grep -q 'react-app' web/ui/embed.go
 RUN if yum install -y prometheus-promu; then export BUILD_PROMU=false; fi && make common-build
 
 FROM registry.ci.openshift.org/ocp/4.22:base-rhel9

@@ -1,4 +1,4 @@
-// Copyright 2016 The Prometheus Authors
+// Copyright The Prometheus Authors
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -1562,11 +1562,9 @@ func TestConfigReloadAndShutdownRace(t *testing.T) {
 	discoveryManager.updatert = 100 * time.Millisecond
 
 	var wgDiscovery sync.WaitGroup
-	wgDiscovery.Add(1)
-	go func() {
+	wgDiscovery.Go(func() {
 		discoveryManager.Run()
-		wgDiscovery.Done()
-	}()
+	})
 	time.Sleep(time.Millisecond * 200)
 
 	var wgBg sync.WaitGroup
@@ -1588,14 +1586,39 @@ func TestConfigReloadAndShutdownRace(t *testing.T) {
 	discoveryManager.ApplyConfig(c)
 
 	delete(c, "prometheus")
-	wgBg.Add(1)
-	go func() {
+	wgBg.Go(func() {
 		discoveryManager.ApplyConfig(c)
-		wgBg.Done()
-	}()
+	})
 	mgrCancel()
 	wgDiscovery.Wait()
 
 	cancel()
 	wgBg.Wait()
+}
+
+func TestGaugeLastUpdateTimestamp(t *testing.T) {
+	ctx := t.Context()
+
+	reg := prometheus.NewRegistry()
+	_, sdMetrics := NewTestMetrics(t, reg)
+
+	discoveryManager := NewManager(ctx, promslog.NewNopLogger(), reg, sdMetrics)
+	require.NotNil(t, discoveryManager)
+	discoveryManager.updatert = 100 * time.Millisecond
+	go discoveryManager.Run()
+
+	c := map[string]Configs{
+		"prometheus": {
+			staticConfig("foo:9090"),
+		},
+	}
+	discoveryManager.ApplyConfig(c)
+
+	before := time.Now()
+	<-discoveryManager.SyncCh()
+	after := time.Now()
+
+	ts := client_testutil.ToFloat64(discoveryManager.metrics.LastUpdated.WithLabelValues("prometheus"))
+	require.GreaterOrEqual(t, ts, float64(before.UnixNano())/1e9, "last update timestamp should be >= time before sync")
+	require.LessOrEqual(t, ts, float64(after.UnixNano())/1e9, "last update timestamp should be <= time after sync")
 }

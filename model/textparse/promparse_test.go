@@ -1,4 +1,4 @@
-// Copyright 2017 The Prometheus Authors
+// Copyright The Prometheus Authors
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -511,6 +511,10 @@ func TestPromParseErrors(t *testing.T) {
 			err:   "expected label name, got \"=\\\"\" (\"EQUAL\") while parsing: \"empty_label_name{=\\\"\"",
 		},
 		{
+			input: "{A}0",
+			err:   "expected equal, got \"}0\" (\"BCLOSE\") while parsing: \"{A}0\"",
+		},
+		{
 			input: "foo 1_2\n",
 			err:   "unsupported character in float while parsing: \"foo 1_2\"",
 		},
@@ -548,6 +552,22 @@ func TestPromParseErrors(t *testing.T) {
 		}
 		require.EqualError(t, err, c.err, "test %d", i)
 	}
+}
+
+func TestPromParseBareIdentifierInBraces(t *testing.T) {
+	require.NotPanics(t, func() {
+		p := NewPromParser([]byte("{A} 0\n"), labels.NewSymbolTable(), false)
+		for {
+			et, err := p.Next()
+			if err != nil {
+				break
+			}
+			if et == EntrySeries {
+				var lset labels.Labels
+				p.Labels(&lset)
+			}
+		}
+	})
 }
 
 func TestPromNullByteHandling(t *testing.T) {

@@ -1,4 +1,4 @@
-// Copyright 2020 The Prometheus Authors
+// Copyright The Prometheus Authors
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -36,7 +36,7 @@ const (
 	hetznerLabelServerID          = hetznerLabelPrefix + "server_id"
 	hetznerLabelServerName        = hetznerLabelPrefix + "server_name"
 	hetznerLabelServerStatus      = hetznerLabelPrefix + "server_status"
-	hetznerLabelDatacenter        = hetznerLabelPrefix + "datacenter"
+	hetznerLabelDatacenter        = hetznerLabelPrefix + "datacenter" // Label name kept for backward compatibility
 	hetznerLabelPublicIPv4        = hetznerLabelPrefix + "public_ipv4"
 	hetznerLabelPublicIPv6Network = hetznerLabelPrefix + "public_ipv6_network"
 )
