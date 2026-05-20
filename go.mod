@@ -249,3 +249,6 @@ exclude (
 
 // Pin until https://github.com/fsnotify/fsnotify/issues/656 is resolved.
 replace github.com/fsnotify/fsnotify v1.8.0 => github.com/fsnotify/fsnotify v1.7.0
+
+// Carry fix for https://redhat.atlassian.net/browse/OCPBUGS-62118: TLS cert rotation failing without ca_file
+replace github.com/prometheus/common => github.com/machine424/prometheus-common v0.0.0-20260519225044-f64bfd649200
