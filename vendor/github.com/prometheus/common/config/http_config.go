@@ -1460,7 +1460,7 @@ func (t *tlsRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 	rt := t.rt
 	t.mtx.RUnlock()
 	if equal {
-		// The TLS materials (CA, cert, key) haven't changed, use the existing RoundTripper.
+		// The CA cert hasn't changed, use the existing RoundTripper.
 		return rt.RoundTrip(req)
 	}
 
@@ -1468,7 +1468,10 @@ func (t *tlsRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 	// The cert and key files are read separately by the client
 	// using GetClientCertificate.
 	tlsConfig := t.tlsConfig.Clone()
-	if t.settings.CA != nil && !updateRootCA(tlsConfig, caData) {
+	if !updateRootCA(tlsConfig, caData) {
+		if t.settings.CA == nil {
+			return nil, errors.New("unable to use specified CA cert: none configured")
+		}
 		return nil, fmt.Errorf("unable to use specified CA cert %s", t.settings.CA.Description())
 	}
 	rt, err = t.newRT(tlsConfig)

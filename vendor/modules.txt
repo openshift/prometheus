@@ -1387,7 +1387,7 @@ github.com/prometheus/client_golang/exp/internal/github.com/efficientgo/core/bac
 # github.com/prometheus/client_model v0.6.2
 ## explicit; go 1.22.0
 github.com/prometheus/client_model/go
-# github.com/prometheus/common v0.67.5 => github.com/machine424/prometheus-common v0.0.0-20260520094605-e18d037b467a
+# github.com/prometheus/common v0.67.5
 ## explicit; go 1.24.0
 github.com/prometheus/common/config
 github.com/prometheus/common/expfmt
@@ -2428,4 +2428,3 @@ sigs.k8s.io/structured-merge-diff/v6/value
 sigs.k8s.io/yaml
 # cloud.google.com/go => cloud.google.com/go v0.123.0
 # github.com/go-openapi/testify/v2 => github.com/go-openapi/testify/v2 v2.0.2
-# github.com/prometheus/common => github.com/machine424/prometheus-common v0.0.0-20260520094605-e18d037b467a
