@@ -59,10 +59,10 @@
 @parcel/watcher-win32-x64@2.5.0
 @parcel/watcher@2.5.0
 @prometheus-io/codemirror-promql@0.303.0
-@prometheus-io/codemirror-promql@0.311.2
+@prometheus-io/codemirror-promql@0.311.3
 @prometheus-io/lezer-promql@0.303.0
-@prometheus-io/lezer-promql@0.311.2
-@prometheus-io/mantine-ui@0.311.2
+@prometheus-io/lezer-promql@0.311.3
+@prometheus-io/mantine-ui@0.311.3
 @reduxjs/toolkit@2.11.2
 @standard-schema/spec@1.0.0
 @standard-schema/utils@0.3.0
