@@ -82,3 +82,5 @@ exclude (
 	cloud.google.com/go v0.65.0
 	cloud.google.com/go v0.82.0
 )
+
+replace google.golang.org/grpc => github.com/openshift-sustaining/grpc-go v1.71.3-sec.1
