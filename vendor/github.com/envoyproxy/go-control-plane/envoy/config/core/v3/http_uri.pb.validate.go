@@ -92,12 +92,13 @@ func (m *HttpUri) validate(all bool) error {
 			errors = append(errors, err)
 		} else {
 
+			lt := time.Duration(4294967296*time.Second + 0*time.Nanosecond)
 			gte := time.Duration(0*time.Second + 0*time.Nanosecond)
 
-			if dur < gte {
+			if dur < gte || dur >= lt {
 				err := HttpUriValidationError{
 					field:  "Timeout",
-					reason: "value must be greater than or equal to 0s",
+					reason: "value must be inside range [0s, 1193046h28m16s)",
 				}
 				if !all {
 					return err
@@ -108,9 +109,20 @@ func (m *HttpUri) validate(all bool) error {
 		}
 	}
 
-	switch m.HttpUpstreamType.(type) {
-
+	oneofHttpUpstreamTypePresent := false
+	switch v := m.HttpUpstreamType.(type) {
 	case *HttpUri_Cluster:
+		if v == nil {
+			err := HttpUriValidationError{
+				field:  "HttpUpstreamType",
+				reason: "oneof value cannot be a typed-nil",
+			}
+			if !all {
+				return err
+			}
+			errors = append(errors, err)
+		}
+		oneofHttpUpstreamTypePresent = true
 
 		if utf8.RuneCountInString(m.GetCluster()) < 1 {
 			err := HttpUriValidationError{
@@ -124,6 +136,9 @@ func (m *HttpUri) validate(all bool) error {
 		}
 
 	default:
+		_ = v // ensures v is used
+	}
+	if !oneofHttpUpstreamTypePresent {
 		err := HttpUriValidationError{
 			field:  "HttpUpstreamType",
 			reason: "value is required",
@@ -132,7 +147,6 @@ func (m *HttpUri) validate(all bool) error {
 			return err
 		}
 		errors = append(errors, err)
-
 	}
 
 	if len(errors) > 0 {
