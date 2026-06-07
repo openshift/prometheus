@@ -1,4 +1,4 @@
-FROM registry.ci.openshift.org/ocp/builder:rhel-9-golang-1.25-openshift-4.22 AS builder
+FROM registry.ci.openshift.org/ocp/builder:rhel-9-golang-1.26-openshift-5.0 AS builder
 WORKDIR /go/src/github.com/prometheus/prometheus
 COPY . .
 # NOTE(spasquie): the 'build' target regenerates the UI code and the Go
@@ -12,7 +12,7 @@ COPY . .
 RUN grep -q 'mantine-ui' web/ui/embed.go && ! grep -q 'react-app' web/ui/embed.go
 RUN if yum install -y prometheus-promu; then export BUILD_PROMU=false; fi && make common-build
 
-FROM registry.ci.openshift.org/ocp/4.22:base-rhel9
+FROM registry.ci.openshift.org/ocp/5.0:base-rhel9
 LABEL io.k8s.display-name="OpenShift Prometheus" \
       io.k8s.description="The Prometheus monitoring system and time series database." \
       io.openshift.tags="prometheus,monitoring" \
