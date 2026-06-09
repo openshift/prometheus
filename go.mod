@@ -1,5 +1,5 @@
 module github.com/prometheus/prometheus
-
+// dummy comment to invoke PR tests
 go 1.22.0
 
 require (
