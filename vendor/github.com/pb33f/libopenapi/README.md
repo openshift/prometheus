@@ -22,15 +22,6 @@ Overlays and Arazzo are also fully supported.
 If your company is using `libopenapi`, please considering [supporting this project](https://github.com/sponsors/daveshanley), 
 like our _very kind_ sponsors:
 
-<a href="https://speakeasy.com/editor?utm_source=libopenapi+repo&utm_medium=github+sponsorship">
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset=".github/sponsors/speakeasy-github-sponsor-dark.svg">
-  <img alt="speakeasy'" src=".github/sponsors/speakeasy-github-sponsor-light.svg">
-</picture>
-</a>
-
-[Speakeasy](https://speakeasy.com/editor?utm_source=libopenapi+repo&utm_medium=github+sponsorship)
-
 <a href="https://scalar.com">
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset=".github/sponsors/scalar-dark.png">
@@ -81,6 +72,8 @@ See all the documentation at https://pb33f.io/libopenapi/
 - [What Changed / Diff Engine](https://pb33f.io/libopenapi/what-changed/)
 - [Overlays](https://pb33f.io/libopenapi/overlays/)
 - [Arazzo](https://pb33f.io/libopenapi/arazzo/)
+- [Generating Code](https://pb33f.io/libopenapi/generating-code/)
+- [Parsing Code](https://pb33f.io/libopenapi/parsing-code/)
 - [FAQ](https://pb33f.io/libopenapi/faq/)
 - [About libopenapi](https://pb33f.io/libopenapi/about/)
 ---

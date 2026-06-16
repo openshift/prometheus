@@ -267,3 +267,6 @@ exclude (
 )
 
 replace cloud.google.com/go => cloud.google.com/go v0.123.0
+
+// Carry fix for https://redhat.atlassian.net/browse/OCPBUGS-62118: TLS cert rotation failing without ca_file
+replace github.com/prometheus/common => github.com/machine424/prometheus-common v0.0.0-20260520094605-e18d037b467a

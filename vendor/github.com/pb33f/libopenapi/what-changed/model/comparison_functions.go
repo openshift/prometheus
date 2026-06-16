@@ -25,6 +25,10 @@ const (
 
 var changeMutex sync.Mutex
 
+type changeCollection interface {
+	GetAllChanges() []*Change
+}
+
 // SetReferenceIfExists checks if a low-level value has a reference and sets it on the change object
 // if the change object implements the ChangeIsReferenced interface.
 func SetReferenceIfExists[T any](value *low.ValueReference[T], changeObj any) {
@@ -43,6 +47,56 @@ func PreserveParameterReference[T any](lRefs, rRefs map[string]*low.ValueReferen
 	} else if rRef := rRefs[name]; rRef != nil && rRef.IsReference() {
 		SetReferenceIfExists(rRef, changes)
 	}
+}
+
+func overrideChangeCollectionBreaking(changeObj any, breaking bool) {
+	if changeObj == nil {
+		return
+	}
+	collection, ok := changeObj.(changeCollection)
+	if !ok {
+		return
+	}
+	for _, change := range collection.GetAllChanges() {
+		if change != nil {
+			change.Breaking = breaking
+		}
+	}
+}
+
+func compareExamplesWithParentBreaking(component, property string) func(l, r *base.Example) *ExampleChanges {
+	return func(l, r *base.Example) *ExampleChanges {
+		changes := CompareExamples(l, r)
+		if changes == nil {
+			return nil
+		}
+
+		switch {
+		case l == nil:
+			overrideChangeCollectionBreaking(changes, BreakingAdded(component, property))
+		case r == nil:
+			overrideChangeCollectionBreaking(changes, BreakingRemoved(component, property))
+		default:
+			overrideChangeCollectionBreaking(changes, BreakingModified(component, property))
+		}
+		return changes
+	}
+}
+
+func CheckExampleMapForChangesWithRules(
+	expLeft, expRight *orderedmap.Map[low.KeyReference[string], low.ValueReference[*base.Example]],
+	changes *[]*Change, label string, component, property string,
+) map[string]*ExampleChanges {
+	return CheckMapForChangesWithRules(expLeft, expRight, changes, label,
+		compareExamplesWithParentBreaking(component, property), component, property)
+}
+
+func CheckExampleMapForChangesWithNilSupportAndRules(
+	expLeft, expRight *orderedmap.Map[low.KeyReference[string], low.ValueReference[*base.Example]],
+	changes *[]*Change, label string, component, property string,
+) map[string]*ExampleChanges {
+	return CheckMapForChangesWithNilSupportAndRules(expLeft, expRight, changes, label,
+		compareExamplesWithParentBreaking(component, property), component, property)
 }
 
 func checkLocation(ctx *ChangeContext, hs base.HasIndex) bool {
@@ -386,8 +440,10 @@ func checkForModificationInternal[T any](l, r *yaml.Node, label string, changes 
 	if withEncoding {
 		createFn = CreateChangeWithEncoding
 	}
-	if l != nil && l.Value != EMPTY_STR && r != nil && r.Value != EMPTY_STR && (r.Value != l.Value || r.Tag != l.Tag) {
-		createFn(changes, Modified, label, l, r, breaking, orig, new)
+	if l != nil && l.Value != EMPTY_STR && r != nil && r.Value != EMPTY_STR {
+		if !low.CompareYAMLNodes(l, r) {
+			createFn(changes, Modified, label, l, r, breaking, orig, new)
+		}
 		return
 	}
 	if l != nil && utils.IsNodeArray(l) && r != nil && !utils.IsNodeArray(r) {
@@ -486,6 +542,16 @@ func CheckMapForChangesWithNilSupport[T any, R any](expLeft, expRight *orderedma
 	changes *[]*Change, label string, compareFunc func(l, r T) R,
 ) map[string]R {
 	return checkMapForChangesWithNilSupportInternal(expLeft, expRight, changes, label, compareFunc, false, true)
+}
+
+// CheckMapForChangesWithNilSupportAndRules checks a left and right low level map for any additions, subtractions
+// or modifications, calling compareFunc with nil for added/removed values and using the configured breaking rules
+// for the supplied component and property.
+func CheckMapForChangesWithNilSupportAndRules[T any, R any](expLeft, expRight *orderedmap.Map[low.KeyReference[string], low.ValueReference[T]],
+	changes *[]*Change, label string, compareFunc func(l, r T) R, component, property string,
+) map[string]R {
+	return checkMapForChangesWithNilSupportInternal(expLeft, expRight, changes, label, compareFunc,
+		BreakingAdded(component, property), BreakingRemoved(component, property))
 }
 
 // checkMapForChangesWithNilSupportInternal is the core implementation that calls compareFunc with nil for added/removed items.

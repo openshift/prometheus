@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"slices"
 	"sort"
+	"strings"
 	"sync"
 
 	"github.com/pb33f/libopenapi/datamodel/low"
@@ -494,6 +495,8 @@ func CompareSchemas(l, r *base.SchemaProxy) *SchemaChanges {
 
 		lSchema := l.Schema()
 		rSchema := r.Schema()
+		comparisonLSchema := schemaComparisonViewForSimpleAllOfObject(l, lSchema)
+		comparisonRSchema := schemaComparisonViewForSimpleAllOfObject(r, rSchema)
 
 		if low.AreEqual(lSchema, rSchema) {
 			// there is no point going on, we know nothing changed!
@@ -506,30 +509,40 @@ func CompareSchemas(l, r *base.SchemaProxy) *SchemaChanges {
 		// check examples
 		checkExamples(lSchema, rSchema, &changes)
 
+		skipSimpleScalarUnionDiff := schemasUseEquivalentSimpleScalarUnion(l, r)
+
 		// check schema core properties for changes.
-		checkSchemaPropertyChanges(lSchema, rSchema, l, r, &changes, sc)
+		checkSchemaPropertyChanges(comparisonLSchema, comparisonRSchema, l, r, &changes, sc, skipSimpleScalarUnionDiff)
 
 		// now for the confusing part, there is also a schema's 'properties' property to parse.
 		// inception, eat your heart out.
 		var lProperties, rProperties, lDepSchemas, rDepSchemas, lPattProp, rPattProp *orderedmap.Map[low.KeyReference[string], low.ValueReference[*base.SchemaProxy]]
 		var loneOf, lallOf, lanyOf, roneOf, rallOf, ranyOf, lprefix, rprefix []low.ValueReference[*base.SchemaProxy]
+		if comparisonLSchema != nil {
+			lProperties = comparisonLSchema.Properties.Value
+			lDepSchemas = comparisonLSchema.DependentSchemas.Value
+			lPattProp = comparisonLSchema.PatternProperties.Value
+		}
 		if lSchema != nil {
-			lProperties = lSchema.Properties.Value
-			lDepSchemas = lSchema.DependentSchemas.Value
-			lPattProp = lSchema.PatternProperties.Value
 			loneOf = lSchema.OneOf.Value
 			lallOf = lSchema.AllOf.Value
 			lanyOf = lSchema.AnyOf.Value
 			lprefix = lSchema.PrefixItems.Value
 		}
+		if comparisonRSchema != nil {
+			rProperties = comparisonRSchema.Properties.Value
+			rDepSchemas = comparisonRSchema.DependentSchemas.Value
+			rPattProp = comparisonRSchema.PatternProperties.Value
+		}
 		if rSchema != nil {
-			rProperties = rSchema.Properties.Value
-			rDepSchemas = rSchema.DependentSchemas.Value
-			rPattProp = rSchema.PatternProperties.Value
 			roneOf = rSchema.OneOf.Value
 			rallOf = rSchema.AllOf.Value
 			ranyOf = rSchema.AnyOf.Value
 			rprefix = rSchema.PrefixItems.Value
+		}
+		if skipSimpleScalarUnionDiff {
+			lanyOf = nil
+			ranyOf = nil
 		}
 
 		props := checkMappedSchemaOfASchema(lProperties, rProperties, &changes)
@@ -540,11 +553,11 @@ func CompareSchemas(l, r *base.SchemaProxy) *SchemaChanges {
 
 		// Check dependent required changes
 		var lDepRequired, rDepRequired *orderedmap.Map[low.KeyReference[string], low.ValueReference[[]string]]
-		if lSchema != nil {
-			lDepRequired = lSchema.DependentRequired.Value
+		if comparisonLSchema != nil {
+			lDepRequired = comparisonLSchema.DependentRequired.Value
 		}
-		if rSchema != nil {
-			rDepRequired = rSchema.DependentRequired.Value
+		if comparisonRSchema != nil {
+			rDepRequired = comparisonRSchema.DependentRequired.Value
 		}
 
 		depRequiredChanges := checkDependentRequiredChanges(lDepRequired, rDepRequired)
@@ -748,7 +761,7 @@ func checkSchemaPropertyChanges(
 	rSchema *base.Schema,
 	lProxy *base.SchemaProxy,
 	rProxy *base.SchemaProxy,
-	changes *[]*Change, sc *SchemaChanges,
+	changes *[]*Change, sc *SchemaChanges, skipSimpleScalarUnionDiff bool,
 ) {
 	var props []*PropertyCheck
 
@@ -818,26 +831,28 @@ func checkSchemaPropertyChanges(
 	lnv = nil
 	rnv = nil
 
-	if lSchema != nil && lSchema.Type.ValueNode != nil {
-		lnv = lSchema.Type.ValueNode
+	if !skipSimpleScalarUnionDiff {
+		if lSchema != nil && lSchema.Type.ValueNode != nil {
+			lnv = lSchema.Type.ValueNode
+		}
+		if rSchema != nil && rSchema.Type.ValueNode != nil {
+			rnv = rSchema.Type.ValueNode
+		}
+		// Type
+		props = append(props, &PropertyCheck{
+			LeftNode:  lnv,
+			RightNode: rnv,
+			Label:     v3.TypeLabel,
+			Changes:   changes,
+			Breaking:  BreakingModified(CompSchema, PropType),
+			Component: CompSchema,
+			Property:  PropType,
+			Original:  lSchema,
+			New:       rSchema,
+		})
+		lnv = nil
+		rnv = nil
 	}
-	if rSchema != nil && rSchema.Type.ValueNode != nil {
-		rnv = rSchema.Type.ValueNode
-	}
-	// Type
-	props = append(props, &PropertyCheck{
-		LeftNode:  lnv,
-		RightNode: rnv,
-		Label:     v3.TypeLabel,
-		Changes:   changes,
-		Breaking:  BreakingModified(CompSchema, PropType),
-		Component: CompSchema,
-		Property:  PropType,
-		Original:  lSchema,
-		New:       rSchema,
-	})
-	lnv = nil
-	rnv = nil
 
 	if lSchema != nil && lSchema.Title.ValueNode != nil {
 		lnv = lSchema.Title.ValueNode
@@ -1765,6 +1780,334 @@ func checkSchemaPropertyChanges(
 	}
 }
 
+func schemasUseEquivalentSimpleScalarUnion(l, r *base.SchemaProxy) bool {
+	return schemaPairUsesEquivalentSimpleScalarUnion(l, r) ||
+		schemaPairUsesEquivalentSimpleScalarUnion(r, l)
+}
+
+func schemaComparisonViewForSimpleAllOfObject(proxy *base.SchemaProxy, schema *base.Schema) *base.Schema {
+	if !isSimpleAllOfObjectSchema(proxy, schema) {
+		return schema
+	}
+	merged, ok := mergeSimpleAllOfObjectSchemaView(schema)
+	if !ok {
+		return schema
+	}
+	return merged
+}
+
+func isSimpleAllOfObjectSchema(proxy *base.SchemaProxy, schema *base.Schema) bool {
+	if proxy == nil || schema == nil || proxy.IsReference() || len(schema.AllOf.Value) == 0 {
+		return false
+	}
+	if len(schema.OneOf.Value) > 0 || len(schema.AnyOf.Value) > 0 || len(schema.PrefixItems.Value) > 0 || schema.Not.Value != nil {
+		return false
+	}
+	for _, branch := range schema.AllOf.Value {
+		if branch.Value == nil || branch.Value.IsReference() || !schemaNodeHasOnlyAllowedKeys(branch.Value.GetValueNode(), simpleAllOfObjectBranchKeys) {
+			return false
+		}
+		branchSchema := branch.Value.Schema()
+		if branchSchema == nil || len(branchSchema.OneOf.Value) > 0 || len(branchSchema.AnyOf.Value) > 0 ||
+			len(branchSchema.AllOf.Value) > 0 || len(branchSchema.PrefixItems.Value) > 0 || branchSchema.Not.Value != nil {
+			return false
+		}
+	}
+	return true
+}
+
+var simpleAllOfObjectBranchKeys = map[string]struct{}{
+	v3.DescriptionLabel: {},
+	v3.PropertiesLabel:  {},
+	v3.RequiredLabel:    {},
+	v3.TitleLabel:       {},
+	v3.TypeLabel:        {},
+}
+
+func mergeSimpleAllOfObjectSchemaView(schema *base.Schema) (*base.Schema, bool) {
+	if schema == nil {
+		return nil, false
+	}
+	merged := *schema
+
+	typeRef, ok := mergeSimpleAllOfObjectType(schema)
+	if !ok {
+		return nil, false
+	}
+	descriptionRef, ok := mergeCompatibleStringNodeReference(schema.Description, schema.AllOf.Value, func(branch *base.Schema) low.NodeReference[string] {
+		return branch.Description
+	})
+	if !ok {
+		return nil, false
+	}
+	titleRef, ok := mergeCompatibleStringNodeReference(schema.Title, schema.AllOf.Value, func(branch *base.Schema) low.NodeReference[string] {
+		return branch.Title
+	})
+	if !ok {
+		return nil, false
+	}
+	propertiesRef, ok := mergeSimpleAllOfObjectProperties(schema)
+	if !ok {
+		return nil, false
+	}
+	requiredRef := mergeSimpleAllOfRequired(schema)
+
+	merged.Type = typeRef
+	merged.Description = descriptionRef
+	merged.Title = titleRef
+	merged.Properties = propertiesRef
+	merged.Required = requiredRef
+
+	return &merged, true
+}
+
+func mergeSimpleAllOfObjectType(schema *base.Schema) (low.NodeReference[base.SchemaDynamicValue[string, []low.ValueReference[string]]], bool) {
+	selected := schema.Type
+	hasType := !schema.Type.IsEmpty()
+	if hasType {
+		if selected.Value.IsB() {
+			return selected, false
+		}
+		if selected.Value.A != "" && selected.Value.A != "object" {
+			return selected, false
+		}
+	}
+
+	for _, branch := range schema.AllOf.Value {
+		branchSchema := branch.Value.Schema()
+		if branchSchema == nil || branchSchema.Type.IsEmpty() {
+			continue
+		}
+		if branchSchema.Type.Value.IsB() {
+			return selected, false
+		}
+		if branchSchema.Type.Value.A != "" && branchSchema.Type.Value.A != "object" {
+			return selected, false
+		}
+		if !hasType {
+			selected = branchSchema.Type
+			hasType = true
+			continue
+		}
+		if selected.Value.A != branchSchema.Type.Value.A {
+			return selected, false
+		}
+	}
+	return selected, true
+}
+
+func mergeCompatibleStringNodeReference(
+	baseRef low.NodeReference[string],
+	allOf []low.ValueReference[*base.SchemaProxy],
+	selector func(*base.Schema) low.NodeReference[string],
+) (low.NodeReference[string], bool) {
+	selected := baseRef
+	hasValue := selected.Value != ""
+
+	for _, branch := range allOf {
+		branchSchema := branch.Value.Schema()
+		if branchSchema == nil {
+			continue
+		}
+		candidate := selector(branchSchema)
+		if candidate.Value == "" {
+			continue
+		}
+		if !hasValue {
+			selected = candidate
+			hasValue = true
+			continue
+		}
+		if selected.Value != candidate.Value {
+			return selected, false
+		}
+	}
+
+	return selected, true
+}
+
+func mergeSimpleAllOfObjectProperties(
+	schema *base.Schema,
+) (low.NodeReference[*orderedmap.Map[low.KeyReference[string], low.ValueReference[*base.SchemaProxy]]], bool) {
+	merged := orderedmap.New[low.KeyReference[string], low.ValueReference[*base.SchemaProxy]]()
+	seen := make(map[string]low.ValueReference[*base.SchemaProxy])
+
+	appendProperties := func(properties *orderedmap.Map[low.KeyReference[string], low.ValueReference[*base.SchemaProxy]]) bool {
+		if properties == nil {
+			return true
+		}
+		for keyRef, valueRef := range properties.FromOldest() {
+			existing, ok := seen[keyRef.Value]
+			if ok {
+				if existing.Value == nil || valueRef.Value == nil {
+					if existing.Value != valueRef.Value {
+						return false
+					}
+					continue
+				}
+				if existing.Value.Hash() != valueRef.Value.Hash() {
+					return false
+				}
+				continue
+			}
+			merged.Set(keyRef, valueRef)
+			seen[keyRef.Value] = valueRef
+		}
+		return true
+	}
+
+	if !appendProperties(schema.Properties.Value) {
+		return low.NodeReference[*orderedmap.Map[low.KeyReference[string], low.ValueReference[*base.SchemaProxy]]]{}, false
+	}
+	for _, branch := range schema.AllOf.Value {
+		branchSchema := branch.Value.Schema()
+		if branchSchema == nil || !appendProperties(branchSchema.Properties.Value) {
+			return low.NodeReference[*orderedmap.Map[low.KeyReference[string], low.ValueReference[*base.SchemaProxy]]]{}, false
+		}
+	}
+
+	if len(seen) == 0 {
+		return low.NodeReference[*orderedmap.Map[low.KeyReference[string], low.ValueReference[*base.SchemaProxy]]]{}, true
+	}
+
+	return low.NodeReference[*orderedmap.Map[low.KeyReference[string], low.ValueReference[*base.SchemaProxy]]]{
+		Value: merged,
+	}, true
+}
+
+func mergeSimpleAllOfRequired(schema *base.Schema) low.NodeReference[[]low.ValueReference[string]] {
+	selected := schema.Required
+	seen := make(map[string]struct{})
+	var merged []low.ValueReference[string]
+
+	appendRequired := func(values []low.ValueReference[string]) {
+		for _, value := range values {
+			if _, ok := seen[value.Value]; ok {
+				continue
+			}
+			seen[value.Value] = struct{}{}
+			merged = append(merged, value)
+		}
+	}
+
+	appendRequired(schema.Required.Value)
+	for _, branch := range schema.AllOf.Value {
+		branchSchema := branch.Value.Schema()
+		if branchSchema != nil {
+			appendRequired(branchSchema.Required.Value)
+		}
+	}
+
+	selected.Value = merged
+	if len(merged) == 0 {
+		selected.Value = nil
+	}
+	return selected
+}
+
+func schemaPairUsesEquivalentSimpleScalarUnion(typeProxy, anyOfProxy *base.SchemaProxy) bool {
+	if !isPureTypeArraySchema(typeProxy) || !isPureAnyOfUnionSchema(anyOfProxy) {
+		return false
+	}
+
+	typeSet, ok := extractTypeArraySet(typeProxy)
+	if !ok {
+		return false
+	}
+	anyOfSet, ok := extractSimpleAnyOfTypeSet(anyOfProxy.Schema().AnyOf.Value)
+	if !ok || len(typeSet) != len(anyOfSet) {
+		return false
+	}
+	for t := range typeSet {
+		if _, found := anyOfSet[t]; !found {
+			return false
+		}
+	}
+	return true
+}
+
+func isPureTypeArraySchema(proxy *base.SchemaProxy) bool {
+	if proxy == nil || proxy.IsReference() || !schemaNodeHasSingleKey(proxy.GetValueNode(), v3.TypeLabel) {
+		return false
+	}
+	typeNode := proxy.GetValueNode().Content[1]
+	return typeNode.Kind == yaml.SequenceNode && len(typeNode.Content) > 0
+}
+
+func isPureAnyOfUnionSchema(proxy *base.SchemaProxy) bool {
+	if proxy == nil || proxy.IsReference() || !schemaNodeHasSingleKey(proxy.GetValueNode(), v3.AnyOfLabel) {
+		return false
+	}
+	schema := proxy.Schema()
+	return schema != nil && len(schema.AnyOf.Value) > 0
+}
+
+func schemaNodeHasSingleKey(node *yaml.Node, key string) bool {
+	return node != nil && node.Kind == yaml.MappingNode && len(node.Content) == 2 && node.Content[0].Value == key
+}
+
+func schemaNodeHasOnlyAllowedKeys(node *yaml.Node, allowed map[string]struct{}) bool {
+	if node == nil || node.Kind != yaml.MappingNode {
+		return false
+	}
+	for i := 0; i < len(node.Content); i += 2 {
+		if _, ok := allowed[node.Content[i].Value]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+func extractTypeArraySet(proxy *base.SchemaProxy) (map[string]struct{}, bool) {
+	if proxy == nil || proxy.IsReference() || !schemaNodeHasSingleKey(proxy.GetValueNode(), v3.TypeLabel) {
+		return nil, false
+	}
+	typeNode := proxy.GetValueNode().Content[1]
+	if typeNode.Kind != yaml.SequenceNode || len(typeNode.Content) == 0 {
+		return nil, false
+	}
+	typeSet := make(map[string]struct{}, len(typeNode.Content))
+	for _, value := range typeNode.Content {
+		typeName, ok := extractScalarTypeName(value)
+		if !ok {
+			return nil, false
+		}
+		typeSet[typeName] = struct{}{}
+	}
+	return typeSet, len(typeSet) > 0
+}
+
+func extractSimpleAnyOfTypeSet(anyOf []low.ValueReference[*base.SchemaProxy]) (map[string]struct{}, bool) {
+	if len(anyOf) == 0 {
+		return nil, false
+	}
+	typeSet := make(map[string]struct{}, len(anyOf))
+	for _, branch := range anyOf {
+		if branch.Value == nil || branch.Value.IsReference() || !schemaNodeHasSingleKey(branch.Value.GetValueNode(), v3.TypeLabel) {
+			return nil, false
+		}
+		typeName, ok := extractScalarTypeName(branch.Value.GetValueNode().Content[1])
+		if !ok {
+			return nil, false
+		}
+		typeSet[typeName] = struct{}{}
+	}
+	return typeSet, len(typeSet) > 0
+}
+
+func extractScalarTypeName(node *yaml.Node) (string, bool) {
+	if node == nil || node.Kind != yaml.ScalarNode {
+		return "", false
+	}
+	if node.Tag == "!!null" {
+		return "null", true
+	}
+	if node.Value == "" {
+		return "", false
+	}
+	return node.Value, true
+}
+
 func checkExamples(lSchema *base.Schema, rSchema *base.Schema, changes *[]*Change) {
 	if lSchema == nil && rSchema == nil {
 		return
@@ -1851,6 +2194,11 @@ func extractSchemaChanges(
 		return
 	}
 
+	if isOrderInsensitiveSchemaCompositionLabel(label) {
+		extractOrderInsensitiveSchemaChanges(lSchema, rSchema, label, sc, changes)
+		return
+	}
+
 	x := "%x"
 	// create hash key maps to check equality
 	lKeys := make([]string, 0, len(lSchema))
@@ -1888,18 +2236,7 @@ func extractSchemaChanges(
 				*sc = append(*sc, CompareSchemas(lEntities[lKeys[w]], rEntities[rKeys[w]]))
 			}
 			if w >= len(rKeys) {
-				// determine breaking status based on label
-				breaking := true
-				switch label {
-				case v3.AllOfLabel:
-					breaking = BreakingRemoved(CompSchema, PropAllOf)
-				case v3.AnyOfLabel:
-					breaking = BreakingRemoved(CompSchema, PropAnyOf)
-				case v3.OneOfLabel:
-					breaking = BreakingRemoved(CompSchema, PropOneOf)
-				case v3.PrefixItemsLabel:
-					breaking = BreakingRemoved(CompSchema, PropPrefixItems)
-				}
+				breaking := schemaCompositionChangeBreaking(label, ObjectRemoved)
 				CreateChange(changes, ObjectRemoved, label,
 					lEntities[lKeys[w]].GetValueNode(), nil, breaking, lEntities[lKeys[w]], nil)
 			}
@@ -1913,22 +2250,399 @@ func extractSchemaChanges(
 				*sc = append(*sc, CompareSchemas(lEntities[lKeys[w]], rEntities[rKeys[w]]))
 			}
 			if w >= len(lKeys) {
-				// determine breaking status based on label
-				breaking := false
-				switch label {
-				case v3.AllOfLabel:
-					breaking = BreakingAdded(CompSchema, PropAllOf)
-				case v3.AnyOfLabel:
-					breaking = BreakingAdded(CompSchema, PropAnyOf)
-				case v3.OneOfLabel:
-					breaking = BreakingAdded(CompSchema, PropOneOf)
-				case v3.PrefixItemsLabel:
-					breaking = BreakingAdded(CompSchema, PropPrefixItems)
-				}
+				breaking := schemaCompositionChangeBreaking(label, ObjectAdded)
 				CreateChange(changes, ObjectAdded, label,
 					nil, rEntities[rKeys[w]].GetValueNode(), breaking, nil, rEntities[rKeys[w]])
 			}
 		}
+	}
+}
+
+type schemaCompositionEntry struct {
+	identity  string
+	stableKey string
+	position  int
+	proxy     *base.SchemaProxy
+}
+
+type schemaCompositionPair struct {
+	left    schemaCompositionEntry
+	right   schemaCompositionEntry
+	changes *SchemaChanges
+}
+
+type schemaCompositionPairCandidate struct {
+	left            schemaCompositionEntry
+	right           schemaCompositionEntry
+	changes         *SchemaChanges
+	totalChanges    int
+	breakingChanges int
+	stableKeyMatch  bool
+}
+
+func isOrderInsensitiveSchemaCompositionLabel(label string) bool {
+	switch label {
+	case v3.AllOfLabel, v3.AnyOfLabel, v3.OneOfLabel:
+		return true
+	default:
+		return false
+	}
+}
+
+func schemaCompositionEntryIdentity(proxy *base.SchemaProxy) string {
+	if proxy == nil {
+		return "nil"
+	}
+	if proxy.IsReference() {
+		return "ref:" + proxy.GetReference()
+	}
+	return fmt.Sprintf("hash:%x", proxy.Hash())
+}
+
+func buildSchemaCompositionEntries(schema []low.ValueReference[*base.SchemaProxy]) []schemaCompositionEntry {
+	entries := make([]schemaCompositionEntry, 0, len(schema))
+	for i := range schema {
+		proxy := schema[i].Value
+		entries = append(entries, schemaCompositionEntry{
+			identity:  schemaCompositionEntryIdentity(proxy),
+			stableKey: schemaCompositionEntryStableKey(proxy),
+			position:  i,
+			proxy:     proxy,
+		})
+	}
+	return entries
+}
+
+func schemaCompositionEntryStableKey(proxy *base.SchemaProxy) string {
+	if proxy == nil {
+		return "nil"
+	}
+	if proxy.IsReference() {
+		return "ref:" + proxy.GetReference()
+	}
+	schema := proxy.Schema()
+	if schema == nil {
+		return fmt.Sprintf("hash:%x", proxy.Hash())
+	}
+
+	parts := make([]string, 0, 4)
+	switch {
+	case schema.Type.Value.A != "":
+		parts = append(parts, "type:"+schema.Type.Value.A)
+	case len(schema.Type.Value.B) > 0:
+		types := make([]string, len(schema.Type.Value.B))
+		for i := range schema.Type.Value.B {
+			types[i] = schema.Type.Value.B[i].Value
+		}
+		sort.Strings(types)
+		parts = append(parts, "types:"+strings.Join(types, ","))
+	}
+	if schema.Title.Value != "" {
+		parts = append(parts, "title:"+schema.Title.Value)
+	}
+	if schema.Properties.Value != nil {
+		propertyNames := make([]string, 0, schema.Properties.Value.Len())
+		for k := range schema.Properties.Value.KeysFromOldest() {
+			propertyNames = append(propertyNames, k.Value)
+		}
+		sort.Strings(propertyNames)
+		parts = append(parts, "props:"+strings.Join(propertyNames, ","))
+	}
+	if len(parts) == 0 {
+		return fmt.Sprintf("hash:%x", proxy.Hash())
+	}
+	return strings.Join(parts, "|")
+}
+
+func pairExactSchemaCompositionEntries(
+	leftEntries, rightEntries []schemaCompositionEntry,
+) ([]schemaCompositionPair, []schemaCompositionEntry, []schemaCompositionEntry) {
+	rightIndexesByIdentity := make(map[string][]int)
+	matchedRightIndexes := make(map[int]bool)
+	pairs := make([]schemaCompositionPair, 0)
+	leftUnmatched := make([]schemaCompositionEntry, 0)
+	rightUnmatched := make([]schemaCompositionEntry, 0)
+
+	for i := range rightEntries {
+		rightIndexesByIdentity[rightEntries[i].identity] = append(rightIndexesByIdentity[rightEntries[i].identity], i)
+	}
+
+	for i := range leftEntries {
+		indexes := rightIndexesByIdentity[leftEntries[i].identity]
+		if len(indexes) == 0 {
+			leftUnmatched = append(leftUnmatched, leftEntries[i])
+			continue
+		}
+
+		rightIndex := indexes[0]
+		rightIndexesByIdentity[leftEntries[i].identity] = indexes[1:]
+		matchedRightIndexes[rightIndex] = true
+		pairs = append(pairs, schemaCompositionPair{
+			left:  leftEntries[i],
+			right: rightEntries[rightIndex],
+		})
+	}
+
+	for i := range rightEntries {
+		if matchedRightIndexes[i] {
+			continue
+		}
+		rightUnmatched = append(rightUnmatched, rightEntries[i])
+	}
+
+	return pairs, leftUnmatched, rightUnmatched
+}
+
+func buildSchemaCompositionPairCandidateMatrix(
+	rowEntries, columnEntries []schemaCompositionEntry,
+	swapPairDirection bool,
+) [][]schemaCompositionPairCandidate {
+	matrix := make([][]schemaCompositionPairCandidate, len(rowEntries))
+	for i := range rowEntries {
+		row := make([]schemaCompositionPairCandidate, len(columnEntries))
+		for j := range columnEntries {
+			leftEntry := rowEntries[i]
+			rightEntry := columnEntries[j]
+			if swapPairDirection {
+				leftEntry = columnEntries[j]
+				rightEntry = rowEntries[i]
+			}
+			changes := CompareSchemas(leftEntry.proxy, rightEntry.proxy)
+			totalChanges := 0
+			breakingChanges := 0
+			if changes != nil {
+				totalChanges = changes.TotalChanges()
+				breakingChanges = changes.TotalBreakingChanges()
+			}
+			row[j] = schemaCompositionPairCandidate{
+				left:            leftEntry,
+				right:           rightEntry,
+				changes:         changes,
+				totalChanges:    totalChanges,
+				breakingChanges: breakingChanges,
+				stableKeyMatch:  leftEntry.stableKey == rightEntry.stableKey,
+			}
+		}
+		matrix[i] = row
+	}
+	return matrix
+}
+
+func schemaCompositionPairingSignature(candidates []schemaCompositionPairCandidate) []int {
+	sortedCandidates := slices.Clone(candidates)
+	sort.Slice(sortedCandidates, func(i, j int) bool {
+		if sortedCandidates[i].left.position != sortedCandidates[j].left.position {
+			return sortedCandidates[i].left.position < sortedCandidates[j].left.position
+		}
+		return sortedCandidates[i].right.position < sortedCandidates[j].right.position
+	})
+
+	signature := make([]int, 0, len(sortedCandidates)*2)
+	for i := range sortedCandidates {
+		signature = append(signature, sortedCandidates[i].left.position, sortedCandidates[i].right.position)
+	}
+	return signature
+}
+
+func schemaCompositionPairingIsBetter(
+	candidates []schemaCompositionPairCandidate,
+	best []schemaCompositionPairCandidate,
+) bool {
+	totalChanges := 0
+	totalBreaking := 0
+	stableKeyMismatches := 0
+	for i := range candidates {
+		totalChanges += candidates[i].totalChanges
+		totalBreaking += candidates[i].breakingChanges
+		if !candidates[i].stableKeyMatch {
+			stableKeyMismatches++
+		}
+	}
+
+	bestTotalChanges := 0
+	bestTotalBreaking := 0
+	bestStableKeyMismatches := 0
+	for i := range best {
+		bestTotalChanges += best[i].totalChanges
+		bestTotalBreaking += best[i].breakingChanges
+		if !best[i].stableKeyMatch {
+			bestStableKeyMismatches++
+		}
+	}
+
+	switch {
+	case len(best) == 0:
+		return true
+	case totalChanges != bestTotalChanges:
+		return totalChanges < bestTotalChanges
+	case stableKeyMismatches != bestStableKeyMismatches:
+		return stableKeyMismatches < bestStableKeyMismatches
+	case totalBreaking != bestTotalBreaking:
+		return totalBreaking < bestTotalBreaking
+	}
+
+	signature := schemaCompositionPairingSignature(candidates)
+	bestSignature := schemaCompositionPairingSignature(best)
+	for i := range signature {
+		if signature[i] != bestSignature[i] {
+			return signature[i] < bestSignature[i]
+		}
+	}
+	return false
+}
+
+func selectBestSchemaCompositionPairCandidates(
+	matrix [][]schemaCompositionPairCandidate,
+) []schemaCompositionPairCandidate {
+	if len(matrix) == 0 {
+		return nil
+	}
+
+	used := make([]bool, len(matrix[0]))
+	current := make([]schemaCompositionPairCandidate, 0, len(matrix))
+	var best []schemaCompositionPairCandidate
+
+	var search func(int)
+	search = func(row int) {
+		if row == len(matrix) {
+			if schemaCompositionPairingIsBetter(current, best) {
+				best = slices.Clone(current)
+			}
+			return
+		}
+
+		for i := range matrix[row] {
+			if used[i] {
+				continue
+			}
+			used[i] = true
+			current = append(current, matrix[row][i])
+			search(row + 1)
+			current = current[:len(current)-1]
+			used[i] = false
+		}
+	}
+
+	search(0)
+	return best
+}
+
+func pairUnmatchedSchemaCompositionEntries(
+	leftEntries, rightEntries []schemaCompositionEntry,
+) []schemaCompositionPair {
+	if len(leftEntries) == 0 || len(rightEntries) == 0 {
+		return nil
+	}
+
+	matrix := buildSchemaCompositionPairCandidateMatrix(leftEntries, rightEntries, false)
+	if len(leftEntries) > len(rightEntries) {
+		matrix = buildSchemaCompositionPairCandidateMatrix(rightEntries, leftEntries, true)
+	}
+
+	selected := selectBestSchemaCompositionPairCandidates(matrix)
+	pairs := make([]schemaCompositionPair, 0, len(selected))
+	for i := range selected {
+		pairs = append(pairs, schemaCompositionPair{
+			left:    selected[i].left,
+			right:   selected[i].right,
+			changes: selected[i].changes,
+		})
+	}
+
+	sort.Slice(pairs, func(i, j int) bool {
+		if pairs[i].left.position != pairs[j].left.position {
+			return pairs[i].left.position < pairs[j].left.position
+		}
+		return pairs[i].right.position < pairs[j].right.position
+	})
+	return pairs
+}
+
+func schemaCompositionChangeBreaking(label string, changeType int) bool {
+	switch label {
+	case v3.AllOfLabel:
+		if changeType == ObjectAdded {
+			return BreakingAdded(CompSchema, PropAllOf)
+		}
+		return BreakingRemoved(CompSchema, PropAllOf)
+	case v3.AnyOfLabel:
+		if changeType == ObjectAdded {
+			return BreakingAdded(CompSchema, PropAnyOf)
+		}
+		return BreakingRemoved(CompSchema, PropAnyOf)
+	case v3.OneOfLabel:
+		if changeType == ObjectAdded {
+			return BreakingAdded(CompSchema, PropOneOf)
+		}
+		return BreakingRemoved(CompSchema, PropOneOf)
+	case v3.PrefixItemsLabel:
+		if changeType == ObjectAdded {
+			return BreakingAdded(CompSchema, PropPrefixItems)
+		}
+		return BreakingRemoved(CompSchema, PropPrefixItems)
+	default:
+		return changeType != ObjectAdded
+	}
+}
+
+func extractOrderInsensitiveSchemaChanges(
+	lSchema []low.ValueReference[*base.SchemaProxy],
+	rSchema []low.ValueReference[*base.SchemaProxy],
+	label string,
+	sc *[]*SchemaChanges,
+	changes *[]*Change,
+) {
+	leftEntries := buildSchemaCompositionEntries(lSchema)
+	rightEntries := buildSchemaCompositionEntries(rSchema)
+
+	exactPairs, leftUnmatched, rightUnmatched := pairExactSchemaCompositionEntries(leftEntries, rightEntries)
+	unmatchedPairs := pairUnmatchedSchemaCompositionEntries(leftUnmatched, rightUnmatched)
+
+	for i := range exactPairs {
+		if changes := CompareSchemas(exactPairs[i].left.proxy, exactPairs[i].right.proxy); changes != nil {
+			*sc = append(*sc, changes)
+		}
+	}
+	for i := range unmatchedPairs {
+		if unmatchedPairs[i].changes != nil {
+			*sc = append(*sc, unmatchedPairs[i].changes)
+		}
+	}
+
+	matchedLeftPositions := make(map[int]bool)
+	matchedRightPositions := make(map[int]bool)
+	for i := range unmatchedPairs {
+		matchedLeftPositions[unmatchedPairs[i].left.position] = true
+		matchedRightPositions[unmatchedPairs[i].right.position] = true
+	}
+
+	remainingLeft := make([]schemaCompositionEntry, 0)
+	remainingRight := make([]schemaCompositionEntry, 0)
+	for i := range leftUnmatched {
+		if matchedLeftPositions[leftUnmatched[i].position] {
+			continue
+		}
+		remainingLeft = append(remainingLeft, leftUnmatched[i])
+	}
+	for i := range rightUnmatched {
+		if matchedRightPositions[rightUnmatched[i].position] {
+			continue
+		}
+		remainingRight = append(remainingRight, rightUnmatched[i])
+	}
+
+	for i := range remainingLeft {
+		CreateChange(changes, ObjectRemoved, label,
+			remainingLeft[i].proxy.GetValueNode(), nil,
+			schemaCompositionChangeBreaking(label, ObjectRemoved),
+			remainingLeft[i].proxy, nil)
+	}
+
+	for i := range remainingRight {
+		CreateChange(changes, ObjectAdded, label,
+			nil, remainingRight[i].proxy.GetValueNode(),
+			schemaCompositionChangeBreaking(label, ObjectAdded),
+			nil, remainingRight[i].proxy)
 	}
 }
 
