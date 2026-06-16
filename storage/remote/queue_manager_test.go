@@ -24,6 +24,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/gogo/protobuf/proto"
@@ -51,7 +52,6 @@ import (
 	"github.com/prometheus/prometheus/util/compression"
 	"github.com/prometheus/prometheus/util/runutil"
 	"github.com/prometheus/prometheus/util/testutil"
-	"github.com/prometheus/prometheus/util/testutil/synctest"
 	"github.com/prometheus/prometheus/util/testwal"
 )
 
@@ -1216,7 +1216,10 @@ func v2RequestToWriteRequest(v2Req *writev2.Request) (*prompb.WriteRequest, erro
 			if err != nil {
 				return nil, fmt.Errorf("failed to convert metadata labels: %w", err)
 			}
-			metadata := rts.ToMetadata(v2Req.Symbols)
+			metadata, err := rts.ToMetadata(v2Req.Symbols)
+			if err != nil {
+				return nil, fmt.Errorf("failed to convert metadata: %w", err)
+			}
 
 			metricFamilyName := labels.String()
 

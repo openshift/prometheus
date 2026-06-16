@@ -4212,23 +4212,23 @@ var testExpr = []struct {
 	},
 	{
 		input: `start()`,
-		fail:  true,
-		errors: ParseErrors{
-			ParseErr{
-				PositionRange: posrange.PositionRange{Start: 5, End: 6},
-				Err:           errors.New(`unexpected "("`),
-				Query:         `start()`,
+		expected: &Call{
+			Func: MustGetFunction("start"),
+			Args: Expressions{},
+			PosRange: posrange.PositionRange{
+				Start: 0,
+				End:   7,
 			},
 		},
 	},
 	{
 		input: `end()`,
-		fail:  true,
-		errors: ParseErrors{
-			ParseErr{
-				PositionRange: posrange.PositionRange{Start: 3, End: 4},
-				Err:           errors.New(`unexpected "("`),
-				Query:         `end()`,
+		expected: &Call{
+			Func: MustGetFunction("end"),
+			Args: Expressions{},
+			PosRange: posrange.PositionRange{
+				Start: 0,
+				End:   5,
 			},
 		},
 	},
@@ -4716,6 +4716,32 @@ var testExpr = []struct {
 				EndPos:   11,
 			},
 			EndPos: 12,
+		},
+	},
+	{
+		input: `foo[2m/range()]`,
+		expected: &MatrixSelector{
+			VectorSelector: &VectorSelector{
+				Name: "foo",
+				LabelMatchers: []*labels.Matcher{
+					MustLabelMatcher(labels.MatchEqual, model.MetricNameLabel, "foo"),
+				},
+				PosRange: posrange.PositionRange{Start: 0, End: 3},
+			},
+			RangeExpr: &DurationExpr{
+				Op: DIV,
+				LHS: &NumberLiteral{
+					Val:      120,
+					Duration: true,
+					PosRange: posrange.PositionRange{Start: 4, End: 6},
+				},
+				RHS: &DurationExpr{
+					Op:       RANGE,
+					StartPos: 7,
+					EndPos:   14,
+				},
+			},
+			EndPos: 15,
 		},
 	},
 	{

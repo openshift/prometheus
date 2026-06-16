@@ -27,6 +27,7 @@ import (
 	"strconv"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -49,7 +50,6 @@ import (
 	"github.com/prometheus/prometheus/tsdb/tsdbutil"
 	"github.com/prometheus/prometheus/util/teststorage"
 	prom_testutil "github.com/prometheus/prometheus/util/testutil"
-	"github.com/prometheus/prometheus/util/testutil/synctest"
 )
 
 func TestMain(m *testing.M) {
@@ -809,7 +809,7 @@ func TestUpdate(t *testing.T) {
 	}
 
 	// Groups will be recreated if updated.
-	rgs, errs := rulefmt.ParseFile("fixtures/rules.yaml", false, model.UTF8Validation, testParser)
+	rgs, errs := rulefmt.ParseFile("fixtures/rules.yaml", false, model.UTF8Validation, testParser, promslog.NewNopLogger())
 	require.Empty(t, errs, "file parsing failures")
 
 	tmpFile, err := os.CreateTemp("", "rules.test.*.yaml")
@@ -1946,10 +1946,16 @@ func TestDependentRulesWithNonMetricExpression(t *testing.T) {
 }
 
 func TestDependencyMapUpdatesOnGroupUpdate(t *testing.T) {
+	storage := teststorage.New(t)
+	engine := testEngine(t)
+
 	files := []string{"fixtures/rules.yaml"}
 	ruleManager := NewManager(&ManagerOptions{
-		Context: context.Background(),
-		Logger:  promslog.NewNopLogger(),
+		Appendable: storage,
+		Queryable:  storage,
+		QueryFunc:  EngineQueryFunc(engine, storage),
+		Context:    context.Background(),
+		Logger:     promslog.NewNopLogger(),
 	})
 
 	ruleManager.start()
@@ -2594,11 +2600,11 @@ func TestLabels_FromMaps(t *testing.T) {
 
 func TestParseFiles(t *testing.T) {
 	t.Run("good files", func(t *testing.T) {
-		err := ParseFiles([]string{filepath.Join("fixtures", "rules.y*ml")}, model.UTF8Validation, testParser)
+		err := ParseFiles([]string{filepath.Join("fixtures", "rules.y*ml")}, model.UTF8Validation, testParser, promslog.NewNopLogger())
 		require.NoError(t, err)
 	})
 	t.Run("bad files", func(t *testing.T) {
-		err := ParseFiles([]string{filepath.Join("fixtures", "invalid_rules.y*ml")}, model.UTF8Validation, testParser)
+		err := ParseFiles([]string{filepath.Join("fixtures", "invalid_rules.y*ml")}, model.UTF8Validation, testParser, promslog.NewNopLogger())
 		require.ErrorContains(t, err, "field unexpected_field not found in type rulefmt.Rule")
 	})
 }

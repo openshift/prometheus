@@ -1102,6 +1102,22 @@ const funcDocs: Record<string, React.ReactNode> = {
       </p>
     </>
   ),
+  end: (
+    <>
+      <p>
+        <strong>
+          This function has to be enabled via the{" "}
+          <a href="../feature_flags.md#experimental-promql-functions">feature flag</a>
+          <code>--enable-feature=promql-experimental-functions</code>.
+        </strong>
+      </p>
+
+      <p>
+        <code>end()</code> returns the end timestamp of the current query range evaluation as the number of seconds
+        since January 1, 1970 UTC. For instant queries, this is equal to the evaluation timestamp.
+      </p>
+    </>
+  ),
   exp: (
     <>
       <p>
@@ -1710,6 +1726,23 @@ const funcDocs: Record<string, React.ReactNode> = {
       </p>
 
       <p>
+        If there is no matching info series for a given time series in <code>v</code> at a particular timestamp (e.g.
+        because the info series has gone stale), the behavior depends on the data label matchers: If the{" "}
+        <code>data-label-selector</code>
+        contains any matcher that does not match the empty string (e.g.
+        <code>
+          {"{"}data=~&quot;.+&quot;{"}"}
+        </code>
+        ), then that time series is dropped from the result at that timestamp, because the required enrichment is
+        unavailable. If all matchers match the empty string (e.g.{" "}
+        <code>
+          {"{"}data=~&quot;.*&quot;{"}"}
+        </code>
+        ), or if no <code>data-label-selector</code>
+        is provided, the time series is returned without enrichment.
+      </p>
+
+      <p>
         Identifying labels of an info series are the subset of labels that uniquely identify the info series. The
         remaining labels are considered
         <em>data labels</em> (also called non-identifying). (Note that Prometheus&rsquo;s concept of time series
@@ -1802,6 +1835,16 @@ const funcDocs: Record<string, React.ReactNode> = {
           {"{"}__name__=~&quot;(target|build)_info&quot;{"}"}
         </code>
         . However, the identifying labels always have to be <code>instance</code> and <code>job</code>.
+      </p>
+
+      <p>
+        When only negated <code>__name__</code> matchers are provided (e.g.
+        <code>
+          {"{"}__name__!=&quot;target_info&quot;{"}"}
+        </code>
+        ), <code>info</code> considers all metrics matching
+        <code>.+_info</code> and then applies the negated matchers as filters. This is because negated matchers alone
+        cannot positively identify which info metrics to consider.
       </p>
 
       <p>
@@ -2801,6 +2844,22 @@ const funcDocs: Record<string, React.ReactNode> = {
       </ul>
     </>
   ),
+  range: (
+    <>
+      <p>
+        <strong>
+          This function has to be enabled via the{" "}
+          <a href="../feature_flags.md#experimental-promql-functions">feature flag</a>
+          <code>--enable-feature=promql-experimental-functions</code>.
+        </strong>
+      </p>
+
+      <p>
+        <code>range()</code> returns the range duration of the current query range evaluation in seconds and is
+        equivalent to <code>end() - start()</code>. For instant queries, this returns <code>0</code>.
+      </p>
+    </>
+  ),
   rate: (
     <>
       <p>
@@ -3103,6 +3162,22 @@ const funcDocs: Record<string, React.ReactNode> = {
       </p>
     </>
   ),
+  start: (
+    <>
+      <p>
+        <strong>
+          This function has to be enabled via the{" "}
+          <a href="../feature_flags.md#experimental-promql-functions">feature flag</a>
+          <code>--enable-feature=promql-experimental-functions</code>.
+        </strong>
+      </p>
+
+      <p>
+        <code>start()</code> returns the start timestamp of the current query range evaluation as the number of seconds
+        since January 1, 1970 UTC. For instant queries, this is equal to the evaluation timestamp.
+      </p>
+    </>
+  ),
   stddev_over_time: (
     <>
       <p>
@@ -3320,6 +3395,22 @@ const funcDocs: Record<string, React.ReactNode> = {
         useful with <code>first_over_time(m[step()])</code>
         in range queries (available when <code>--enable-feature=promql-duration-expr</code> is set) to ensure that the
         sample selected is within the range step.
+      </p>
+    </>
+  ),
+  step: (
+    <>
+      <p>
+        <strong>
+          This function has to be enabled via the{" "}
+          <a href="../feature_flags.md#experimental-promql-functions">feature flag</a>
+          <code>--enable-feature=promql-experimental-functions</code>.
+        </strong>
+      </p>
+
+      <p>
+        <code>step()</code> returns the query resolution step as the number of seconds. For instant queries, this
+        returns <code>0</code>.
       </p>
     </>
   ),
