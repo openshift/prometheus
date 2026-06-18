@@ -214,6 +214,7 @@ type flagConfig struct {
 	// for ease of use.
 	enablePerStepStats       bool
 	enableConcurrentRuleEval bool
+	useStartTimestamps       bool
 
 	prometheusURL   string
 	corsRegexString string
@@ -251,10 +252,7 @@ func (c *flagConfig) setFeatureListOptions(logger *slog.Logger) error {
 				logger.Info("Experimental per-step statistics reporting")
 			case "auto-reload-config":
 				c.enableAutoReload = true
-				if s := time.Duration(c.autoReloadInterval).Seconds(); s > 0 && s < 1 {
-					c.autoReloadInterval, _ = model.ParseDuration("1s")
-				}
-				logger.Info("Enabled automatic configuration file reloading. Checking for configuration changes every", "interval", c.autoReloadInterval)
+				logger.Warn("This option for --enable-feature is deprecated. Use --config.auto-reload instead.", "option", o)
 			case "concurrent-rule-eval":
 				c.enableConcurrentRuleEval = true
 				logger.Info("Experimental concurrent rule evaluation enabled.")
@@ -284,6 +282,11 @@ func (c *flagConfig) setFeatureListOptions(logger *slog.Logger) error {
 			case "xor2-encoding":
 				c.tsdb.EnableXOR2Encoding = true
 				logger.Info("Experimental XOR2 chunk encoding enabled.")
+			case "st-synthesis":
+				// TODO(ridwanmsharif): Move this to scrape configuration once stable.
+				c.scrape.SynthesizeST = true
+				features.Enable(features.Scrape, "st-synthesis")
+				logger.Info("Experimental start timestamp synthesis enabled.")
 			case "st-storage":
 				c.scrape.ParseST = true
 				c.tsdb.EnableSTStorage = true
@@ -293,6 +296,9 @@ func (c *flagConfig) setFeatureListOptions(logger *slog.Logger) error {
 				config.DefaultConfig.GlobalConfig.ScrapeProtocols = config.DefaultProtoFirstScrapeProtocols
 				config.DefaultGlobalConfig.ScrapeProtocols = config.DefaultProtoFirstScrapeProtocols
 				logger.Info("Experimental start timestamp storage enabled. OpenMetrics 1.0 parsing will parse <metric>_created metrics as ST instead of normal sample. Changed default scrape_protocols to prefer PrometheusProto format.", "global.scrape_protocols", fmt.Sprintf("%v", config.DefaultGlobalConfig.ScrapeProtocols))
+			case "use-start-timestamps":
+				c.useStartTimestamps = true
+				logger.Info("Experimental usage of start timestamps in PromQL engine is enabled.")
 			case "delayed-compaction":
 				c.tsdb.EnableDelayedCompaction = true
 				logger.Info("Experimental delayed compaction is enabled.")
@@ -305,8 +311,6 @@ func (c *flagConfig) setFeatureListOptions(logger *slog.Logger) error {
 			case "promql-binop-fill-modifiers":
 				c.parserOpts.EnableBinopFillModifiers = true
 				logger.Info("Experimental PromQL binary operator fill modifiers enabled.")
-			case "":
-				continue
 			case "old-ui":
 				c.web.UseOldUI = true
 				logger.Info("Serving previous version of the Prometheus web UI.")
@@ -397,7 +401,10 @@ func main() {
 	a.Flag("config.file", "Prometheus configuration file path.").
 		Default("prometheus.yml").StringVar(&cfg.configFile)
 
-	a.Flag("config.auto-reload-interval", "Specifies the interval for checking and automatically reloading the Prometheus configuration file upon detecting changes.").
+	a.Flag("config.auto-reload", "Enable automatic configuration file reloading. See also --config.auto-reload-interval.").
+		Default("false").BoolVar(&cfg.enableAutoReload)
+
+	a.Flag("config.auto-reload-interval", "Specifies the interval for checking and automatically reloading the Prometheus configuration file upon detecting changes. Only used when --config.auto-reload is set.").
 		Default("30s").SetValue(&cfg.autoReloadInterval)
 
 	a.Flag("web.listen-address", "Address to listen on for UI, API, and telemetry. Can be repeated.").
@@ -543,13 +550,23 @@ func main() {
 		"The frequency at which to truncate the WAL and remove old data.").
 		Hidden().PlaceHolder("<duration>").SetValue(&cfg.agent.TruncateFrequency)
 
+	// Dynamically calculate the format strings from the tsdb/agent constants
+	agentDefaultMinWALTime := model.Duration(agent.DefaultMinWALTime * int64(time.Millisecond)).String()
+	agentDefaultMaxWALTime := model.Duration(agent.DefaultMaxWALTime * int64(time.Millisecond)).String()
+
 	agentOnlyFlag(a, "storage.agent.retention.min-time",
 		"Minimum age samples may be before being considered for deletion when the WAL is truncated").
-		SetValue(&cfg.agent.MinWALTime)
+		Default(agentDefaultMinWALTime).SetValue(&cfg.agent.MinWALTime)
 
 	agentOnlyFlag(a, "storage.agent.retention.max-time",
 		"Maximum age samples may be before being forcibly deleted when the WAL is truncated").
-		SetValue(&cfg.agent.MaxWALTime)
+		Default(agentDefaultMaxWALTime).SetValue(&cfg.agent.MaxWALTime)
+
+	agentOnlyFlag(a, "storage.agent.checkpoint-from-in-memory-series", "Use only in-memory series data when building a checkpoint.").
+		Default("false").BoolVar(&cfg.agent.CheckpointFromInMemorySeries)
+
+	agentOnlyFlag(a, "storage.agent.checkpoint-batch-size", "Size of a single WAL log entry chunk to be flushed. Has no effect without --storage.agent.checkpoint-from-in-memory-series flag.").
+		Default("1000").IntVar(&cfg.agent.CheckpointBatchSize)
 
 	agentOnlyFlag(a, "storage.agent.no-lockfile", "Do not create lockfile in data directory.").
 		Default("false").BoolVar(&cfg.agent.NoLockfile)
@@ -608,8 +625,8 @@ func main() {
 	a.Flag("scrape.discovery-reload-interval", "Interval used by scrape manager to throttle target groups updates.").
 		Hidden().Default("5s").SetValue(&cfg.scrape.DiscoveryReloadInterval)
 
-	a.Flag("enable-feature", "Comma separated feature names to enable. Valid options: exemplar-storage, expand-external-labels, memory-snapshot-on-shutdown, promql-per-step-stats, promql-experimental-functions, extra-scrape-metrics, auto-gomaxprocs, created-timestamp-zero-ingestion, st-storage, concurrent-rule-eval, delayed-compaction, old-ui, otlp-deltatocumulative, promql-duration-expr, use-uncached-io, promql-extended-range-selectors, promql-binop-fill-modifiers, xor2-encoding. See https://prometheus.io/docs/prometheus/latest/feature_flags/ for more details.").
-		Default("").StringsVar(&cfg.featureList)
+	a.Flag("enable-feature", "Comma separated feature names to enable. Valid options: concurrent-rule-eval, created-timestamp-zero-ingestion, delayed-compaction, exemplar-storage, extra-scrape-metrics, memory-snapshot-on-shutdown, metadata-wal-records, old-ui, otlp-deltatocumulative, otlp-native-delta-ingestion, promql-binop-fill-modifiers, promql-delayed-name-removal, promql-duration-expr, promql-experimental-functions, promql-extended-range-selectors, promql-per-step-stats, st-storage, st-synthesis, type-and-unit-labels, use-start-timestamps, use-uncached-io, xor2-encoding. See https://prometheus.io/docs/prometheus/latest/feature_flags/ for more details.").
+		StringsVar(&cfg.featureList)
 
 	a.Flag("agent", "Run Prometheus in 'Agent mode'.").BoolVar(&agentMode)
 
@@ -647,6 +664,13 @@ func main() {
 		os.Exit(1)
 	}
 
+	if cfg.enableAutoReload {
+		if s := time.Duration(cfg.autoReloadInterval).Seconds(); s < 1 {
+			cfg.autoReloadInterval, _ = model.ParseDuration("1s")
+		}
+		logger.Info("Automatic configuration file reloading enabled", "interval", cfg.autoReloadInterval)
+	}
+
 	promqlParser := parser.NewParser(cfg.parserOpts)
 
 	if agentMode && len(serverOnlyFlags) > 0 {
@@ -657,6 +681,11 @@ func main() {
 	if !agentMode && len(agentOnlyFlags) > 0 {
 		fmt.Fprintf(os.Stderr, "The following flag(s) can only be used in agent mode: %q", agentOnlyFlags)
 		os.Exit(3)
+	}
+
+	if agentMode && cfg.agent.CheckpointBatchSize <= 0 {
+		fmt.Fprintln(os.Stderr, "--storage.agent.checkpoint-batch-size must be greater than 0.")
+		os.Exit(1)
 	}
 
 	if cfg.memlimitRatio <= 0.0 || cfg.memlimitRatio > 1.0 {
@@ -715,7 +744,7 @@ func main() {
 	}
 
 	// Parse rule files to verify they exist and contain valid rules.
-	if err := rules.ParseFiles(cfgFile.RuleFiles, cfgFile.GlobalConfig.MetricNameValidationScheme, promqlParser); err != nil {
+	if err := rules.ParseFiles(cfgFile.RuleFiles, cfgFile.GlobalConfig.MetricNameValidationScheme, promqlParser, logger); err != nil {
 		absPath, pathErr := filepath.Abs(cfg.configFile)
 		if pathErr != nil {
 			absPath = cfg.configFile
@@ -804,7 +833,7 @@ func main() {
 			if cfg.tsdb.MaxBytes > 0 {
 				logger.Warn("storage.tsdb.retention.size is ignored, because storage.tsdb.retention.percentage is specified")
 			}
-			if prom_runtime.FsSize(localStoragePath) == 0 {
+			if storagePathFsSize(localStoragePath) == 0 {
 				fmt.Fprintln(os.Stderr, fmt.Errorf("unable to detect total capacity of metric storage at %s, please disable retention percentage (%g%%)", localStoragePath, cfg.tsdb.MaxPercentage))
 				os.Exit(2)
 			}
@@ -952,6 +981,7 @@ func main() {
 			EnablePerStepStats:       cfg.enablePerStepStats,
 			EnableDelayedNameRemoval: cfg.promqlEnableDelayedNameRemoval,
 			EnableTypeAndUnitLabels:  cfg.scrape.EnableTypeAndUnitLabels,
+			UseStartTimestamps:       cfg.useStartTimestamps,
 			FeatureRegistry:          features.DefaultRegistry,
 			Parser:                   promqlParser,
 		}
@@ -1735,6 +1765,25 @@ func computeExternalURL(u, listenAddr string) (*url.URL, error) {
 	return eu, nil
 }
 
+// storagePathFsSize returns the filesystem size for path or its closest existing parent.
+func storagePathFsSize(path string) uint64 {
+	for {
+		if size := prom_runtime.FsSize(path); size > 0 {
+			return size
+		}
+
+		if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+			return 0
+		}
+
+		parent := filepath.Dir(path)
+		if parent == path {
+			return 0
+		}
+		path = parent
+	}
+}
+
 // readyStorage implements the Storage interface while allowing to set the actual
 // storage at a later point in time.
 type readyStorage struct {
@@ -2074,15 +2123,17 @@ func (opts tsdbOptions) ToTSDBOptions() tsdb.Options {
 // agentOptions is a version of agent.Options with defined units. This is required
 // as agent.Option fields are unit agnostic (time).
 type agentOptions struct {
-	WALSegmentSize         units.Base2Bytes
-	WALCompressionType     compression.Type
-	StripeSize             int
-	TruncateFrequency      model.Duration
-	MinWALTime, MaxWALTime model.Duration
-	NoLockfile             bool
-	OutOfOrderTimeWindow   int64 // TODO(bwplotka): Unused option, fix it or remove.
-	EnableSTAsZeroSample   bool
-	EnableSTStorage        bool
+	WALSegmentSize               units.Base2Bytes
+	WALCompressionType           compression.Type
+	StripeSize                   int
+	TruncateFrequency            model.Duration
+	MinWALTime, MaxWALTime       model.Duration
+	NoLockfile                   bool
+	OutOfOrderTimeWindow         int64 // TODO(bwplotka): Unused option, fix it or remove.
+	EnableSTAsZeroSample         bool
+	EnableSTStorage              bool
+	CheckpointFromInMemorySeries bool
+	CheckpointBatchSize          int
 }
 
 func (opts agentOptions) ToAgentOptions(outOfOrderTimeWindow int64) agent.Options {
@@ -2090,16 +2141,18 @@ func (opts agentOptions) ToAgentOptions(outOfOrderTimeWindow int64) agent.Option
 		outOfOrderTimeWindow = 0
 	}
 	return agent.Options{
-		WALSegmentSize:       int(opts.WALSegmentSize),
-		WALCompression:       opts.WALCompressionType,
-		StripeSize:           opts.StripeSize,
-		TruncateFrequency:    time.Duration(opts.TruncateFrequency),
-		MinWALTime:           durationToInt64Millis(time.Duration(opts.MinWALTime)),
-		MaxWALTime:           durationToInt64Millis(time.Duration(opts.MaxWALTime)),
-		NoLockfile:           opts.NoLockfile,
-		OutOfOrderTimeWindow: outOfOrderTimeWindow,
-		EnableSTAsZeroSample: opts.EnableSTAsZeroSample,
-		EnableSTStorage:      opts.EnableSTStorage,
+		WALSegmentSize:               int(opts.WALSegmentSize),
+		WALCompression:               opts.WALCompressionType,
+		StripeSize:                   opts.StripeSize,
+		TruncateFrequency:            time.Duration(opts.TruncateFrequency),
+		MinWALTime:                   durationToInt64Millis(time.Duration(opts.MinWALTime)),
+		MaxWALTime:                   durationToInt64Millis(time.Duration(opts.MaxWALTime)),
+		NoLockfile:                   opts.NoLockfile,
+		OutOfOrderTimeWindow:         outOfOrderTimeWindow,
+		EnableSTAsZeroSample:         opts.EnableSTAsZeroSample,
+		EnableSTStorage:              opts.EnableSTStorage,
+		CheckpointFromInMemorySeries: opts.CheckpointFromInMemorySeries,
+		CheckpointBatchSize:          opts.CheckpointBatchSize,
 	}
 }
 

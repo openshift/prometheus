@@ -30,6 +30,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/google/go-cmp/cmp"
@@ -58,7 +59,6 @@ import (
 	"github.com/prometheus/prometheus/tsdb/wlog"
 	"github.com/prometheus/prometheus/util/compression"
 	"github.com/prometheus/prometheus/util/testutil"
-	"github.com/prometheus/prometheus/util/testutil/synctest"
 )
 
 // newTestHeadDefaultOptions returns the HeadOptions that should be used by default in unit tests.
@@ -164,11 +164,11 @@ func readTestWAL(t testing.TB, dir string) (recs []any) {
 			samples, err := dec.Samples(rec, nil)
 			require.NoError(t, err)
 			recs = append(recs, samples)
-		case record.HistogramSamples, record.CustomBucketsHistogramSamples:
+		case record.HistogramSamples, record.CustomBucketsHistogramSamples, record.HistogramSamplesV2:
 			samples, err := dec.HistogramSamples(rec, nil)
 			require.NoError(t, err)
 			recs = append(recs, samples)
-		case record.FloatHistogramSamples, record.CustomBucketsFloatHistogramSamples:
+		case record.FloatHistogramSamples, record.CustomBucketsFloatHistogramSamples, record.FloatHistogramSamplesV2:
 			samples, err := dec.FloatHistogramSamples(rec, nil)
 			require.NoError(t, err)
 			recs = append(recs, samples)
@@ -793,7 +793,7 @@ func TestHead_ReadWAL(t *testing.T) {
 				}
 
 				// Verify samples and exemplar for series 10.
-				c, _, _, err := s10.chunk(0, head.chunkDiskMapper, &head.memChunkPool)
+				c, _, _, err := s10.chunk(0, head.chunkDiskMapper, &head.memChunkPool, nil)
 				require.NoError(t, err)
 				require.Equal(t, []sample{{0, 100, 2, nil, nil}, {0, 101, 5, nil, nil}}, expandChunk(c.chunk.Iterator(nil)))
 
@@ -806,14 +806,14 @@ func TestHead_ReadWAL(t *testing.T) {
 				require.True(t, exemplar.Exemplar{Ts: 100, Value: 1, Labels: labels.FromStrings("trace_id", "asdf")}.Equals(e[0].Exemplars[0]))
 
 				// Verify samples for series 50
-				c, _, _, err = s50.chunk(0, head.chunkDiskMapper, &head.memChunkPool)
+				c, _, _, err = s50.chunk(0, head.chunkDiskMapper, &head.memChunkPool, nil)
 				require.NoError(t, err)
 				require.Equal(t, []sample{{0, 101, 6, nil, nil}}, expandChunk(c.chunk.Iterator(nil)))
 
 				// Verify records for series 100 and its duplicate, series 101.
 				// The samples before the new series record should be discarded since a duplicate record
 				// is only possible when old samples were compacted.
-				c, _, _, err = s100.chunk(0, head.chunkDiskMapper, &head.memChunkPool)
+				c, _, _, err = s100.chunk(0, head.chunkDiskMapper, &head.memChunkPool, nil)
 				require.NoError(t, err)
 				require.Equal(t, []sample{{0, 101, 7, nil, nil}}, expandChunk(c.chunk.Iterator(nil)))
 
@@ -895,6 +895,74 @@ func TestHead_WALMultiRef(t *testing.T) {
 		sample{0, 1700, 3, nil, nil},
 		sample{0, 2000, 4, nil, nil},
 	}}, series)
+}
+
+// TestHead_WALMultiRef_StaleDeletion_ChunkGaugeNotNegative is a regression test
+// for https://github.com/prometheus/prometheus/issues/10884.
+//
+// When a stale series is deleted via truncateStaleSeries (which writes a
+// [MinInt64, MaxInt64] tombstone to the WAL) and then re-created under the same
+// labels (producing a new WAL ref), the WAL replay processes for the shared
+// processor shard look like:
+//
+//	reset(mSeries, oldRef_chunks, oldRef)
+//	deleteSeriesByID(oldRef)           ← removes chunks from gauge
+//	reset(mSeries, newRef_chunks, newRef) ← was double-subtracting old chunks
+//
+// Without the fix, deleteSeriesByID removes M chunks from the gauge but leaves
+// series.mmappedChunks non-nil. The subsequent reset then subtracts those M
+// chunks a second time, driving prometheus_tsdb_head_chunks negative when M
+// exceeds the new series' chunk count.
+func TestHead_WALMultiRef_StaleDeletion_ChunkGaugeNotNegative(t *testing.T) {
+	head, w := newTestHead(t, 1000, compression.None, false)
+	require.NoError(t, head.Init(0))
+
+	lset := labels.FromStrings("foo", "bar")
+	appendSample := func(ts int64, v float64) storage.SeriesRef {
+		app := head.Appender(context.Background())
+		ref, err := app.Append(0, lset, ts, v)
+		require.NoError(t, err)
+		require.NoError(t, app.Commit())
+		return ref
+	}
+
+	// Append samples across chunk boundaries to give ref1 3 m-mapped chunks + 1 active head chunk.
+	ref1 := appendSample(100, 1) // nextAt=1000
+	appendSample(1200, 2)        // ≥1000 → chunk 2, nextAt=2000
+	appendSample(2300, 3)        // ≥2000 → chunk 3, nextAt=3000
+	appendSample(3400, 4)        // ≥3000 → chunk 4 (active head)
+
+	// Mark ref1 as stale.
+	appendSample(3500, math.Float64frombits(value.StaleNaN))
+
+	// Truncate stale series: removes ref1 from the head and writes a
+	// [MinInt64, MaxInt64] tombstone record to the WAL.
+	require.NoError(t, head.truncateStaleSeries([]storage.SeriesRef{ref1}, 3500))
+
+	// Append a single sample with the same labels to create ref2.
+	// Ref2 has 0 m-mapped chunks, fewer than ref1's 3.
+	ref2 := appendSample(5000, 5)
+	require.NotEqual(t, ref1, ref2, "refs must differ after stale truncation and recreation")
+
+	require.NoError(t, head.Close())
+
+	// Reopen the head to trigger WAL replay. The WAL contains (in order):
+	//   series(ref1) → tombstone(ref1, [MinInt64,MaxInt64]) → series(ref2) → sample(ref2)
+	// Without the fix, replay drives prometheus_tsdb_head_chunks negative.
+	w, err := wlog.New(nil, nil, w.Dir(), compression.None)
+	require.NoError(t, err)
+	opts := DefaultHeadOptions()
+	opts.ChunkRange = 1000
+	opts.ChunkDirRoot = head.opts.ChunkDirRoot
+	head, err = NewHead(nil, nil, w, nil, opts, nil)
+	require.NoError(t, err)
+	require.NoError(t, head.Init(0))
+	defer func() {
+		require.NoError(t, head.Close())
+	}()
+
+	chunksGauge := prom_testutil.ToFloat64(head.metrics.chunks)
+	require.GreaterOrEqual(t, chunksGauge, 0.0, "prometheus_tsdb_head_chunks gauge must not be negative after WAL replay")
 }
 
 func TestHead_WALCheckpointMultiRef(t *testing.T) {
@@ -1502,21 +1570,21 @@ func TestMemSeries_truncateChunks(t *testing.T) {
 	// that the ID of the last chunk still gives us the same chunk afterwards.
 	countBefore := len(s.mmappedChunks) + 1 // +1 for the head chunk.
 	lastID := s.headChunkID(countBefore - 1)
-	lastChunk, _, _, err := s.chunk(lastID, chunkDiskMapper, &memChunkPool)
+	lastChunk, _, _, err := s.chunk(lastID, chunkDiskMapper, &memChunkPool, nil)
 	require.NoError(t, err)
 	require.NotNil(t, lastChunk)
 
-	chk, _, _, err := s.chunk(0, chunkDiskMapper, &memChunkPool)
+	chk, _, _, err := s.chunk(0, chunkDiskMapper, &memChunkPool, nil)
 	require.NotNil(t, chk)
 	require.NoError(t, err)
 
 	s.truncateChunksBefore(2000, 0)
 
 	require.Equal(t, int64(2000), s.mmappedChunks[0].minTime)
-	_, _, _, err = s.chunk(0, chunkDiskMapper, &memChunkPool)
+	_, _, _, err = s.chunk(0, chunkDiskMapper, &memChunkPool, nil)
 	require.Equal(t, storage.ErrNotFound, err, "first chunks not gone")
 	require.Equal(t, countBefore/2, len(s.mmappedChunks)+1) // +1 for the head chunk.
-	chk, _, _, err = s.chunk(lastID, chunkDiskMapper, &memChunkPool)
+	chk, _, _, err = s.chunk(lastID, chunkDiskMapper, &memChunkPool, nil)
 	require.NoError(t, err)
 	require.Equal(t, lastChunk, chk)
 }
@@ -1666,8 +1734,12 @@ func TestMemSeries_truncateChunks_scenarios(t *testing.T) {
 			}
 			require.Len(t, series.mmappedChunks, tc.mmappedChunks, "wrong number of mmapped chunks")
 
+			// Set headChunkCount before truncation (series.append bypasses observeChunkCreated).
+			series.headChunkCount.Store(uint32(tc.headChunks))
+
 			truncated := series.truncateChunksBefore(tc.truncateBefore, 0)
 			require.Equal(t, tc.expectedTruncated, truncated, "wrong number of truncated chunks returned")
+			require.Equal(t, uint32(tc.expectedHead), series.headChunkCount.Load(), "wrong headChunkCount after truncation")
 
 			require.Len(t, series.mmappedChunks, tc.expectedMmap, "wrong number of mmappedChunks after truncation")
 
@@ -2086,10 +2158,10 @@ func TestDelete_e2e(t *testing.T) {
 				sexp := expSs.At()
 				sres := ss.At()
 				require.Equal(t, sexp.Labels(), sres.Labels())
-				smplExp, errExp := storage.ExpandSamples(sexp.Iterator(nil), nil)
-				smplRes, errRes := storage.ExpandSamples(sres.Iterator(nil), nil)
+				smplExp, errExp := storage.ExpandSamples(sexp.Iterator(nil), newSample)
+				smplRes, errRes := storage.ExpandSamples(sres.Iterator(nil), newSample)
 				require.Equal(t, errExp, errRes)
-				require.Equal(t, smplExp, smplRes)
+				requireEqualSamples(t, sexp.Labels().String(), smplExp, smplRes)
 			}
 			require.NoError(t, ss.Err())
 			require.Empty(t, ss.Warnings())
@@ -3768,7 +3840,7 @@ func TestIteratorSeekIntoBuffer(t *testing.T) {
 		New: func() any {
 			return &memChunk{}
 		},
-	})
+	}, nil)
 	require.NoError(t, err)
 	it := c.chunk.Iterator(nil)
 
@@ -7100,6 +7172,22 @@ func TestHeadAppender_AppendHistogramSTZeroSample(t *testing.T) {
 			},
 			expectedError: storage.ErrDuplicateSampleForTimestamp,
 		},
+		{
+			name: "integer histogram ST is out of order",
+			appendableSamples: []appendableSamples{
+				{ts: 200, h: tsdbutil.GenerateTestHistogram(1)},
+				{ts: 300, h: tsdbutil.GenerateTestHistogram(1), st: 100},
+			},
+			expectedError: storage.ErrOutOfOrderST,
+		},
+		{
+			name: "float histogram ST is out of order",
+			appendableSamples: []appendableSamples{
+				{ts: 200, fh: tsdbutil.GenerateTestFloatHistogram(1)},
+				{ts: 300, fh: tsdbutil.GenerateTestFloatHistogram(1), st: 100},
+			},
+			expectedError: storage.ErrOutOfOrderST,
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			h, _ := newTestHead(t, DefaultBlockDuration, compression.None, false)
@@ -7116,6 +7204,72 @@ func TestHeadAppender_AppendHistogramSTZeroSample(t *testing.T) {
 				}
 
 				ref, err = a.AppendHistogram(ref, lbls, sample.ts, sample.h, sample.fh)
+				require.NoError(t, err)
+				require.NoError(t, a.Commit())
+			}
+		})
+	}
+}
+
+func TestHeadAppender_AppendSTZeroSample(t *testing.T) {
+	type appendableSample struct {
+		ts      int64
+		fSample float64
+		st      int64
+	}
+	for _, tc := range []struct {
+		name              string
+		oooEnabled        bool
+		appendableSamples []appendableSample
+		expectedError     error
+	}{
+		{
+			name: "ST lower than minValidTime returns ErrOutOfBounds",
+			appendableSamples: []appendableSample{
+				{ts: 100, fSample: 1.0, st: -1},
+			},
+			expectedError: storage.ErrOutOfBounds,
+		},
+		{
+			name: "ST duplicates an existing sample",
+			appendableSamples: []appendableSample{
+				{ts: 100, fSample: 1.0},
+				{ts: 200, fSample: 2.0, st: 100},
+			},
+			expectedError: storage.ErrDuplicateSampleForTimestamp,
+		},
+		{
+			name: "ST is out of order when OOO is disabled",
+			appendableSamples: []appendableSample{
+				{ts: 200, fSample: 2.0},
+				{ts: 300, fSample: 3.0, st: 100},
+			},
+			expectedError: storage.ErrOutOfOrderSample,
+		},
+		{
+			name:       "ST is out of order when OOO is enabled",
+			oooEnabled: true,
+			appendableSamples: []appendableSample{
+				{ts: 200, fSample: 2.0},
+				{ts: 300, fSample: 3.0, st: 100},
+			},
+			expectedError: storage.ErrOutOfOrderST,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h, _ := newTestHead(t, DefaultBlockDuration, compression.None, tc.oooEnabled)
+
+			lbls := labels.FromStrings("foo", "bar")
+
+			var ref storage.SeriesRef
+			for _, sample := range tc.appendableSamples {
+				a := h.Appender(context.Background())
+				var err error
+				if sample.st != 0 {
+					ref, err = a.AppendSTZeroSample(ref, lbls, sample.ts, sample.st)
+					require.ErrorIs(t, err, tc.expectedError)
+				}
+				ref, err = a.Append(ref, lbls, sample.ts, sample.fSample)
 				require.NoError(t, err)
 				require.NoError(t, a.Commit())
 			}
@@ -7914,4 +8068,583 @@ func TestHead_FastStartupStateFile(t *testing.T) {
 	require.True(t, state.CleanShutdown, "Close() should write CleanShutdown: true")
 	require.Equal(t, uint64(1), state.LastSeriesID, "LastSeriesID should remain 1")
 	require.Equal(t, 0, state.LastWALSegment, "LastWALSegment should remain 0")
+}
+
+func TestHead_ReadSeriesStateFile(t *testing.T) {
+	opts := newTestHeadDefaultOptions(1000, false)
+	head, w := newTestHeadWithOptions(t, compression.None, opts)
+
+	// Fresh boot case.
+	// Should return 0 valued state and os.ErrNotExist.
+	state, err := head.readSeriesStateFile()
+	require.Error(t, err, "reading non-existent state file should return an error")
+	require.True(t, os.IsNotExist(err), "error should be of type os.ErrNotExist")
+	require.Equal(t, SeriesLifecycleState{}, state, "state should be zero-valued when file does not exist")
+
+	// Valid file case.
+	expectedState := SeriesLifecycleState{
+		LastSeriesID:   42000,
+		LastWALSegment: 5,
+		CleanShutdown:  true,
+	}
+
+	b, err := json.Marshal(expectedState)
+	require.NoError(t, err)
+	err = os.WriteFile(filepath.Join(w.Dir(), "series_state.json"), b, 0o666)
+	require.NoError(t, err)
+
+	state, err = head.readSeriesStateFile()
+	require.NoError(t, err, "reading valid state file should not error")
+	require.Equal(t, expectedState, state, "read state should match written state")
+}
+
+func TestHead_FindLastSeriesID(t *testing.T) {
+	opts := newTestHeadDefaultOptions(1000, false)
+	head, w := newTestHeadWithOptions(t, compression.None, opts)
+
+	// Write Series A to first segment.
+	app := head.Appender(context.Background())
+	_, err := app.Append(0, labels.FromStrings("metric", "A"), 100, 1.0)
+	require.NoError(t, err)
+	require.NoError(t, app.Commit())
+
+	// Force the WAL to cut a new segment file (second segment).
+	_, err = w.NextSegment()
+	require.NoError(t, err)
+
+	// Write new sample for series A to second segment.
+	app = head.Appender(context.Background())
+	_, err = app.Append(0, labels.FromStrings("metric", "A"), 200, 2.0)
+	require.NoError(t, err)
+	require.NoError(t, app.Commit())
+
+	// Get the current max segment number.
+	first, last, err := wlog.Segments(w.Dir())
+	require.NoError(t, err)
+
+	mockState := SeriesLifecycleState{
+		LastSeriesID:   1,
+		LastWALSegment: first,
+		CleanShutdown:  false,
+	}
+
+	// Should return 1 as there is only 1 series created so far.
+	id, err := head.findLastSeriesID(mockState, last)
+	require.NoError(t, err)
+	require.Equal(t, uint64(1), id, "Should find ID 1 as no new series were created in segment 2")
+
+	// Write Series B to the second segment
+	app = head.Appender(context.Background())
+	_, err = app.Append(0, labels.FromStrings("metric", "B"), 300, 3.0)
+	require.NoError(t, err)
+	require.NoError(t, app.Commit())
+
+	// Scanning both files should now return 2
+	id, err = head.findLastSeriesID(mockState, last)
+	require.NoError(t, err)
+	require.Equal(t, uint64(2), id, "Should find ID 2 after new series was created in segment 2")
+
+	// Simulate state file knowing about latest segment.
+	mockState.LastWALSegment = last
+
+	// Should return 2 as it should scan the last file and find series B.
+	id, err = head.findLastSeriesID(mockState, last)
+	require.NoError(t, err)
+	require.Equal(t, uint64(2), id, "Should find ID 2 even when state file's last segment is the newest segment")
+}
+
+func TestHead_mmapHeadChunks(t *testing.T) {
+	// Interval such that one chunk's worth of samples (DefaultSamplesPerChunk) spans DefaultBlockDuration/4.
+	interval := DefaultBlockDuration / (4 * DefaultSamplesPerChunk)
+	// Enough samples to cross the nextAt boundary multiple times, producing 3 head chunks per series.
+	const chunkCutIterations = 2*DefaultSamplesPerChunk + 10
+
+	t.Run("basic", func(t *testing.T) {
+		h, _ := newTestHead(t, DefaultBlockDuration, compression.None, false)
+		require.NoError(t, h.Init(0))
+
+		countReady := func() int {
+			n := 0
+			for i := range h.series.size {
+				h.series.locks[i].RLock()
+				for _, s := range h.series.series[i] {
+					if s.headChunkCount.Load() >= 2 {
+						n++
+					}
+				}
+				h.series.locks[i].RUnlock()
+			}
+			return n
+		}
+
+		getCount := func(lbls labels.Labels) uint32 {
+			s := h.series.getByHash(lbls.Hash(), lbls)
+			require.NotNil(t, s, "series %s not found", lbls)
+			return s.headChunkCount.Load()
+		}
+
+		lblsA := labels.FromStrings("__name__", "seriesA")
+		lblsB := labels.FromStrings("__name__", "seriesB")
+		lblsC := labels.FromStrings("__name__", "seriesC")
+
+		ts := int64(0)
+
+		// First chunk creation should set headChunkCount to 1.
+		app := h.Appender(t.Context())
+		_, err := app.Append(0, lblsA, ts, 1.0)
+		require.NoError(t, err)
+		require.NoError(t, app.Commit())
+		ts += interval
+
+		require.Equal(t, uint32(1), getCount(lblsA), "first chunk should set headChunkCount to 1")
+		require.Equal(t, 0, countReady(), "series with only a first chunk should not be ready")
+
+		// Appending enough samples to trigger chunk cuts should update headChunkCount.
+		var refB, refC storage.SeriesRef
+		app = h.Appender(t.Context())
+		for range chunkCutIterations {
+			var err error
+			refB, err = app.Append(refB, lblsB, ts, float64(ts))
+			require.NoError(t, err)
+			refC, err = app.Append(refC, lblsC, ts, float64(ts))
+			require.NoError(t, err)
+			ts += interval
+		}
+		require.NoError(t, app.Commit())
+
+		require.Equal(t, 2, countReady(), "expected both series to be marked ready")
+		// With ~2*DefaultSamplesPerChunk samples, we expect 3 head chunks (the count tracks total head chunks).
+		require.Equal(t, uint32(3), getCount(lblsB), "series B headChunkCount should reflect actual head chunk count")
+		require.Equal(t, uint32(3), getCount(lblsC), "series C headChunkCount should reflect actual head chunk count")
+
+		// mmapHeadChunks should reset headChunkCount to 1 (one head chunk remains).
+		h.mmapHeadChunks()
+
+		for _, lbls := range []labels.Labels{lblsB, lblsC} {
+			s := h.series.getByHash(lbls.Hash(), lbls)
+			require.NotNil(t, s, "series %s not found", lbls)
+			s.Lock()
+			require.NotNil(t, s.headChunks, "series %s should have head chunks", lbls)
+			require.Nil(t, s.headChunks.prev, "series %s should not have prev mmapped", lbls)
+			require.NotEmpty(t, s.mmappedChunks, "series %s should have mmapped chunks", lbls)
+			s.Unlock()
+		}
+
+		require.Equal(t, uint32(1), getCount(lblsB), "headChunkCount should be 1 after mmap")
+		require.Equal(t, uint32(1), getCount(lblsC), "headChunkCount should be 1 after mmap")
+		require.Equal(t, 0, countReady(), "ready set should be empty after mmapHeadChunks")
+
+		// A second call should be a no-op.
+		beforeMetric := prom_testutil.ToFloat64(h.metrics.mmapChunksTotal)
+		h.mmapHeadChunks()
+		afterMetric := prom_testutil.ToFloat64(h.metrics.mmapChunksTotal)
+		require.Equal(t, beforeMetric, afterMetric, "second call should mmap 0 chunks")
+
+		// Only newly ready series should be processed.
+		app = h.Appender(t.Context())
+		for range chunkCutIterations {
+			var err error
+			refB, err = app.Append(refB, lblsB, ts, float64(ts))
+			require.NoError(t, err)
+			ts += interval
+		}
+		require.NoError(t, app.Commit())
+
+		require.Equal(t, 1, countReady(), "only series B should be ready")
+		require.Equal(t, uint32(3), getCount(lblsB), "series B headChunkCount should reflect new chunks")
+		require.Equal(t, uint32(1), getCount(lblsC), "series C headChunkCount should be unchanged")
+
+		beforeMetric = prom_testutil.ToFloat64(h.metrics.mmapChunksTotal)
+		h.mmapHeadChunks()
+		afterMetric = prom_testutil.ToFloat64(h.metrics.mmapChunksTotal)
+		require.Greater(t, afterMetric, beforeMetric, "third call should mmap chunks from series B")
+		require.Equal(t, uint32(1), getCount(lblsB), "series B headChunkCount should be 1 after mmap")
+	})
+
+	t.Run("ooo does not inflate count", func(t *testing.T) {
+		h, _ := newTestHead(t, DefaultBlockDuration, compression.None, true /* oooEnabled */)
+		require.NoError(t, h.Init(0))
+
+		lbls := labels.FromStrings("__name__", "test")
+		ts := int64(0)
+
+		// Create enough in-order samples to get headChunkCount >= 2.
+		var ref storage.SeriesRef
+		app := h.Appender(t.Context())
+		for range chunkCutIterations {
+			var err error
+			ref, err = app.Append(ref, lbls, ts, float64(ts))
+			require.NoError(t, err)
+			ts += interval
+		}
+		require.NoError(t, app.Commit())
+
+		s := h.series.getByHash(lbls.Hash(), lbls)
+		require.NotNil(t, s)
+		countBefore := s.headChunkCount.Load()
+		require.GreaterOrEqual(t, countBefore, uint32(2), "need multiple head chunks for this test")
+
+		// Append an OOO sample that creates an OOO chunk.
+		oooTs := ts - 5*time.Minute.Milliseconds() // Within the 10m OOO window.
+		app = h.Appender(t.Context())
+		_, err := app.Append(0, lbls, oooTs, 999.0)
+		require.NoError(t, err)
+		require.NoError(t, app.Commit())
+
+		// headChunkCount must not change from an OOO insert.
+		require.Equal(t, countBefore, s.headChunkCount.Load(), "OOO insert should not inflate headChunkCount")
+	})
+
+	// Verify OOO chunk creation does not spuriously increment mmapReady when the
+	// series happens to be at headChunkCount == 2. This simulates the natural
+	// window where a series has just become mmap-ready and an OOO sample arrives.
+	// Covers all three commit paths: floats, histograms, and float histograms.
+	t.Run("ooo insert does not increment mmap ready", func(t *testing.T) {
+		type testCase struct {
+			appendSample func(app storage.Appender, lbls labels.Labels, ts int64) error
+		}
+		testCases := map[string]testCase{
+			"floats": {
+				appendSample: func(app storage.Appender, lbls labels.Labels, ts int64) error {
+					_, err := app.Append(0, lbls, ts, float64(ts))
+					return err
+				},
+			},
+			"histograms": {
+				appendSample: func(app storage.Appender, lbls labels.Labels, ts int64) error {
+					_, err := app.AppendHistogram(0, lbls, ts, tsdbutil.GenerateTestHistograms(1)[0], nil)
+					return err
+				},
+			},
+			"float histograms": {
+				appendSample: func(app storage.Appender, lbls labels.Labels, ts int64) error {
+					_, err := app.AppendHistogram(0, lbls, ts, nil, tsdbutil.GenerateTestFloatHistograms(1)[0])
+					return err
+				},
+			},
+		}
+		for name, tc := range testCases {
+			t.Run(name, func(t *testing.T) {
+				h, _ := newTestHead(t, DefaultBlockDuration, compression.None, true /* oooEnabled */)
+				require.NoError(t, h.Init(0))
+
+				mmapReadyTotal := func() int32 {
+					var n int32
+					for i := range h.series.size {
+						n += h.series.mmapReady[i].Load()
+					}
+					return n
+				}
+
+				// Create a series with one in-order sample.
+				lbls := labels.FromStrings("__name__", "test")
+				ts := int64(0)
+				app := h.Appender(t.Context())
+				require.NoError(t, tc.appendSample(app, lbls, ts))
+				require.NoError(t, app.Commit())
+				ts += interval
+
+				s := h.series.getByHash(lbls.Hash(), lbls)
+				require.NotNil(t, s)
+
+				// Force the exact state required to trigger the bug: series at
+				// headChunkCount == 2 (mmap-ready) with mmapReady already incremented.
+				s.Lock()
+				s.headChunkCount.Store(2)
+				s.Unlock()
+				h.series.incMmapReady(s.ref)
+				require.Equal(t, int32(1), mmapReadyTotal())
+
+				// Append an OOO sample. This creates an OOO chunk (not a regular
+				// head chunk), so mmapReady must stay at 1.
+				oooTs := ts - 5*time.Minute.Milliseconds()
+				app = h.Appender(t.Context())
+				require.NoError(t, tc.appendSample(app, lbls, oooTs))
+				require.NoError(t, app.Commit())
+
+				require.Equal(t, int32(1), mmapReadyTotal(),
+					"OOO chunk creation must not increment mmapReady")
+			})
+		}
+	})
+
+	// Verify the WAL-replay path's eager mmap (appendChunkAndMmap) keeps
+	// mmapReady consistent when a series enters the path with
+	// headChunkCount >= 2 (typical after loadChunkSnapshot restores a
+	// series that had multiple head chunks at shutdown).
+	t.Run("wal replay does not leak mmap ready", func(t *testing.T) {
+		// Pre-generate varied histograms; reusing the same histogram every
+		// iteration compresses too well to trigger chunk cuts.
+		histograms := tsdbutil.GenerateTestHistograms(chunkCutIterations)
+		floatHistograms := tsdbutil.GenerateTestFloatHistograms(chunkCutIterations)
+
+		type testCase struct {
+			appendOnce     func(app storage.Appender, lbls labels.Labels, ts int64, i int) error
+			appendInternal func(ms *memSeries, t int64, opts chunkOpts) bool
+		}
+		testCases := map[string]testCase{
+			"floats": {
+				appendOnce: func(app storage.Appender, lbls labels.Labels, ts int64, _ int) error {
+					_, err := app.Append(0, lbls, ts, float64(ts))
+					return err
+				},
+				appendInternal: func(ms *memSeries, t int64, opts chunkOpts) bool {
+					_, chunkCreated := ms.append(0, t, 0, 0, opts)
+					return chunkCreated
+				},
+			},
+			"histograms": {
+				appendOnce: func(app storage.Appender, lbls labels.Labels, ts int64, i int) error {
+					_, err := app.AppendHistogram(0, lbls, ts, histograms[i], nil)
+					return err
+				},
+				appendInternal: func(ms *memSeries, t int64, opts chunkOpts) bool {
+					_, chunkCreated := ms.appendHistogram(0, t, histograms[0], 0, opts)
+					return chunkCreated
+				},
+			},
+			"float histograms": {
+				appendOnce: func(app storage.Appender, lbls labels.Labels, ts int64, i int) error {
+					_, err := app.AppendHistogram(0, lbls, ts, nil, floatHistograms[i])
+					return err
+				},
+				appendInternal: func(ms *memSeries, t int64, opts chunkOpts) bool {
+					_, chunkCreated := ms.appendFloatHistogram(0, t, floatHistograms[0], 0, opts)
+					return chunkCreated
+				},
+			},
+		}
+		for name, tc := range testCases {
+			t.Run(name, func(t *testing.T) {
+				h, _ := newTestHead(t, DefaultBlockDuration, compression.None, false)
+				require.NoError(t, h.Init(0))
+
+				mmapReadyTotal := func() int32 {
+					var n int32
+					for i := range h.series.size {
+						n += h.series.mmapReady[i].Load()
+					}
+					return n
+				}
+
+				// Build a series naturally to headChunkCount >= 2 via the normal
+				// appender path. This sets mmapReady to 1.
+				lbls := labels.FromStrings("__name__", "test")
+				ts := int64(0)
+				app := h.Appender(t.Context())
+				for i := range chunkCutIterations {
+					require.NoError(t, tc.appendOnce(app, lbls, ts, i))
+					ts += interval
+				}
+				require.NoError(t, app.Commit())
+
+				s := h.series.getByHash(lbls.Hash(), lbls)
+				require.NotNil(t, s)
+				require.GreaterOrEqual(t, s.headChunkCount.Load(), uint32(2))
+				require.Equal(t, int32(1), mmapReadyTotal())
+
+				// Invoke the WAL-replay-style helper with a sample timestamped
+				// past the next chunk boundary to force a chunk cut.
+				s.Lock()
+				chunkCreated := h.appendChunkAndMmap(s, func() bool {
+					return tc.appendInternal(s, ts+h.chunkRange.Load(), chunkOpts{
+						chunkDiskMapper: h.chunkDiskMapper,
+						chunkRange:      h.chunkRange.Load(),
+						samplesPerChunk: h.opts.SamplesPerChunk,
+					})
+				})
+				s.Unlock()
+				require.True(t, chunkCreated, "test needs a chunk cut to be meaningful")
+
+				// After the chunk cut + mmap, headChunkCount == 1 (mmapChunks
+				// always sets it to 1 when it does work). The series is no
+				// longer mmap-ready, so mmapReady must be 0.
+				require.Equal(t, int32(0), mmapReadyTotal(),
+					"WAL-replay-style chunk cut must decrement mmapReady when prev >= 2")
+			})
+		}
+	})
+
+	// Verify the mmapReady per-stripe counter stays in sync with the actual
+	// number of series that have headChunkCount >= 2, across append, mmap,
+	// GC, and stale-series deletion.
+	t.Run("counter consistency", func(t *testing.T) {
+		h, _ := newTestHead(t, DefaultBlockDuration, compression.None, false)
+		require.NoError(t, h.Init(0))
+
+		// mmapReadyCounter returns the sum of mmapReady[i] across all stripes.
+		mmapReadyCounter := func() int32 {
+			var n int32
+			for i := range h.series.size {
+				n += h.series.mmapReady[i].Load()
+			}
+			return n
+		}
+		requireCounterConsistent := func(msg string) {
+			t.Helper()
+
+			var actual int32
+			for i := range h.series.size {
+				h.series.locks[i].RLock()
+				for _, s := range h.series.series[i] {
+					if s.headChunkCount.Load() >= 2 {
+						actual++
+					}
+				}
+				h.series.locks[i].RUnlock()
+			}
+			counter := mmapReadyCounter()
+			require.Equal(t, actual, counter, "%s: mmapReady counter (%d) != actual ready count (%d)", msg, counter, actual)
+		}
+
+		lblsA := labels.FromStrings("__name__", "seriesA")
+		lblsB := labels.FromStrings("__name__", "seriesB")
+		lblsC := labels.FromStrings("__name__", "seriesC")
+		lblsHist := labels.FromStrings("__name__", "seriesHist")
+		lblsFHist := labels.FromStrings("__name__", "seriesFHist")
+
+		// Phase 1: Append enough samples to create multiple head chunks.
+		// Include histogram and float-histogram series to cover commitHistograms
+		// and commitFloatHistograms increment paths.
+		ts := int64(0)
+		var refA, refB, refC, refHist, refFHist storage.SeriesRef
+		histograms := tsdbutil.GenerateTestHistograms(chunkCutIterations)
+		floatHistograms := tsdbutil.GenerateTestFloatHistograms(chunkCutIterations)
+		app := h.Appender(t.Context())
+		for i := range chunkCutIterations {
+			var err error
+			refA, err = app.Append(refA, lblsA, ts, float64(ts))
+			require.NoError(t, err)
+			refB, err = app.Append(refB, lblsB, ts, float64(ts))
+			require.NoError(t, err)
+			refC, err = app.Append(refC, lblsC, ts, float64(ts))
+			require.NoError(t, err)
+			refHist, err = app.AppendHistogram(refHist, lblsHist, ts, histograms[i], nil)
+			require.NoError(t, err)
+			refFHist, err = app.AppendHistogram(refFHist, lblsFHist, ts, nil, floatHistograms[i])
+			require.NoError(t, err)
+			ts += interval
+		}
+		require.NoError(t, app.Commit())
+		requireCounterConsistent("after initial appends with chunk cuts")
+		require.Equal(t, int32(5), mmapReadyCounter(), "all five series should be ready")
+
+		// Phase 2: mmapHeadChunks should bring counter to 0.
+		h.mmapHeadChunks()
+		requireCounterConsistent("after mmapHeadChunks")
+		require.Equal(t, int32(0), mmapReadyCounter(), "counter should be 0 after mmap")
+
+		// Phase 3: Make only seriesA ready again, then GC with a mint that
+		// truncates its head chunks back to 1.
+		app = h.Appender(t.Context())
+		for range chunkCutIterations {
+			var err error
+			refA, err = app.Append(refA, lblsA, ts, float64(ts))
+			require.NoError(t, err)
+			ts += interval
+		}
+		require.NoError(t, app.Commit())
+		requireCounterConsistent("after making seriesA ready again")
+		require.Equal(t, int32(1), mmapReadyCounter(), "only seriesA should be ready")
+
+		// Mmap to bring seriesA back to headChunkCount == 1, then append
+		// again so the next GC can test the counter decrement path.
+		h.mmapHeadChunks()
+		requireCounterConsistent("after second mmap")
+		require.Equal(t, int32(0), mmapReadyCounter())
+
+		// Make seriesA ready a third time, then GC at a time that truncates
+		// the mmapped chunks but not the new head chunks.
+		app = h.Appender(t.Context())
+		for range chunkCutIterations {
+			var err error
+			refA, err = app.Append(refA, lblsA, ts, float64(ts))
+			require.NoError(t, err)
+			ts += interval
+		}
+		require.NoError(t, app.Commit())
+		requireCounterConsistent("after third round of appends")
+		require.Equal(t, int32(1), mmapReadyCounter())
+
+		// Set minTime to current ts so GC truncates old chunks. Since seriesA
+		// still has recent head chunks (headChunkCount >= 2), GC's
+		// truncateChunksBefore may or may not reduce headChunkCount depending
+		// on timestamps. Regardless, the counter must stay consistent.
+		h.minTime.Store(ts)
+		h.gc()
+		requireCounterConsistent("after GC truncation")
+
+		// Phase 4: Stale-series deletion via truncateStaleSeries (gcStaleSeries path).
+		// Build seriesB up to headChunkCount >= 2, then mark stale and truncate.
+		app = h.Appender(t.Context())
+		for range chunkCutIterations {
+			var err error
+			refB, err = app.Append(refB, lblsB, ts, float64(ts))
+			require.NoError(t, err)
+			ts += interval
+		}
+		require.NoError(t, app.Commit())
+
+		// Mark seriesB stale so truncateStaleSeries will remove it.
+		app = h.Appender(t.Context())
+		_, err := app.Append(refB, lblsB, ts, math.Float64frombits(value.StaleNaN))
+		require.NoError(t, err)
+		require.NoError(t, app.Commit())
+		ts += interval
+
+		sB := h.series.getByHash(lblsB.Hash(), lblsB)
+		require.NotNil(t, sB)
+		require.GreaterOrEqual(t, sB.headChunkCount.Load(), uint32(2),
+			"seriesB must be mmap-ready at deletion time for this test to be meaningful")
+		requireCounterConsistent("before stale series deletion")
+		readyBefore := mmapReadyCounter()
+
+		// Use truncateStaleSeries which calls gcStaleSeries internally.
+		require.NoError(t, h.truncateStaleSeries(
+			[]storage.SeriesRef{storage.SeriesRef(sB.ref)}, ts,
+		))
+		requireCounterConsistent("after truncateStaleSeries")
+		require.Less(t, mmapReadyCounter(), readyBefore,
+			"counter should have decreased after deleting a ready series")
+
+		// Phase 5: Verify mmapHeadChunks does not decrement when mmapChunks
+		// returns 0. This simulates the race where a series passes the
+		// headChunkCount >= 2 filter but by the time the series lock is
+		// acquired, another goroutine (GC) has already reduced the count.
+		//
+		// We create a fresh series with 1 head chunk, then artificially set
+		// headChunkCount to 2 and mmapReady to 1. mmapChunks will see
+		// headChunks.prev == nil and return 0. Without the n > 0 guard,
+		// the counter would be decremented to 0 even though the "real"
+		// decrement never happened (simulating a double-decrement).
+		lblsD := labels.FromStrings("__name__", "seriesD")
+		app = h.Appender(t.Context())
+		_, err = app.Append(0, lblsD, ts, float64(ts))
+		require.NoError(t, err)
+		require.NoError(t, app.Commit())
+
+		sD := h.series.getByHash(lblsD.Hash(), lblsD)
+		require.NotNil(t, sD)
+		require.Equal(t, uint32(1), sD.headChunkCount.Load())
+		require.Nil(t, sD.headChunks.prev, "only one head chunk, prev must be nil")
+		stripeD := h.series.refStripe(sD.ref)
+
+		// Simulate the race: inflate headChunkCount so the series passes the
+		// >= 2 filter, and set mmapReady to 1 (as the increment site would).
+		sD.headChunkCount.Store(2)
+		h.series.mmapReady[stripeD].Add(1)
+
+		h.mmapHeadChunks()
+
+		// mmapChunks returned 0 (headChunks.prev is nil). With the n > 0
+		// guard, the counter stays at 1. Without the guard, it would drop
+		// to 0 — an incorrect extra decrement.
+		require.Equal(t, int32(1), h.series.mmapReady[stripeD].Load(),
+			"mmapHeadChunks must not decrement when mmapChunks returns 0")
+
+		// Clean up: restore the real state.
+		sD.headChunkCount.Store(1)
+		h.series.mmapReady[stripeD].Add(-1)
+		requireCounterConsistent("final state")
+	})
 }
