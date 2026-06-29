@@ -328,6 +328,8 @@ func fileStatusFlags(fd uintptr) (int, error) {
 	return flag, err
 }
 
+var fcntlInt = unix.FcntlInt
+
 // enableDirectIO enables Direct IO on the file if needed.
 func enableDirectIO(fd uintptr) error {
 	flag, err := fileStatusFlags(fd)
@@ -339,9 +341,13 @@ func enableDirectIO(fd uintptr) error {
 		return nil
 	}
 
-	_, err = unix.FcntlInt(fd, unix.F_SETFL, flag|unix.O_DIRECT)
+	_, err = fcntlInt(fd, unix.F_SETFL, flag|unix.O_DIRECT)
 	if err != nil {
-		return fmt.Errorf("cannot enable Direct IO: %w", err)
+		// Enabling O_DIRECT via fcntl(F_SETFL) on an already-opened file is not supported on some
+		// filesystems (e.g. GPFS: https://www.ibm.com/docs/en/storage-scale/6.0.1?topic=applications-considerations-use-direct-io-o-direct).
+		// In that case we currently silently fall back to buffered IO while still honouring alignment requirements, which is harmless.
+		// TODO: make it possible to open the file with O_DIRECT from the start instead of retrofitting it via fcntl.
+		return nil
 	}
 	return nil
 }
