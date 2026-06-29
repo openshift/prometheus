@@ -16,12 +16,14 @@
 package fileutil
 
 import (
+	"fmt"
 	"io"
 	"os"
 	"path"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"golang.org/x/sys/unix"
 )
 
 func directIORqmtsForTest(tb testing.TB) *directIORqmts {
@@ -39,6 +41,44 @@ func TestDirectIOFile(t *testing.T) {
 	require.NoError(t, err)
 
 	require.NoError(t, enableDirectIO(f.Fd()))
+}
+
+func TestEnableDirectIO(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	f, err := os.OpenFile(path.Join(tmpDir, "test"), os.O_CREATE|os.O_WRONLY, 0o666)
+	require.NoError(t, err)
+	t.Cleanup(func() { f.Close() })
+
+	cases := []struct {
+		name string
+		err  error
+	}{
+		{
+			name: "success",
+		},
+		{
+			name: "EINVAL is silently ignored",
+			err:  unix.EINVAL,
+		},
+		{
+			name: "other errors are silently ignored",
+			err:  fmt.Errorf("unexpected error"),
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			original := fcntlInt
+			t.Cleanup(func() { fcntlInt = original })
+
+			fcntlInt = func(fd uintptr, cmd, arg int) (int, error) {
+				return 0, tc.err
+			}
+
+			require.NoError(t, enableDirectIO(f.Fd()))
+		})
+	}
 }
 
 func TestAlignedBlockEarlyPanic(t *testing.T) {
