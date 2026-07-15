@@ -221,3 +221,6 @@ exclude (
 replace github.com/fsnotify/fsnotify v1.8.0 => github.com/fsnotify/fsnotify v1.7.0
 
 replace google.golang.org/grpc => github.com/openshift-sustaining/grpc-go v1.75.1-sec.1
+
+// Carry fix for https://redhat.atlassian.net/browse/OCPBUGS-62118: TLS cert rotation failing without ca_file
+replace github.com/prometheus/common v0.62.0 => github.com/machine424/prometheus-common v0.0.0-20260519225033-cca8fa415d7e
