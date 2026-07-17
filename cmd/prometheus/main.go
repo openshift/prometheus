@@ -650,9 +650,6 @@ func main() {
 
 	logger := promslog.New(&cfg.promslogConfig)
 	slog.SetDefault(logger)
-	// Hacky but temporary
-	parser.Logger = logger.With("component", "parser")
-	relabel.Logger = logger.With("component", "relabel")
 
 	notifs := notifications.NewNotifications(cfg.maxNotificationsSubscribers, prometheus.DefaultRegisterer)
 	cfg.web.NotificationsSub = notifs.Sub
