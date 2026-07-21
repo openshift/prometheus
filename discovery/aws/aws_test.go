@@ -30,6 +30,7 @@ import (
 )
 
 func TestRoleUnmarshalYAML(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		input    string
@@ -84,6 +85,7 @@ func TestRoleUnmarshalYAML(t *testing.T) {
 }
 
 func TestRoleString(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		role     Role
@@ -114,16 +116,19 @@ func TestRoleString(t *testing.T) {
 }
 
 func TestSDConfigName(t *testing.T) {
+	t.Parallel()
 	cfg := &SDConfig{}
 	require.Equal(t, "aws", cfg.Name())
 }
 
 func TestDefaultSDConfig(t *testing.T) {
+	t.Parallel()
 	require.Equal(t, Role(""), DefaultSDConfig.Role)
 	require.Equal(t, model.Duration(60*time.Second), DefaultSDConfig.RefreshInterval)
 }
 
 func TestSDConfigUnmarshalYAML(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name         string
 		yaml         string
@@ -173,6 +178,24 @@ port: 9300`,
 				require.Equal(t, 9300, cfg.LightsailSDConfig.Port)
 			},
 		},
+		{
+			name: "RDSWithFlatFields",
+			yaml: `role: rds
+region: us-east-1
+port: 9400
+filters:
+  - name: engine
+    values: [aurora-postgresql]`,
+			validateFunc: func(t *testing.T, cfg *SDConfig) {
+				require.Equal(t, RoleRDS, cfg.Role)
+				require.NotNil(t, cfg.RDSSDConfig)
+				require.Equal(t, "us-east-1", cfg.RDSSDConfig.Region)
+				require.Equal(t, 9400, cfg.RDSSDConfig.Port)
+				require.Len(t, cfg.RDSSDConfig.Filters, 1)
+				require.Equal(t, "engine", cfg.RDSSDConfig.Filters[0].Name)
+				require.Equal(t, []string{"aurora-postgresql"}, cfg.RDSSDConfig.Filters[0].Values)
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -189,6 +212,7 @@ port: 9300`,
 // all configs pointed to the same global default, causing port and other
 // settings from one job to overwrite settings in another job.
 func TestMultipleSDConfigsDoNotShareState(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name         string
 		yaml         string
@@ -489,6 +513,7 @@ region = ` + randomRegion + `
 }
 
 func TestSDConfigSetDirectory(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 	tests := []struct {
 		name string
