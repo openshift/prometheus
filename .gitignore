@@ -31,6 +31,7 @@ npm_licenses.tar.bz2
 /.build
 
 /**/node_modules
+.pnpm-store
 
 # Ignore parser debug
 y.output
