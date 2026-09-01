@@ -1,4 +1,4 @@
-// Copyright 2025 Buf Technologies, Inc.
+// Copyright 2025-2026 Buf Technologies, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -102,7 +102,7 @@ func (b *builder) run(
 	if err != nil {
 		return err
 	}
-	container := newContainer(nameContainer, logger)
+	container := newContainer(nameContainer, logger, logLevel, logFormat)
 
 	var cancel context.CancelFunc
 	if b.timeout != 0 {

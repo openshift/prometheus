@@ -1,4 +1,4 @@
-// Copyright 2020-2025 Buf Technologies, Inc.
+// Copyright 2020-2026 Buf Technologies, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -323,7 +323,7 @@ func (d DeclImport) ModifierTokens() seq.Inserter[token.Token] {
 	return seq.NewSliceInserter(&d.Raw().modifiers,
 		func(_ int, e token.ID) token.Token { return id.Wrap(d.Context().Stream(), e) },
 		func(_ int, t token.Token) token.ID {
-			d.Context().Nodes().panicIfNotOurs(t)
+			d.Context().Nodes().panicIfNotOurs(t.Context())
 			return t.ID()
 		},
 	)

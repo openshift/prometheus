@@ -1,4 +1,4 @@
-// Copyright 2020-2025 Buf Technologies, Inc.
+// Copyright 2020-2026 Buf Technologies, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -100,8 +100,7 @@ func Parallelize(ctx context.Context, jobs []func(context.Context) error, option
 				addError(ctx.Err())
 			default:
 				job := job
-				wg.Add(1)
-				go func() {
+				wg.Go(func() {
 					if err := job(ctx); err != nil {
 						addError(err)
 						if cancel != nil {
@@ -110,8 +109,7 @@ func Parallelize(ctx context.Context, jobs []func(context.Context) error, option
 					}
 					// This will never block.
 					<-semaphoreC
-					wg.Done()
-				}()
+				})
 			}
 		}
 	}

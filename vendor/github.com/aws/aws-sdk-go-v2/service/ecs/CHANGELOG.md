@@ -1,3 +1,41 @@
+# v1.89.0 (2026-07-21)
+
+* **Feature**: Add an option to clients to disable clock skew
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.88.1 (2026-07-13)
+
+* No change notes available for this release.
+
+# v1.88.0 (2026-07-08)
+
+* **Feature**: Amazon ECS now automatically detects the correct CPU architecture for Express Mode services.
+
+# v1.87.0 (2026-07-06)
+
+* **Feature**: Add request serialization snapshot tests.
+
+# v1.86.2 (2026-07-01)
+
+* **Bug Fix**: Bump smithy-go to 1.27.3, fix JSON encorder for document.Number, endpoint host label format validation and CBOR union serialization on new serde
+* **Dependency Update**: Updated to the latest SDK module versions
+
+# v1.86.1 (2026-06-30)
+
+* **Documentation**: Updated threshold configuration documentation.
+
+# v1.86.0 (2026-06-29)
+
+* **Feature**: Amazon ECS now supports customizable deployment circuit breaker configurations. Customers can now define the failure threshold or control the failure counting mechanism.
+
+# v1.85.0 (2026-06-18)
+
+* **Feature**: Amazon ECS services now support high resolution (20 second) CloudWatch metrics for CPUUtilization and MemoryUtilization. Use these metrics for faster service auto scaling.
+
+# v1.84.0 (2026-06-17)
+
+* **Feature**: Releasing the ability to bring-your-own task-definition for CreateExpressGatewayService and UpdateGatewayExpressService
+
 # v1.83.0 (2026-06-10)
 
 * **Feature**: Amazon ECS Managed Daemon task definitions now support pidMode and ipcMode parameters. Set shared to allow daemons to share PID or IPC namespaces with co-located tasks on Managed Instances, enabling process tracing and shared memory communication.

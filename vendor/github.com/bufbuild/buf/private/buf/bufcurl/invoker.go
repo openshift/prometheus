@@ -1,4 +1,4 @@
-// Copyright 2020-2025 Buf Technologies, Inc.
+// Copyright 2020-2026 Buf Technologies, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -223,14 +223,12 @@ func (inv *invoker) handleBidiStream(ctx context.Context, dataSource string, dat
 
 	var recvErr error
 	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		defer cancel()
 		if err := inv.handleStreamResponse(stream); err != nil {
 			recvErr = err
 		}
-	}()
+	})
 	defer func() {
 		wg.Wait()
 		if recvErr != nil {

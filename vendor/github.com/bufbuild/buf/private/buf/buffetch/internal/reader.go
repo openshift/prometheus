@@ -1,4 +1,4 @@
-// Copyright 2020-2025 Buf Technologies, Inc.
+// Copyright 2020-2026 Buf Technologies, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -244,11 +244,14 @@ func (r *reader) getArchiveBucket(
 	targetPaths []string,
 	targetExcludePaths []string,
 	terminateFunc buftarget.TerminateFunc,
-) (ReadBucketCloser, buftarget.BucketTargeting, error) {
+) (_ ReadBucketCloser, _ buftarget.BucketTargeting, retErr error) {
 	readCloser, size, err := r.getFileReadCloserAndSize(ctx, container, archiveRef, false)
 	if err != nil {
 		return nil, nil, err
 	}
+	defer func() {
+		retErr = errors.Join(retErr, readCloser.Close())
+	}()
 	readWriteBucket := storagemem.NewReadWriteBucket()
 	switch archiveType := archiveRef.ArchiveType(); archiveType {
 	case ArchiveTypeTar:

@@ -1,4 +1,4 @@
-// Copyright 2020-2025 Buf Technologies, Inc.
+// Copyright 2020-2026 Buf Technologies, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -520,15 +520,15 @@ func (d DeclDef) Span() source.Span {
 		return source.Span{}
 	}
 
-	return source.Join(
-		d.Type(),
-		d.Name(),
-		d.Signature(),
-		d.Equals(),
-		d.Value(),
-		d.Options(),
-		d.Body(),
-		d.Semicolon(),
+	return source.JoinSpans(
+		d.Type().Span(),
+		d.Name().Span(),
+		d.Signature().Span(),
+		d.Equals().Span(),
+		d.Value().Span(),
+		d.Options().Span(),
+		d.Body().Span(),
+		d.Semicolon().Span(),
 	)
 }
 

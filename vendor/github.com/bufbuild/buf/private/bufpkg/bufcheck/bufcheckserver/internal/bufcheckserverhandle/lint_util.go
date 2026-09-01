@@ -1,4 +1,4 @@
-// Copyright 2020-2025 Buf Technologies, Inc.
+// Copyright 2020-2026 Buf Technologies, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -38,7 +38,7 @@ func fieldToUpperSnakeCase(s string) string {
 // validLeadingComment returns true if comment has at least one line that isn't empty
 // and doesn't start with one of the comment excludes.
 func validLeadingComment(commentExcludes []string, comment string) bool {
-	for _, line := range strings.Split(comment, "\n") {
+	for line := range strings.SplitSeq(comment, "\n") {
 		line = strings.TrimSpace(line)
 		for _, commentExclude := range commentExcludes {
 			if line != "" && !strings.HasPrefix(line, commentExclude) {

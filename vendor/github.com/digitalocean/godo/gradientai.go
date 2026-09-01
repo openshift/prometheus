@@ -36,6 +36,8 @@ const (
 	customModelImportPath                    = customModelsBasePath + "/import"
 	customModelByIDPath                      = customModelsBasePath + "/%s"
 	customModelMetadataPath                  = customModelsBasePath + "/%s/metadata"
+	customEvaluationMetricsPath              = "/v2/gen-ai/custom_evaluation_metrics"
+	customEvaluationMetricByIDPath           = customEvaluationMetricsPath + "/%s"
 	modelEvaluationRunsBasePath              = "/v2/gen-ai/model_evaluation_runs"
 	modelEvaluationRunByIDPath               = modelEvaluationRunsBasePath + "/%s"
 	modelEvaluationRunCancelPath             = modelEvaluationRunsBasePath + "/%s/cancel"
@@ -218,6 +220,9 @@ type GradientAIService interface {
 	ImportCustomModel(ctx context.Context, importRequest *CustomModelImportRequest) (*CustomModelImportResponse, *Response, error)
 	DeleteCustomModel(ctx context.Context, uuid string) (*CustomModelDeleteResponse, *Response, error)
 	UpdateCustomModelMetadata(ctx context.Context, uuid string, updateRequest *CustomModelMetadataUpdateRequest) (*CustomModel, *Response, error)
+	CreateCustomEvaluationMetric(ctx context.Context, createRequest *CreateCustomEvaluationMetricRequest) (*EvaluationMetric, *Response, error)
+	UpdateCustomEvaluationMetric(ctx context.Context, metricUUID string, updateRequest *UpdateCustomEvaluationMetricRequest) (*EvaluationMetric, *Response, error)
+	DeleteCustomEvaluationMetric(ctx context.Context, metricUUID string) (*Response, error)
 	DeleteModelEvaluationRun(ctx context.Context, evalRunUUID string) (*ModelEvaluationRunDeleteResponse, *Response, error)
 	DeleteModelEvaluationPreset(ctx context.Context, evalPresetUUID string) (*ModelEvaluationPresetDeleteResponse, *Response, error)
 	CancelModelEvaluationRun(ctx context.Context, evalRunUUID string) (*ModelEvaluationRunCancelResponse, *Response, error)
@@ -514,6 +519,15 @@ const (
 	MetricCategoryModelFit          EvaluationMetricCategory = "METRIC_CATEGORY_MODEL_FIT"
 )
 
+// EvaluationMetricSource distinguishes platform catalog metrics from user-defined LLM-as-judge metrics.
+type EvaluationMetricSource string
+
+const (
+	EvaluationMetricSourceUnspecified EvaluationMetricSource = "EVALUATION_METRIC_SOURCE_UNSPECIFIED"
+	EvaluationMetricSourceBuiltin     EvaluationMetricSource = "EVALUATION_METRIC_SOURCE_BUILTIN"
+	EvaluationMetricSourceCustom      EvaluationMetricSource = "EVALUATION_METRIC_SOURCE_CUSTOM"
+)
+
 // Workspace represents a workspace containing agents and evaluation test cases.
 type Workspace struct {
 	UUID                string                `json:"uuid,omitempty"`
@@ -552,17 +566,50 @@ type EvaluationTestCase struct {
 
 // EvaluationMetric represents an evaluation metric definition.
 type EvaluationMetric struct {
-	MetricUUID      string                    `json:"metric_uuid,omitempty"`
-	MetricName      string                    `json:"metric_name,omitempty"`
-	Description     string                    `json:"description,omitempty"`
-	MetricType      EvaluationMetricType      `json:"metric_type,omitempty"`
-	MetricValueType EvaluationMetricValueType `json:"metric_value_type,omitempty"`
-	RangeMin        float32                   `json:"range_min,omitempty"`
-	RangeMax        float32                   `json:"range_max,omitempty"`
-	Inverted        bool                      `json:"inverted,omitempty"`
-	Category        EvaluationMetricCategory  `json:"category,omitempty"`
-	IsMetricGoal    bool                      `json:"is_metric_goal,omitempty"`
-	MetricRank      uint32                    `json:"metric_rank,omitempty"`
+	MetricUUID        string                            `json:"metric_uuid,omitempty"`
+	MetricName        string                            `json:"metric_name,omitempty"`
+	Description       string                            `json:"description,omitempty"`
+	MetricType        EvaluationMetricType              `json:"metric_type,omitempty"`
+	MetricValueType   EvaluationMetricValueType         `json:"metric_value_type,omitempty"`
+	RangeMin          float32                           `json:"range_min,omitempty"`
+	RangeMax          float32                           `json:"range_max,omitempty"`
+	Inverted          bool                              `json:"inverted,omitempty"`
+	Category          EvaluationMetricCategory          `json:"category,omitempty"`
+	IsMetricGoal      bool                              `json:"is_metric_goal,omitempty"`
+	MetricRank        uint32                            `json:"metric_rank,omitempty"`
+	Source            EvaluationMetricSource            `json:"source,omitempty"`
+	CustomEvalConfig  *CustomEvaluationMetricConfig     `json:"custom_eval_config,omitempty"`
+	AssociatedPresets []AssociatedModelEvaluationPreset `json:"associated_presets,omitempty"`
+}
+
+// CustomEvaluationMetricConfig represents the LLM-as-judge scoring configuration for custom evaluation metrics.
+type CustomEvaluationMetricConfig struct {
+	RequiresGroundTruth bool       `json:"requires_ground_truth,omitempty"`
+	ScoringPrompt       string     `json:"scoring_prompt,omitempty"`
+	CreatedAt           *Timestamp `json:"created_at,omitempty"`
+	UpdatedAt           *Timestamp `json:"updated_at,omitempty"`
+	DeletedAt           *Timestamp `json:"deleted_at,omitempty"`
+}
+
+// AssociatedModelEvaluationPreset identifies a saved model evaluation preset that references a custom metric.
+type AssociatedModelEvaluationPreset struct {
+	EvalPresetUUID string `json:"eval_preset_uuid,omitempty"`
+	Name           string `json:"name,omitempty"`
+}
+
+// CreateCustomEvaluationMetricRequest is the request payload for creating a custom evaluation metric.
+type CreateCustomEvaluationMetricRequest struct {
+	MetricName  string                        `json:"metric_name,omitempty"`
+	Description string                        `json:"description,omitempty"`
+	Config      *CustomEvaluationMetricConfig `json:"config,omitempty"`
+}
+
+// UpdateCustomEvaluationMetricRequest is the request payload for updating a custom evaluation metric.
+type UpdateCustomEvaluationMetricRequest struct {
+	MetricUUID  string                        `json:"metric_uuid,omitempty"`
+	MetricName  string                        `json:"metric_name,omitempty"`
+	Description string                        `json:"description,omitempty"`
+	Config      *CustomEvaluationMetricConfig `json:"config,omitempty"`
 }
 
 // EvaluationDataset represents the dataset information for an evaluation.
@@ -2309,6 +2356,7 @@ type CustomModel struct {
 	TeamId               string                         `json:"team_id,omitempty"`
 	ConfigJson           map[string]any                 `json:"config_json,omitempty"`
 	StorageRegion        string                         `json:"storage_region,omitempty"`
+	ErrorMessage         string                         `json:"error_message,omitempty"`
 }
 
 // CustomModelSourceRef references the original source of a custom model.
@@ -2420,6 +2468,10 @@ type customModelRoot struct {
 	Model *CustomModel `json:"model"`
 }
 
+type customEvaluationMetricRoot struct {
+	Metric *EvaluationMetric `json:"metric"`
+}
+
 // ListCustomModels returns the list of custom models for the team.
 func (s *GradientAIServiceOp) ListCustomModels(ctx context.Context, opt *CustomModelListOptions) (*CustomModelListResponse, *Response, error) {
 	path, err := addOptions(customModelsBasePath, opt)
@@ -2520,17 +2572,18 @@ type ModelEvaluationRunDeleteResponse struct {
 // ModelEvaluationRunSummary is a lightweight view of an evaluation run used in
 // run history listings and the cancel response.
 type ModelEvaluationRunSummary struct {
-	CandidateModelName   string                   `json:"candidate_model_name,omitempty"`
-	CandidateModelSource CandidateModelSource     `json:"candidate_model_source,omitempty"`
-	CandidateModelUuid   string                   `json:"candidate_model_uuid,omitempty"`
-	CreatedAt            *Timestamp               `json:"created_at,omitempty"`
-	DatasetName          string                   `json:"dataset_name,omitempty"`
-	DatasetUuid          string                   `json:"dataset_uuid,omitempty"`
-	EvalRunUuid          string                   `json:"eval_run_uuid,omitempty"`
-	JudgeModelName       string                   `json:"judge_model_name,omitempty"`
-	JudgeModelUuid       string                   `json:"judge_model_uuid,omitempty"`
-	Name                 string                   `json:"name,omitempty"`
-	Status               ModelEvaluationRunStatus `json:"status,omitempty"`
+	CandidateModelName   string                      `json:"candidate_model_name,omitempty"`
+	CandidateModelSource CandidateModelSource        `json:"candidate_model_source,omitempty"`
+	CandidateModelUuid   string                      `json:"candidate_model_uuid,omitempty"`
+	CreatedAt            *Timestamp                  `json:"created_at,omitempty"`
+	DatasetName          string                      `json:"dataset_name,omitempty"`
+	DatasetUuid          string                      `json:"dataset_uuid,omitempty"`
+	EvalRunUuid          string                      `json:"eval_run_uuid,omitempty"`
+	JudgeModelName       string                      `json:"judge_model_name,omitempty"`
+	JudgeModelUuid       string                      `json:"judge_model_uuid,omitempty"`
+	Name                 string                      `json:"name,omitempty"`
+	Progress             *ModelEvaluationRunProgress `json:"progress,omitempty"`
+	Status               ModelEvaluationRunStatus    `json:"status,omitempty"`
 }
 
 // CancelModelEvaluationRunRequest represents the request payload for cancelling
@@ -2709,7 +2762,6 @@ type CreateModelEvaluationRunRequest struct {
 	MetricUUIDs              []string                  `json:"metric_uuids,omitempty"`
 	Name                     string                    `json:"name,omitempty"`
 	PresetName               string                    `json:"preset_name,omitempty"`
-	SaveAsPreset             bool                      `json:"save_as_preset,omitempty"`
 	Source                   string                    `json:"source,omitempty"`
 	StarMetric               *StarMetric               `json:"star_metric,omitempty"`
 }
@@ -2834,6 +2886,24 @@ type ModelEvaluationRunResultSummary struct {
 	TotalDurationSeconds int64                    `json:"total_duration_seconds,omitempty"`
 }
 
+// ModelEvaluationRunProgress reports per-phase progress for a model evaluation
+// run. The candidate phase invokes the candidate model once per dataset row;
+// the judge phase scores each candidate-success row with the configured
+// metrics. Counts grow as the run advances; compare against TotalRows to render
+// a progress bar.
+type ModelEvaluationRunProgress struct {
+	// CandidateRowsEvaluated is the number of dataset rows whose candidate model
+	// call has completed (success or failure).
+	CandidateRowsEvaluated *int64 `json:"candidate_rows_evaluated,omitempty"`
+	// JudgeRowsEvaluated is the number of candidate-success rows the judge has
+	// finished (scored or skipped). It caps at the number of candidate
+	// successes, which may be below TotalRows.
+	JudgeRowsEvaluated *int64 `json:"judge_rows_evaluated,omitempty"`
+	// TotalRows is the total number of dataset rows for the run, sourced from the
+	// evaluation dataset.
+	TotalRows *int64 `json:"total_rows,omitempty"`
+}
+
 // ModelEvaluationRunDetail is the full view of a model evaluation run
 // returned when fetching a specific run.
 type ModelEvaluationRunDetail struct {
@@ -2853,6 +2923,7 @@ type ModelEvaluationRunDetail struct {
 	JudgeModelUuid           string                           `json:"judge_model_uuid,omitempty"`
 	Metrics                  []*EvaluationMetric              `json:"metrics,omitempty"`
 	Name                     string                           `json:"name,omitempty"`
+	Progress                 *ModelEvaluationRunProgress      `json:"progress,omitempty"`
 	ResultSummary            *ModelEvaluationRunResultSummary `json:"result_summary,omitempty"`
 	StarMetric               *StarMetric                      `json:"star_metric,omitempty"`
 	StartedAt                *Timestamp                       `json:"started_at,omitempty"`
@@ -3208,6 +3279,64 @@ func (s *GradientAIServiceOp) UpdateCustomModelMetadata(ctx context.Context, uui
 		return nil, resp, err
 	}
 	return root.Model, resp, nil
+}
+
+// CreateCustomEvaluationMetric creates a custom model-evaluation metric.
+func (s *GradientAIServiceOp) CreateCustomEvaluationMetric(ctx context.Context, createRequest *CreateCustomEvaluationMetricRequest) (*EvaluationMetric, *Response, error) {
+	if createRequest == nil {
+		return nil, nil, fmt.Errorf("create request is required")
+	}
+
+	req, err := s.client.NewRequest(ctx, http.MethodPost, customEvaluationMetricsPath, createRequest)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	root := new(customEvaluationMetricRoot)
+	resp, err := s.client.Do(ctx, req, root)
+	if err != nil {
+		return nil, resp, err
+	}
+	return root.Metric, resp, nil
+}
+
+// UpdateCustomEvaluationMetric updates an existing custom model-evaluation metric.
+func (s *GradientAIServiceOp) UpdateCustomEvaluationMetric(ctx context.Context, metricUUID string, updateRequest *UpdateCustomEvaluationMetricRequest) (*EvaluationMetric, *Response, error) {
+	if metricUUID == "" {
+		return nil, nil, fmt.Errorf("metricUUID is required")
+	}
+	if updateRequest == nil {
+		return nil, nil, fmt.Errorf("update request is required")
+	}
+
+	path := fmt.Sprintf(customEvaluationMetricByIDPath, metricUUID)
+	req, err := s.client.NewRequest(ctx, http.MethodPut, path, updateRequest)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	root := new(customEvaluationMetricRoot)
+	resp, err := s.client.Do(ctx, req, root)
+	if err != nil {
+		return nil, resp, err
+	}
+	return root.Metric, resp, nil
+}
+
+// DeleteCustomEvaluationMetric soft-deletes a custom model-evaluation metric.
+func (s *GradientAIServiceOp) DeleteCustomEvaluationMetric(ctx context.Context, metricUUID string) (*Response, error) {
+	if metricUUID == "" {
+		return nil, fmt.Errorf("metricUUID is required")
+	}
+
+	path := fmt.Sprintf(customEvaluationMetricByIDPath, metricUUID)
+	req, err := s.client.NewRequest(ctx, http.MethodDelete, path, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := s.client.Do(ctx, req, nil)
+	return resp, err
 }
 
 func (a Agent) String() string {

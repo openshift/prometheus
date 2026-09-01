@@ -1,4 +1,4 @@
-// Copyright 2020-2025 Buf Technologies, Inc.
+// Copyright 2020-2026 Buf Technologies, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -108,7 +108,7 @@ func (d DeclBody) Decls() seq.Inserter[DeclAny] {
 			return id.WrapDyn(d.Context(), id.NewDyn(k, p))
 		},
 		func(_ int, d DeclAny) (DeclKind, id.ID[DeclAny]) {
-			d.Context().Nodes().panicIfNotOurs(d)
+			d.Context().Nodes().panicIfNotOurs(d.Context())
 			return d.ID().Kind(), d.ID().Value()
 		},
 	)

@@ -1,4 +1,4 @@
-// Copyright 2020-2025 Buf Technologies, Inc.
+// Copyright 2020-2026 Buf Technologies, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -35,13 +35,18 @@ const (
 )
 
 var (
-	// ErrImageFilterTypeNotFound is returned from ImageFilteredByTypes when
+	// ErrImageFilterTypeNotFound is returned from FilterImage when
 	// a specified type cannot be found in an image.
 	ErrImageFilterTypeNotFound = errors.New("not found")
 
-	// ErrImageFilterTypeIsImport is returned from ImageFilteredByTypes when
+	// ErrImageFilterTypeIsImport is returned from FilterImage when
 	// a specified type name is declared in a module dependency.
 	ErrImageFilterTypeIsImport = errors.New("type declared in imported module")
+
+	// ErrImageFilterTypeExcluded is returned from FilterImage when a type is
+	// named for inclusion but it (or all of the types it expands to) has also
+	// been excluded, so the include and exclude filters contradict each other.
+	ErrImageFilterTypeExcluded = errors.New("type excluded by filter")
 )
 
 // FreeMessageRangeStrings gets the free MessageRange strings for the target files.
@@ -69,11 +74,11 @@ func FreeMessageRangeStrings(
 	return s, nil
 }
 
-// ImageFilterOption is an option that can be passed to ImageFilteredByTypesWithOptions.
+// ImageFilterOption is an option that can be passed to FilterImage.
 type ImageFilterOption func(*imageFilterOptions)
 
 // WithExcludeCustomOptions returns an option that will cause an image filtered via
-// ImageFilteredByTypesWithOptions to *not* include custom options unless they are
+// FilterImage to *not* include custom options unless they are
 // explicitly named in the list of filter types.
 func WithExcludeCustomOptions() ImageFilterOption {
 	return func(opts *imageFilterOptions) {
@@ -82,7 +87,7 @@ func WithExcludeCustomOptions() ImageFilterOption {
 }
 
 // WithExcludeKnownExtensions returns an option that will cause an image filtered via
-// ImageFilteredByTypesWithOptions to *not* include the known extensions for included
+// FilterImage to *not* include the known extensions for included
 // extendable messages unless they are explicitly named in the list of filter types.
 func WithExcludeKnownExtensions() ImageFilterOption {
 	return func(opts *imageFilterOptions) {
@@ -90,7 +95,7 @@ func WithExcludeKnownExtensions() ImageFilterOption {
 	}
 }
 
-// WithAllowIncludeOfImportedType returns an option for ImageFilteredByTypesWithOptions
+// WithAllowIncludeOfImportedType returns an option for FilterImage
 // that allows a named included type to be in an imported file or module. Without this
 // option, only types defined directly in the image to be filtered are allowed.
 // Excluded types are always allowed to be in imported files or modules.
@@ -100,14 +105,19 @@ func WithAllowIncludeOfImportedType() ImageFilterOption {
 	}
 }
 
-// WithIncludeTypes returns an option for ImageFilteredByTypesWithOptions that specifies
+// WithIncludeTypes returns an option for FilterImage that specifies
 // the set of types that should be included in the filtered image.
 //
 // May be provided multiple times. The type names should be fully qualified.
 // For example, "google.protobuf.Any" or "buf.validate". Types may be nested,
 // and can be any package, message, enum, extension, service or method name.
 //
-// If the  type does not exist in the image, an error wrapping
+// A name ending in ".**" is a recursive glob that matches the named element and
+// every symbol nested beneath it. For example, "acme.foo.**" matches the package
+// "acme.foo", all of its sub-packages, and all of their types; "acme.Foo.**"
+// matches the message "acme.Foo" and all of its nested types.
+//
+// If the type does not exist in the image, an error wrapping
 // [ErrImageFilterTypeNotFound] will be returned.
 func WithIncludeTypes(typeNames ...string) ImageFilterOption {
 	return func(opts *imageFilterOptions) {
@@ -120,14 +130,21 @@ func WithIncludeTypes(typeNames ...string) ImageFilterOption {
 	}
 }
 
-// WithExcludeTypes returns an option for ImageFilteredByTypesWithOptions that
+// WithExcludeTypes returns an option for FilterImage that
 // specifies the set of types that should be excluded from the filtered image.
 //
 // May be provided multiple times. The type names should be fully qualified.
 // For example, "google.protobuf.Any" or "buf.validate". Types may be nested,
 // and can be any package, message, enum, extension, service or method name.
 //
-// If the  type does not exist in the image, an error wrapping
+// A name ending in ".**" is a recursive glob that matches the named element and
+// every symbol nested beneath it. For a package, this additionally excludes all
+// of its sub-packages; without the glob, only the named package's own types are
+// excluded. Note that, even without the glob suffix, excluding a message always
+// excludes any nested types, too. This is because we can't realistically preserve
+// the nested types if we've excluded their container.
+//
+// If the type does not exist in the image, an error wrapping
 // [ErrImageFilterTypeNotFound] will be returned.
 func WithExcludeTypes(typeNames ...string) ImageFilterOption {
 	return func(opts *imageFilterOptions) {
@@ -140,7 +157,7 @@ func WithExcludeTypes(typeNames ...string) ImageFilterOption {
 	}
 }
 
-// WithMutateInPlace returns an option for ImageFilteredByTypesWithOptions that specifies
+// WithMutateInPlace returns an option for FilterImage that specifies
 // that the filtered image should be mutated in place. This option is useful when the
 // unfiltered image is no longer needed and the caller wants to avoid the overhead of
 // copying the image.
@@ -345,6 +362,7 @@ func (t *transitiveClosure) hasOption(
 
 func (t *transitiveClosure) includeType(
 	typeName protoreflect.FullName,
+	recursive bool,
 	imageIndex *imageIndex,
 	options *imageFilterOptions,
 ) error {
@@ -356,7 +374,7 @@ func (t *transitiveClosure) includeType(
 		}
 		// Check if the type is already excluded.
 		if mode := t.elements[descriptorInfo.element]; mode == inclusionModeExcluded {
-			return fmt.Errorf("inclusion of excluded type %q", typeName)
+			return fmt.Errorf("inclusion of type %q: %w", typeName, ErrImageFilterTypeExcluded)
 		}
 		// If an extension field, check if the extendee is excluded.
 		if field, ok := descriptorInfo.element.(*descriptorpb.FieldDescriptorProto); ok && field.Extendee != nil {
@@ -366,11 +384,17 @@ func (t *transitiveClosure) includeType(
 				return fmt.Errorf("missing %q", extendeeName)
 			}
 			if mode := t.elements[extendeeInfo.element]; mode == inclusionModeExcluded {
-				return fmt.Errorf("cannot include extension field %q as the extendee type %q is excluded", typeName, extendeeName)
+				return fmt.Errorf("cannot include extension field %q as its extendee type %q is %w", typeName, extendeeName, ErrImageFilterTypeExcluded)
 			}
 		}
 		if err := t.addElement(descriptorInfo.element, "", false, imageIndex, options); err != nil {
 			return fmt.Errorf("inclusion of type %q: %w", typeName, err)
+		}
+		if recursive {
+			// Auto-include any symbol nested beneath the named element.
+			if err := t.includeChildElements(descriptorInfo.element, imageIndex, options); err != nil {
+				return fmt.Errorf("inclusion of type %q: %w", typeName, err)
+			}
 		}
 		return nil
 	}
@@ -380,10 +404,24 @@ func (t *transitiveClosure) includeType(
 		// but it's not...
 		return fmt.Errorf("inclusion of type %q: %w", typeName, ErrImageFilterTypeNotFound)
 	}
+	// Determine the files in scope: the package's own files, plus all
+	// sub-package files for a recursive glob.
+	packageFiles := pkg.files
+	if recursive {
+		packageFiles = appendPackageFiles(nil, pkg)
+	}
+	if len(packageFiles) == 0 {
+		// The named package declares no types of its own. This commonly happens
+		// with a version-prefix namespace such as "acme.order" whose types all
+		// live in sub-packages (acme.order.v1, ...); point the caller at the
+		// recursive glob that would include them.
+		return fmt.Errorf("inclusion of type %q: package contains no types directly; did you mean %q?", typeName, string(typeName)+".**")
+	}
 	if !options.allowImportedTypes {
-		// if package includes only imported files, then reject
+		// If the package (including its sub-packages, for a recursive glob)
+		// contains only imported files, then reject.
 		onlyImported := true
-		for _, file := range pkg.files {
+		for _, file := range packageFiles {
 			if !file.IsImport() {
 				onlyImported = false
 				break
@@ -393,16 +431,104 @@ func (t *transitiveClosure) includeType(
 			return fmt.Errorf("inclusion of type %q: %w", typeName, ErrImageFilterTypeIsImport)
 		}
 	}
+	included, err := t.includePackage(pkg, recursive, imageIndex, options)
+	if err != nil {
+		return err
+	}
+	if included == 0 {
+		// Every file in scope was excluded, so the include and exclude filters
+		// cancel out (e.g. including "a.b.**" while a.b and all its sub-packages
+		// are excluded).
+		return fmt.Errorf("inclusion of type %q: %w", typeName, ErrImageFilterTypeExcluded)
+	}
+	return nil
+}
+
+// includePackage adds the non-excluded files of the given package to the
+// closure, recursing into sub-packages when recursive is set, and returns the
+// number of files it included. Excluded files are skipped; the caller treats a
+// zero count as a contradiction between the include and exclude filters.
+func (t *transitiveClosure) includePackage(
+	pkg *packageInfo,
+	recursive bool,
+	imageIndex *imageIndex,
+	options *imageFilterOptions,
+) (int, error) {
+	included := 0
 	for _, file := range pkg.files {
 		fileDescriptor := file.FileDescriptorProto()
 		if mode := t.elements[fileDescriptor]; mode == inclusionModeExcluded {
-			return fmt.Errorf("inclusion of excluded package %q", typeName)
+			continue
 		}
 		if err := t.addElement(fileDescriptor, "", false, imageIndex, options); err != nil {
-			return fmt.Errorf("inclusion of type %q: %w", typeName, err)
+			return included, fmt.Errorf("inclusion of package %q: %w", pkg.fullName, err)
+		}
+		included++
+	}
+	if recursive {
+		for _, subPackage := range pkg.subPackages {
+			subIncluded, err := t.includePackage(subPackage, recursive, imageIndex, options)
+			if err != nil {
+				return included, err
+			}
+			included += subIncluded
+		}
+	}
+	return included, nil
+}
+
+// includeChildElements recursively adds the symbols nested beneath the given
+// element to the closure. Only messages have such children: their nested
+// messages, enums, and extensions. Other element kinds have nothing to expand
+// (a service's methods and an enum's values are always included with their
+// parent).
+func (t *transitiveClosure) includeChildElements(
+	descriptor namedDescriptor,
+	imageIndex *imageIndex,
+	options *imageFilterOptions,
+) error {
+	message, ok := descriptor.(*descriptorpb.DescriptorProto)
+	if !ok {
+		return nil
+	}
+	for _, nestedMessage := range message.GetNestedType() {
+		if mode := t.elements[nestedMessage]; mode == inclusionModeExcluded {
+			continue
+		}
+		if err := t.addElement(nestedMessage, "", false, imageIndex, options); err != nil {
+			return err
+		}
+		if err := t.includeChildElements(nestedMessage, imageIndex, options); err != nil {
+			return err
+		}
+	}
+	for _, nestedEnum := range message.GetEnumType() {
+		if mode := t.elements[nestedEnum]; mode == inclusionModeExcluded {
+			continue
+		}
+		if err := t.addElement(nestedEnum, "", false, imageIndex, options); err != nil {
+			return err
+		}
+	}
+	for _, nestedExtension := range message.GetExtension() {
+		if mode := t.elements[nestedExtension]; mode == inclusionModeExcluded {
+			continue
+		}
+		if err := t.addElement(nestedExtension, "", false, imageIndex, options); err != nil {
+			return err
 		}
 	}
 	return nil
+}
+
+// appendPackageFiles appends the files of the given package and all of its
+// sub-packages, recursively, to files.
+func appendPackageFiles(files []bufimage.ImageFile, pkg *packageInfo) []bufimage.ImageFile {
+	files = append(files, pkg.files...)
+	for _, subPackage := range pkg.subPackages {
+		files = appendPackageFiles(files, subPackage)
+	}
+	return files
 }
 
 func (t *transitiveClosure) addImport(fromPath, toPath string) {
@@ -546,11 +672,11 @@ func (t *transitiveClosure) addElement(
 		}
 		if inputMode := t.elements[inputInfo.element]; inputMode == inclusionModeExcluded {
 			// The input is excluded, it's an error to include the method.
-			return fmt.Errorf("cannot include method %q as the input type %q is excluded", descriptorInfo.fullName, inputInfo.fullName)
+			return fmt.Errorf("cannot include method %q as its input type %q is %w", descriptorInfo.fullName, inputInfo.fullName, ErrImageFilterTypeExcluded)
 		}
 		if outputMode := t.elements[outputInfo.element]; outputMode == inclusionModeExcluded {
 			// The output is excluded, it's an error to include the method.
-			return fmt.Errorf("cannot include method %q as the output type %q is excluded", descriptorInfo.fullName, outputInfo.fullName)
+			return fmt.Errorf("cannot include method %q as its output type %q is %w", descriptorInfo.fullName, outputInfo.fullName, ErrImageFilterTypeExcluded)
 		}
 		if err := t.addElement(inputInfo.element, descriptorInfo.file.Path(), false, imageIndex, opts); err != nil {
 			return err
@@ -611,11 +737,15 @@ func (t *transitiveClosure) addElement(
 
 func (t *transitiveClosure) excludeType(
 	typeName protoreflect.FullName,
+	recursive bool,
 	imageIndex *imageIndex,
 	options *imageFilterOptions,
 ) error {
 	descriptorInfo, ok := imageIndex.ByName[typeName]
 	if ok {
+		// excludeElement recurses into all nested elements: a symbol cannot be
+		// removed while keeping the types nested within it. The recursive glob
+		// therefore has no additional effect for a named element.
 		return t.excludeElement(descriptorInfo.element, imageIndex, options)
 	}
 	// It could be a package name
@@ -624,8 +754,13 @@ func (t *transitiveClosure) excludeType(
 		// but it's not...
 		return fmt.Errorf("exclusion of type %q: %w", typeName, ErrImageFilterTypeNotFound)
 	}
-	// Exclude the package and all of its files.
-	for _, file := range pkg.files {
+	// Exclude the named package's own files. For a recursive glob, also exclude
+	// all of its sub-packages.
+	packageFiles := pkg.files
+	if recursive {
+		packageFiles = appendPackageFiles(nil, pkg)
+	}
+	for _, file := range packageFiles {
 		fileDescriptor := file.FileDescriptorProto()
 		if err := t.excludeElement(fileDescriptor, imageIndex, options); err != nil {
 			return err
@@ -828,6 +963,54 @@ func (t *transitiveClosure) addExtensions(
 				return err
 			}
 		}
+	}
+	return nil
+}
+
+// traverseRetainedImportFiles walks import files that are present in
+// closure.imports but were added only as namespace containers
+// (inclusionModeEnclosing) for extension fields. Such files have not had
+// their own types walked, so their field-type imports are absent from
+// closure.imports. Calling addElement for each such file fills in the missing
+// entries. After processing one file, the function recurses because that
+// traversal may add further enclosing import files.
+//
+// Only used in exclude-only mode (includeTypes == nil).
+func (t *transitiveClosure) traverseRetainedImportFiles(
+	image bufimage.Image,
+	imageIndex *imageIndex,
+	opts *imageFilterOptions,
+) error {
+	for _, file := range image.Files() {
+		if !file.IsImport() {
+			continue
+		}
+		fileDescriptorProto := file.FileDescriptorProto()
+		// Only act on files retained as namespace containers; files already
+		// fully traversed (Explicit/Implicit/Excluded) are skipped.
+		if mode, ok := t.elements[fileDescriptorProto]; !ok || mode != inclusionModeEnclosing {
+			continue
+		}
+		// Check whether any of this file's declared dependencies are absent
+		// from the tracked import set. If all are accounted for, the closure
+		// is already complete and there is nothing to do.
+		importsRequired := t.imports[file.Path()]
+		needsTraversal := false
+		for _, dep := range fileDescriptorProto.GetDependency() {
+			if _, ok := importsRequired[dep]; !ok {
+				needsTraversal = true
+				break
+			}
+		}
+		if !needsTraversal {
+			continue
+		}
+		if err := t.addElement(fileDescriptorProto, "", false, imageIndex, opts); err != nil {
+			return err
+		}
+		// Recurse from the top: addElement may have introduced additional
+		// enclosing import files that also need traversal.
+		return t.traverseRetainedImportFiles(image, imageIndex, opts)
 	}
 	return nil
 }

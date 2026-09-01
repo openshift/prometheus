@@ -1,4 +1,4 @@
-// Copyright 2020-2025 Buf Technologies, Inc.
+// Copyright 2020-2026 Buf Technologies, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -462,7 +462,14 @@ func newRootCommand(name string) *appcmd.Command {
 		},
 		ModifyCobra: func(cobraCommand *cobra.Command) error {
 			cobraCommand.AddCommand(bufcobra.NewWebpagesCommand("webpages", cobraCommand))
-			return nil
+			return cobraCommand.RegisterFlagCompletionFunc(
+				"log-format",
+				cobra.FixedCompletions([]string{
+					appext.LogFormatText.String(),
+					appext.LogFormatColor.String(),
+					appext.LogFormatJSON.String(),
+				}, cobra.ShellCompDirectiveNoFileComp|cobra.ShellCompDirectiveKeepOrder),
+			)
 		},
 	}
 }

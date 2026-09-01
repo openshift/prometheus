@@ -1,4 +1,4 @@
-// Copyright 2020-2025 Buf Technologies, Inc.
+// Copyright 2020-2026 Buf Technologies, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -65,9 +65,10 @@ func getHandler(writer io.Writer, logLevel appext.LogLevel, logFormat appext.Log
 		}), nil
 	case appext.LogFormatText:
 		// Use a custom console handler that formats log messages in a human-readable format.
-		return newConsoleHandler(writer, level), nil
+		return newConsoleHandler(writer, level, withConsoleColor(false)), nil
 	case appext.LogFormatColor:
-		// Use a custom console handler that formats log messages in a human-readable format, with colors.
+		// Use a custom console handler that formats log messages in a human-readable format.
+		// Color is explicitly enabled since the user requested it (NO_COLOR still takes precedence).
 		return newConsoleHandler(writer, level, withConsoleColor(true)), nil
 	default:
 		return nil, fmt.Errorf("invalid logFormat: %v", logFormat)

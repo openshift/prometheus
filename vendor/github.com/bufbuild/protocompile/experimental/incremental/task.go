@@ -1,4 +1,4 @@
-// Copyright 2020-2025 Buf Technologies, Inc.
+// Copyright 2020-2026 Buf Technologies, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -23,12 +23,14 @@ import (
 	"slices"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"golang.org/x/sync/semaphore"
 
 	"github.com/bufbuild/protocompile/experimental/report"
 	"github.com/bufbuild/protocompile/internal"
 	"github.com/bufbuild/protocompile/internal/ext/slicesx"
+	"github.com/bufbuild/protocompile/internal/ext/timex"
 )
 
 var (
@@ -47,17 +49,39 @@ type Task struct {
 	ctx    context.Context //nolint:containedctx
 	cancel func(error)
 
-	exec   *Executor
-	task   *task
-	result *result
-	runID  uint64
+	exec      *Executor
+	task      *task
+	result    *result
+	runID     uint64
+	stopwatch timex.Stopwatch
+
+	timer *timer
 
 	// Set if we're currently holding the executor's semaphore. This exists to
 	// ensure that we do not violate concurrency assumptions, and is never
 	// itself mutated concurrently.
 	holding bool
-	// True if this task is intended to execute on the goroutine that called [Run].
+	// True if this task is intended to execute on the goroutine that called
+	// [Run].
 	onRootGoroutine bool
+}
+
+type timer struct {
+	mu sync.Mutex
+	m  map[any]time.Duration
+}
+
+func (t *timer) record(key any, time time.Duration) {
+	if t == nil {
+		return
+	}
+	t.mu.Lock()
+	if _, ok := t.m[key]; !ok {
+		// This check ensures that, if we have a cache hit of a query we've
+		// calculated this run, it doesn't get stomped on.
+		t.m[key] = time
+	}
+	t.mu.Unlock()
 }
 
 // Context returns the cancellation context for this task.
@@ -81,14 +105,14 @@ func (t *Task) acquire() bool {
 	}
 
 	t.holding = t.exec.sema.Acquire(t.ctx, 1) == nil
-	t.log("acquire", "%[1]v %[2]T/%[2]v", t.holding, t.task.underlying())
+	t.logf("acquire", "%[1]v %[2]T/%[2]v", t.holding, t.task.underlying())
 
 	return t.holding
 }
 
 // release releases a hold on the global semaphore.
 func (t *Task) release() {
-	t.log("release", "%[1]T/%[1]v", t.task.underlying())
+	t.logf("release", "%[1]T/%[1]v", t.task.underlying())
 
 	if !t.holding {
 		if context.Cause(t.ctx) != nil {
@@ -112,13 +136,13 @@ func (t *Task) transferFrom(that *Task) {
 
 	t.holding, that.holding = that.holding, t.holding
 
-	t.log("acquireFrom", "%[1]T/%[1]v -> %[2]T/%[2]v",
+	t.logf("acquireFrom", "%[1]T/%[1]v -> %[2]T/%[2]v",
 		that.task.underlying(),
 		t.task.underlying())
 }
 
-// log is used for printf debugging in the task scheduling code.
-func (t *Task) log(what string, format string, args ...any) {
+// logf is used for printf debugging in the task scheduling code.
+func (t *Task) logf(what string, format string, args ...any) {
 	internal.DebugLog(
 		[]any{"%p/%d", t.exec, t.runID},
 		what, format, args...)
@@ -142,7 +166,7 @@ func (e *errAbort) Error() string {
 //
 // This will cause the outer call to Run() to immediately wake up and panic.
 func (t *Task) abort(err error) {
-	t.log("abort", "%[1]T/%[1]v, %[2]v", t.task.underlying(), err)
+	t.logf("abort", "%[1]T/%[1]v, %[2]v", t.task.underlying(), err)
 
 	if prev := t.aborted(); prev != nil {
 		// Prevent multiple errors from cascading and getting spammed all over
@@ -192,13 +216,16 @@ func (t *Task) aborted() error {
 //
 // Note: this function really wants to be a method of [Task], but it isn't
 // because it's generic.
-func Resolve[T any](caller *Task, queries ...Query[T]) (results []Result[T], expired error) {
+func Resolve[T any](caller *Task, queries ...Query[T]) (Results[T], error) {
 	caller.checkDone()
 	if len(queries) == 0 {
 		return nil, nil
 	}
 
-	results = make([]Result[T], len(queries))
+	caller.stopwatch.Stop()
+	defer caller.stopwatch.Start()
+
+	results := make(Results[T], len(queries))
 	anyQueries := make([]*AnyQuery, len(queries))
 	deps := make([]*task, len(queries))
 
@@ -247,6 +274,7 @@ func Resolve[T any](caller *Task, queries ...Query[T]) (results []Result[T], exp
 
 				results[i].Fatal = r.Fatal
 				results[i].Changed = r.runID == caller.runID
+				results[i].Elapsed = r.Elapsed
 			}
 
 			join.Release(1)
@@ -305,6 +333,23 @@ type task struct {
 	report report.Report
 }
 
+// Results wraps a sequence of [Result]s and provides some convenience methods for
+// processing results.
+type Results[T any] []Result[T]
+
+// Slice is a convenience method for checking the results and returning a slice of the
+// result type T if there are no errors, or returning the first [Result.Fatal] as an error.
+func (r Results[T]) Slice() ([]T, error) {
+	results := make([]T, len(r))
+	for i, result := range r {
+		if result.Fatal != nil {
+			return nil, result.Fatal
+		}
+		results[i] = result.Value
+	}
+	return results, nil
+}
+
 // Result is the Result of executing a query on an [Executor], either via
 // [Run] or [Resolve].
 type Result[T any] struct {
@@ -327,6 +372,9 @@ type Result[T any] struct {
 	// of [Changed] to only perform a partial mutation instead of a complete
 	// merge of the queries.
 	Changed bool
+
+	// How long calculating this query took, excluding any queries it executed.
+	Elapsed time.Duration
 }
 
 // result is a Result[any] with a completion channel appended to it.
@@ -360,7 +408,8 @@ func (t *task) start(caller *Task, q *AnyQuery, sync bool, done func(*result)) (
 	// Common case for cached values; no need to spawn a separate goroutine.
 	r := t.result.Load()
 	if r != nil && closed(r.done) {
-		caller.log("cache hit", "%[1]T/%[1]v", q.Underlying())
+		caller.logf("cache hit", "%[1]T/%[1]v", q.Underlying())
+		caller.timer.record(q.Key(), 0)
 		done(r)
 		return false
 	}
@@ -452,6 +501,7 @@ func (t *task) run(caller *Task, q *AnyQuery, async bool) (output *result) {
 		runID:  caller.runID,
 		task:   t,
 		result: output,
+		timer:  caller.timer,
 
 		onRootGoroutine: caller.onRootGoroutine && !async,
 	}
@@ -459,7 +509,7 @@ func (t *task) run(caller *Task, q *AnyQuery, async bool) (output *result) {
 	defer func() {
 		if caller.aborted() == nil {
 			if panicked := recover(); panicked != nil {
-				caller.log("panic", "%[1]T/%[1]v, %[2]v", q.Underlying(), panicked)
+				caller.logf("panic", "%[1]T/%[1]v, %[2]v", q.Underlying(), panicked)
 
 				t.result.CompareAndSwap(output, nil)
 				output = nil
@@ -487,7 +537,7 @@ func (t *task) run(caller *Task, q *AnyQuery, async bool) (output *result) {
 		}
 
 		if output != nil && !closed(output.done) {
-			callee.log("done", "%[1]T/%[1]v", q.Underlying())
+			callee.logf("done", "%[1]T/%[1]v", q.Underlying())
 			close(output.done)
 		}
 	}()
@@ -504,10 +554,13 @@ func (t *task) run(caller *Task, q *AnyQuery, async bool) (output *result) {
 		defer caller.transferFrom(callee)
 	}
 
-	callee.log("executing", "%[1]T/%[1]v", q.Underlying())
+	callee.logf("executing", "%[1]T/%[1]v", q.Underlying())
+	callee.stopwatch.Start()
 	output.Value, output.Fatal = t.query.Execute(callee)
+	output.Elapsed = callee.stopwatch.Stop()
 	output.runID = callee.runID
-	callee.log("returning", "%[1]T/%[1]v", q.Underlying())
+	callee.timer.record(q.Key(), output.Elapsed)
+	callee.logf("returning", "%[1]T/%[1]v, took %v", q.Underlying(), output.Elapsed)
 
 	return output
 }

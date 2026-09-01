@@ -1,4 +1,4 @@
-// Copyright 2025 Buf Technologies, Inc.
+// Copyright 2025-2026 Buf Technologies, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -242,19 +242,19 @@ func ToUpperSnakeCase(s string, options ...SnakeCaseOption) string {
 // Splits on '-', '_', ' ', '\t', '\n', '\r'.
 // Uppercase letters will stay uppercase.
 func ToPascalCase(s string) string {
-	output := ""
+	var sb strings.Builder
 	var previous rune
 	for i, c := range strings.TrimSpace(s) {
 		if !isDelimiter(c) {
 			if i == 0 || isDelimiter(previous) || unicode.IsUpper(c) {
-				output += string(unicode.ToUpper(c))
+				sb.WriteRune(unicode.ToUpper(c))
 			} else {
-				output += string(unicode.ToLower(c))
+				sb.WriteRune(unicode.ToLower(c))
 			}
 		}
 		previous = c
 	}
-	return output
+	return sb.String()
 }
 
 // IsAlphanumeric returns true for [0-9a-zA-Z].

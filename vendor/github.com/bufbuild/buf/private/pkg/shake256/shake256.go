@@ -1,4 +1,4 @@
-// Copyright 2020-2025 Buf Technologies, Inc.
+// Copyright 2020-2026 Buf Technologies, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,11 +16,10 @@
 package shake256
 
 import (
+	"crypto/sha3"
 	"fmt"
 	"io"
 	"slices"
-
-	"golang.org/x/crypto/sha3"
 )
 
 const shake256Length = 64
@@ -39,10 +38,12 @@ func NewDigest(value []byte) (Digest, error) {
 
 // NewDigestForContent returns a new Digest for the content read from the Reader.
 func NewDigestForContent(reader io.Reader) (Digest, error) {
-	shakeHash := sha3.NewShake256()
-	// TODO FUTURE: remove in the future, this should have no effect
-	shakeHash.Reset()
-	if _, err := io.Copy(shakeHash, reader); err != nil {
+	shakeHash := sha3.NewSHAKE256()
+	// Use a small fixed buffer instead of io.Copy's 32 KiB default. Proto
+	// files are typically small (median a few KiB), so 1 KiB reads most files
+	// in a few iterations while keeping per-call allocation minimal.
+	buf := make([]byte, 1024)
+	if _, err := io.CopyBuffer(shakeHash, reader, buf); err != nil {
 		return nil, err
 	}
 	value := make([]byte, shake256Length)

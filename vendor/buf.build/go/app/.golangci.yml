@@ -1,25 +1,6 @@
-linters-settings:
-  errcheck:
-    check-type-assertions: true
-  forbidigo:
-    forbid:
-      - '^fmt\.Print'
-      - '^log\.'
-      - '^print$'
-      - '^println$'
-      - '^panic$'
-  godox:
-    # TODO, OPT, etc. comments are fine to commit. Use FIXME comments for
-    # temporary hacks, and use godox to prevent committing them.
-    keywords: [FIXME]
-  varnamelen:
-    ignore-decls:
-      - T any
-      - i int
-      - wg sync.WaitGroup
-      - id string
+version: "2"
 linters:
-  enable-all: true
+  default: all
   disable:
     - cyclop            # covered by gocyclo
     - depguard          # unnecessary for small libraries
@@ -28,8 +9,6 @@ linters:
     - funlen            # rely on code review to limit function length
     - gochecknoglobals  # many exceptions
     - gocognit          # dubious "cognitive overhead" quantification
-    - gofumpt           # prefer standard gofmt
-    - goimports         # rely on gci instead
     - inamedparam       # not standard style
     - interfacebloat    # many exceptions
     - ireturn           # "accept interfaces, return structs" isn't ironclad
@@ -43,25 +22,60 @@ linters:
     - thelper           # we want to print out the whole stack
     - wrapcheck         # don't _always_ need to wrap errors
     - wsl               # generous whitespace violates house style
-issues:
-  exclude-dirs-use-default: false
-  exclude-rules:
-    - linters:
-        - revive
-      text: "error.*capitalized"
-    - linters:
-        - stylecheck
-      text: "error.*capitalized"
-    - linters:
-        - stylecheck
-      path: appcmd/appcmd.go
-      text: "ST1005"
-    - linters:
-        - unparam
-      path: appext/name_container_unix_test.go
-    - linters:
-        - varnamelen
-      path: app.go
-    - linters:
-        - varnamelen
-      path: appext/builder.go
+    - noinlineerr       # if err := ...; err != nil is idiomatic Go
+    - wsl_v5            # generous whitespace violates house style
+  settings:
+    errcheck:
+      check-type-assertions: true
+    forbidigo:
+      forbid:
+        - pattern: '^fmt\.Print'
+        - pattern: '^log\.'
+        - pattern: '^print$'
+        - pattern: '^println$'
+        - pattern: '^panic$'
+    godox:
+      # TODO, OPT, etc. comments are fine to commit. Use FIXME comments for
+      # temporary hacks, and use godox to prevent committing them.
+      keywords: [FIXME]
+    varnamelen:
+      ignore-decls:
+        - T any
+        - i int
+        - wg sync.WaitGroup
+        - id string
+  exclusions:
+    rules:
+      - linters:
+          - revive
+        text: "error.*capitalized"
+      - linters:
+          - staticcheck
+        text: "error.*capitalized"
+      - linters:
+          - staticcheck
+        # No need to require embedded fields from selector expression.
+        text: "QF1008"
+      - linters:
+          - staticcheck
+        # Whether or not to apply De Morgan's law is contextual.
+        text: "QF1001"
+      - linters:
+          - gosec
+        # G304: reading user-specified config/secret files is expected behavior.
+        path: appext/appext.go
+        text: "G304:"
+      - linters:
+          - gosec
+        # G301: 0755 is appropriate for application config directories.
+        path: appext/appext.go
+        text: "G301:"
+      - linters:
+          - unparam
+        path: appext/name_container_unix_test.go
+      - linters:
+          - varnamelen
+        path: app.go
+      - linters:
+          - varnamelen
+        path: appext/builder.go

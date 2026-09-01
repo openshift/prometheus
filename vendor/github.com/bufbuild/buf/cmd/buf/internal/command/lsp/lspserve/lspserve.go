@@ -1,4 +1,4 @@
-// Copyright 2020-2025 Buf Technologies, Inc.
+// Copyright 2020-2026 Buf Technologies, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -22,13 +22,18 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 
 	"buf.build/go/app/appcmd"
 	"buf.build/go/app/appext"
 	"buf.build/go/standard/xio"
+	"connectrpc.com/connect"
 	"github.com/bufbuild/buf/private/buf/bufcli"
 	"github.com/bufbuild/buf/private/buf/buflsp"
+	"github.com/bufbuild/buf/private/gen/proto/connect/buf/alpha/registry/v1alpha1/registryv1alpha1connect"
+	registryv1alpha1 "github.com/bufbuild/buf/private/gen/proto/go/buf/alpha/registry/v1alpha1"
+	"github.com/bufbuild/buf/private/pkg/connectclient"
 	"github.com/bufbuild/protocompile/experimental/incremental"
 	"github.com/spf13/pflag"
 	"go.lsp.dev/jsonrpc2"
@@ -36,7 +41,8 @@ import (
 
 const (
 	// pipe is chosen because that's what the vscode LSP client expects.
-	pipeFlagName = "pipe"
+	pipeFlagName         = "pipe"
+	debugAddressFlagName = "debug-address"
 )
 
 // NewCommand constructs the CLI command for executing the LSP.
@@ -69,6 +75,8 @@ func NewCommand(
 type flags struct {
 	// A file path to a UNIX socket to use for IPC. If empty, stdio is used instead.
 	PipePath string
+	// An address (host:port) to serve the debug server on. If empty, no debug server is started.
+	DebugAddress string
 }
 
 // Bind sets up the CLI flags that the LSP needs.
@@ -78,6 +86,12 @@ func (f *flags) Bind(flagSet *pflag.FlagSet) {
 		pipeFlagName,
 		"",
 		"path to a UNIX socket to listen on; uses stdio if not specified",
+	)
+	flagSet.StringVar(
+		&f.DebugAddress,
+		debugAddressFlagName,
+		"",
+		"address to serve debug endpoints on (e.g. localhost:6060); disabled if not specified",
 	)
 }
 
@@ -91,6 +105,20 @@ func run(
 	container appext.Container,
 	flags *flags,
 ) (retErr error) {
+	if flags.DebugAddress != "" {
+		server, err := newDebugServer(flags.DebugAddress, bufcli.Version)
+		if err != nil {
+			return err
+		}
+		container.Logger().Info(
+			"debug server listening",
+			slog.String("address", server.Addr().String()),
+		)
+		defer func() {
+			retErr = errors.Join(retErr, server.Close())
+		}()
+	}
+
 	transport, err := dial(container, flags)
 	if err != nil {
 		return err
@@ -118,6 +146,21 @@ func run(
 		retErr = errors.Join(retErr, wasmRuntime.Close(ctx))
 	}()
 
+	moduleKeyProvider, err := bufcli.NewModuleKeyProvider(container)
+	if err != nil {
+		return err
+	}
+
+	graphProvider, err := bufcli.NewGraphProvider(container)
+	if err != nil {
+		return err
+	}
+
+	clientConfig, err := bufcli.NewConnectClientConfig(container)
+	if err != nil {
+		return err
+	}
+
 	conn, err := buflsp.Serve(
 		ctx,
 		bufcli.Version,
@@ -127,12 +170,36 @@ func run(
 		wasmRuntime,
 		jsonrpc2.NewStream(transport),
 		incremental.New(),
+		moduleKeyProvider,
+		graphProvider,
+		&lspCuratedPluginProvider{clientConfig: clientConfig},
 	)
 	if err != nil {
 		return err
 	}
 	<-conn.Done()
 	return conn.Err()
+}
+
+type lspCuratedPluginProvider struct {
+	clientConfig *connectclient.Config
+}
+
+func (p *lspCuratedPluginProvider) GetLatestVersion(ctx context.Context, registry, owner, plugin string) (string, error) {
+	client := connectclient.Make(p.clientConfig, registry, registryv1alpha1connect.NewPluginCurationServiceClient)
+	resp, err := client.GetLatestCuratedPlugin(ctx, connect.NewRequest(
+		registryv1alpha1.GetLatestCuratedPluginRequest_builder{
+			Owner: owner,
+			Name:  plugin,
+		}.Build(),
+	))
+	if err != nil {
+		return "", err
+	}
+	if !resp.Msg.HasPlugin() {
+		return "", nil
+	}
+	return resp.Msg.GetPlugin().GetVersion(), nil
 }
 
 // dial opens a connection to the LSP client.
