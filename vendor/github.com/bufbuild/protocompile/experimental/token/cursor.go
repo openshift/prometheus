@@ -1,4 +1,4 @@
-// Copyright 2020-2025 Buf Technologies, Inc.
+// Copyright 2020-2026 Buf Technologies, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -52,6 +52,11 @@ type CursorMark struct {
 //
 // Panics if the token is zero or synthetic.
 func NewCursorAt(tok Token) *Cursor {
+	return newCursorAt(new(Cursor), tok)
+}
+
+//go:noinline
+func newCursorAt(c *Cursor, tok Token) *Cursor {
 	if tok.IsZero() {
 		panic(fmt.Sprintf("protocompile/token: passed zero token to NewCursorAt: %v", tok))
 	}
@@ -59,11 +64,12 @@ func NewCursorAt(tok Token) *Cursor {
 		panic(fmt.Sprintf("protocompile/token: passed synthetic token to NewCursorAt: %v", tok))
 	}
 
-	return &Cursor{
+	*c = Cursor{
 		context:     tok.Context(),
 		idx:         naturalIndex(tok.ID()), // Convert to 0-based index.
 		isBackwards: tok.nat().IsClose(),    // Set the direction to calculate the offset.
 	}
+	return c
 }
 
 // NewSliceCursor returns a new cursor over a slice of token IDs in the given

@@ -1,4 +1,4 @@
-// Copyright 2020-2025 Buf Technologies, Inc.
+// Copyright 2020-2026 Buf Technologies, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -91,13 +91,19 @@ type builtin struct {
 
 type tag struct{}
 
-func (*referenceable) isSymbolKind() {}
-func (*reference) isSymbolKind()     {}
-func (*option) isSymbolKind()        {}
-func (*static) isSymbolKind()        {}
-func (*imported) isSymbolKind()      {}
-func (*builtin) isSymbolKind()       {}
-func (*tag) isSymbolKind()           {}
+type keywordBuiltin struct {
+	name   string
+	anchor string
+}
+
+func (*referenceable) isSymbolKind()  {}
+func (*reference) isSymbolKind()      {}
+func (*option) isSymbolKind()         {}
+func (*static) isSymbolKind()         {}
+func (*imported) isSymbolKind()       {}
+func (*builtin) isSymbolKind()        {}
+func (*tag) isSymbolKind()            {}
+func (*keywordBuiltin) isSymbolKind() {}
 
 // Range constructs an LSP protocol code range for this symbol.
 func (s *symbol) Range() protocol.Range {
@@ -307,6 +313,22 @@ func (s *symbol) FormatDocs() string {
 			return strings.Join(comments, "\n")
 		}
 		return ""
+	case *keywordBuiltin:
+		kwBuiltin, _ := s.kind.(*keywordBuiltin)
+		comments, ok := builtinDocs[kwBuiltin.name]
+		if ok {
+			comments = append(
+				comments,
+				"",
+				fmt.Sprintf(
+					"`%s` is a Protobuf keyword. [Learn more on protobuf.com.](https://protobuf.com/docs/language-spec#%s)",
+					kwBuiltin.name,
+					kwBuiltin.anchor,
+				),
+			)
+			return strings.Join(comments, "\n")
+		}
+		return ""
 	case *referenceable, *static, *reference, *option:
 		return s.getDocsFromComments()
 	}
@@ -355,9 +377,10 @@ func (s *symbol) GetSymbolInformation() protocol.SymbolInformation {
 	default:
 		kind = protocol.SymbolKindVariable
 	}
-	var isDeprecated bool
-	if _, ok := s.ir.Deprecated().AsBool(); ok {
-		isDeprecated = true
+	isDeprecated, _ := s.ir.Deprecated().AsBool()
+	var tags []protocol.SymbolTag
+	if isDeprecated {
+		tags = []protocol.SymbolTag{protocol.SymbolTagDeprecated}
 	}
 	return protocol.SymbolInformation{
 		Name:          string(name),
@@ -365,9 +388,7 @@ func (s *symbol) GetSymbolInformation() protocol.SymbolInformation {
 		Location:      location,
 		ContainerName: containerName,
 		Deprecated:    isDeprecated,
-		Tags: []protocol.SymbolTag{
-			protocol.SymbolTagDeprecated,
-		},
+		Tags:          tags,
 	}
 }
 
@@ -525,33 +546,14 @@ func protowireTypeForPredeclared(name predeclared.Name) protowire.Type {
 	return protowire.BytesType
 }
 
-// getDocsFromComments is a helper function that gets the doc string from the comments from
-// the definition AST, if available.
-// This helper function expects that imports, tags, and predeclared (builtin) types are
-// already handled, since those types currently do not get docs from their comments.
-func (s *symbol) getDocsFromComments() string {
-	if s.def == nil {
-		return ""
-	}
-	var def ast.DeclDef
-	switch s.kind.(type) {
-	case *referenceable:
-		referenceable, _ := s.kind.(*referenceable)
-		def = referenceable.ast
-	case *static:
-		static, _ := s.kind.(*static)
-		def = static.ast
-	case *reference:
-		reference, _ := s.kind.(*reference)
-		def = reference.def
-	case *option:
-		option, _ := s.kind.(*option)
-		def = option.def
-	}
+// leadingDocComments extracts the leading doc comments immediately preceding def
+// from the token stream and returns them as a trimmed markdown string.
+// Returns "" if def is zero, has no leading comments, or if a blank line separates
+// the comments from the definition.
+func leadingDocComments(def ast.DeclDef) string {
 	if def.IsZero() {
 		return ""
 	}
-
 	var comments []string
 	// We drop the other side of "Around" because we only care about the beginning -- we're
 	// traversing backwards for leading comments only.
@@ -585,13 +587,42 @@ func (s *symbol) getDocsFromComments() string {
 		}
 	}
 	comments = lineUpComments(comments)
-	// Reverse the list and return joined.
 	slices.Reverse(comments)
-
 	var docs strings.Builder
 	for _, comment := range comments {
 		docs.WriteString(comment)
 	}
+	return strings.TrimRight(docs.String(), "\n")
+}
+
+// getDocsFromComments is a helper function that gets the doc string from the comments from
+// the definition AST, if available.
+// This helper function expects that imports, tags, and predeclared (builtin) types are
+// already handled, since those types currently do not get docs from their comments.
+func (s *symbol) getDocsFromComments() string {
+	if s.def == nil {
+		return ""
+	}
+	var def ast.DeclDef
+	switch s.kind.(type) {
+	case *referenceable:
+		referenceable, _ := s.kind.(*referenceable)
+		def = referenceable.ast
+	case *static:
+		static, _ := s.kind.(*static)
+		def = static.ast
+	case *reference:
+		reference, _ := s.kind.(*reference)
+		def = reference.def
+	case *option:
+		option, _ := s.kind.(*option)
+		def = option.def
+	}
+	if def.IsZero() {
+		return ""
+	}
+
+	docs := leadingDocComments(def)
 
 	// If the file is a remote dependency, link to BSR docs.
 	if s.def != nil && s.def.file != nil && !s.def.file.IsLocal() {
@@ -639,8 +670,7 @@ func (s *symbol) getDocsFromComments() string {
 				url = bsrURL(module, packageName, bsrAnchor, bsrTabTypeDocs)
 			}
 			if url != "" {
-				fmt.Fprintf(
-					&docs,
+				docs += fmt.Sprintf(
 					"\n[`%s` on the Buf Schema Registry](%s)\n",
 					defFullName,
 					url,
@@ -648,17 +678,17 @@ func (s *symbol) getDocsFromComments() string {
 			}
 		}
 	}
-	return docs.String()
+	return docs
 }
 
 // commentToMarkdown processes comment strings and formats them for markdown display.
 func commentToMarkdown(comment string) string {
-	if strings.HasPrefix(comment, "//") {
+	if after, ok := strings.CutPrefix(comment, "//"); ok {
 		// NOTE: We do not trim the space here, because indentation is
 		// significant for Markdown code fences, and if every line
 		// starts with a space, Markdown will trim it for us, even off
 		// of code blocks.
-		return strings.TrimPrefix(comment, "//")
+		return after
 	}
 	if strings.HasPrefix(comment, "/**") && !strings.HasPrefix(comment, "/**/") {
 		// NOTE: Doxygen-style comments (/** ... */) to Markdown format

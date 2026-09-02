@@ -1,4 +1,4 @@
-// Copyright 2025 Buf Technologies, Inc.
+// Copyright 2025-2026 Buf Technologies, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,17 +16,9 @@
 package xslog
 
 import (
-	"context"
 	"log/slog"
 	"runtime"
 	"time"
-)
-
-var (
-	// NopLogger is a no-op Logger.
-	NopLogger = slog.New(NopHandler)
-	// NopHandler is no-op Handler.
-	NopHandler slog.Handler = nopHandler{}
 )
 
 // ErrorAttr returns a slog.Attr for the error.
@@ -57,24 +49,6 @@ func DebugProfile(logger *slog.Logger, extraFields ...any) func() {
 }
 
 // *** PRIVATE ***
-
-type nopHandler struct{}
-
-func (nopHandler) Enabled(context.Context, slog.Level) bool {
-	return false
-}
-
-func (nopHandler) Handle(context.Context, slog.Record) error {
-	return nil
-}
-
-func (n nopHandler) WithAttrs([]slog.Attr) slog.Handler {
-	return n
-}
-
-func (n nopHandler) WithGroup(string) slog.Handler {
-	return n
-}
 
 func getRuntimeFrame(skipFrames int) runtime.Frame {
 	targetFrameIndex := skipFrames + 2

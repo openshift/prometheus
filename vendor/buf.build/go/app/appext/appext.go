@@ -1,4 +1,4 @@
-// Copyright 2025 Buf Technologies, Inc.
+// Copyright 2025-2026 Buf Technologies, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -81,7 +81,7 @@ func NewNameContainer(baseContainer app.Container, appName string) (NameContaine
 	return newNameContainer(baseContainer, appName)
 }
 
-// LoggerContainer provides a *slog.Logger.
+// LoggerContainer provides the *slog.Logger set for the Container.
 type LoggerContainer interface {
 	Logger() *slog.Logger
 }
@@ -91,20 +91,46 @@ func NewLoggerContainer(logger *slog.Logger) LoggerContainer {
 	return newLoggerContainer(logger)
 }
 
+// LogLevelContainer provides the LogLevel set for the Container.
+type LogLevelContainer interface {
+	LogLevel() LogLevel
+}
+
+// NewLogLevelContainer returns a new LogLevelContainer.
+func NewLogLevelContainer(logLevel LogLevel) LogLevelContainer {
+	return newLogLevelContainer(logLevel)
+}
+
+// LogFormatContainer provides the LogFormat set for the Container.
+type LogFormatContainer interface {
+	LogFormat() LogFormat
+}
+
+// NewLogFormatContainer returns a new LogFormatContainer.
+func NewLogFormatContainer(logFormat LogFormat) LogFormatContainer {
+	return newLogFormatContainer(logFormat)
+}
+
 // Container contains not just the base app container, but all extended containers.
 type Container interface {
 	NameContainer
 	LoggerContainer
+	LogLevelContainer
+	LogFormatContainer
 }
 
 // NewContainer returns a new Container.
 func NewContainer(
 	nameContainer NameContainer,
 	logger *slog.Logger,
+	logLevel LogLevel,
+	logFormat LogFormat,
 ) Container {
 	return newContainer(
 		nameContainer,
 		logger,
+		logLevel,
+		logFormat,
 	)
 }
 

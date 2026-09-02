@@ -1,4 +1,4 @@
-// Copyright 2020-2025 Buf Technologies, Inc.
+// Copyright 2020-2026 Buf Technologies, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -21,13 +21,13 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"runtime/debug"
 	"sync"
 	"sync/atomic"
 
 	"buf.build/go/app/appext"
 	"buf.build/go/standard/xlog/xslog"
 	"github.com/bufbuild/buf/private/buf/bufctl"
+	"github.com/bufbuild/buf/private/bufpkg/bufmodule"
 	"github.com/bufbuild/buf/private/pkg/storage"
 	"github.com/bufbuild/buf/private/pkg/wasm"
 	"github.com/bufbuild/protocompile/experimental/incremental"
@@ -37,6 +37,13 @@ import (
 	"go.lsp.dev/protocol"
 	"go.uber.org/zap"
 )
+
+// CuratedPluginVersionProvider checks for the latest version of a BSR-hosted curated plugin.
+type CuratedPluginVersionProvider interface {
+	// GetLatestVersion returns the latest semver version string for the plugin,
+	// or an empty string if the plugin is unknown or has no published versions.
+	GetLatestVersion(ctx context.Context, registry, owner, plugin string) (string, error)
+}
 
 // Serve spawns a new LSP server, listening on the given stream.
 //
@@ -50,35 +57,53 @@ func Serve(
 	wasmRuntime wasm.Runtime,
 	stream jsonrpc2.Stream,
 	queryExecutor *incremental.Executor,
+	moduleKeyProvider bufmodule.ModuleKeyProvider,
+	graphProvider bufmodule.GraphProvider,
+	curatedPluginVersionProvider CuratedPluginVersionProvider,
 ) (jsonrpc2.Conn, error) {
-	// Prefer build info version if available
-	if buildInfo, ok := debug.ReadBuildInfo(); ok && buildInfo.Main.Version != "" {
-		bufVersion = buildInfo.Main.Version
-	}
-
 	logger := container.Logger()
 	logger = logger.With(slog.String("buf_version", bufVersion))
 	logger.Info("starting LSP server")
 
 	conn := jsonrpc2.NewConn(stream)
+	// connCtx is a context scoped to the connection's lifetime. It is cancelled
+	// when the connection is done (or when ctx is cancelled), so that background
+	// goroutines (e.g. RunChecks) do not outlive the connection.
+	connCtx, connCancel := context.WithCancel(context.Background())
+	go func() {
+		select {
+		case <-ctx.Done():
+		case <-conn.Done():
+		}
+		connCancel()
+	}()
 	lsp := &lsp{
 		conn: conn,
 		client: protocol.ClientDispatcher(
 			&connWrapper{Conn: conn, logger: logger},
 			zap.NewNop(), // The logging from protocol itself isn't very good, we've replaced it with connAdapter here.
 		),
-		container:     container,
-		logger:        logger,
-		bufVersion:    bufVersion,
-		controller:    controller,
-		wasmRuntime:   wasmRuntime,
-		wktBucket:     wktBucket,
-		queryExecutor: queryExecutor,
-		opener:        source.NewMap(nil),
-		irSession:     new(ir.Session),
+		container:                    container,
+		logger:                       logger,
+		bufVersion:                   bufVersion,
+		controller:                   controller,
+		wasmRuntime:                  wasmRuntime,
+		wktBucket:                    wktBucket,
+		queryExecutor:                queryExecutor,
+		opener:                       source.NewMap(nil),
+		irSession:                    new(ir.Session),
+		connCtx:                      connCtx,
+		connCancel:                   connCancel,
+		moduleKeyProvider:            moduleKeyProvider,
+		graphProvider:                graphProvider,
+		curatedPluginVersionProvider: curatedPluginVersionProvider,
 	}
 	lsp.fileManager = newFileManager(lsp)
 	lsp.workspaceManager = newWorkspaceManager(lsp)
+	lsp.bufYAMLManager = newBufYAMLManager(lsp)
+	lsp.bufGenYAMLManager = newBufGenYAMLManager(lsp)
+	lsp.bufPolicyYAMLManager = newBufPolicyYAMLManager()
+	lsp.bufLockManager = newBufLockManager()
 	off := protocol.TraceOff
 	lsp.traceValue.Store(&off)
 
@@ -100,21 +125,34 @@ func Serve(
 // Its handler methods are not defined in buflsp.go; they are defined in other files, grouped
 // according to the groupings in
 type lsp struct {
-	conn      jsonrpc2.Conn
-	client    protocol.Client
-	container appext.Container
+	conn       jsonrpc2.Conn
+	client     protocol.Client
+	container  appext.Container
+	connCtx    context.Context    // cancelled when the connection is done
+	connCancel context.CancelFunc // cancels connCtx
 
-	logger           *slog.Logger
-	bufVersion       string // buf version, set at server creation
-	controller       bufctl.Controller
-	wasmRuntime      wasm.Runtime
-	fileManager      *fileManager
-	workspaceManager *workspaceManager
-	queryExecutor    *incremental.Executor
-	opener           source.Map
-	irSession        *ir.Session
-	wktBucket        storage.ReadBucket
-	shutdown         bool
+	logger               *slog.Logger
+	bufVersion           string // buf version, set at server creation
+	controller           bufctl.Controller
+	wasmRuntime          wasm.Runtime
+	fileManager          *fileManager
+	workspaceManager     *workspaceManager
+	bufYAMLManager       *bufYAMLManager
+	bufGenYAMLManager    *bufGenYAMLManager
+	bufPolicyYAMLManager *bufPolicyYAMLManager
+	bufLockManager       *bufLockManager
+	queryExecutor        *incremental.Executor
+	opener               source.Map
+	irSession            *ir.Session
+	wktBucket            storage.ReadBucket
+	shutdown             bool
+
+	// moduleKeyProvider resolves module refs to their latest commits (BSR).
+	moduleKeyProvider bufmodule.ModuleKeyProvider
+	// graphProvider resolves transitive dependencies for a set of module keys.
+	graphProvider bufmodule.GraphProvider
+	// curatedPluginVersionProvider checks for the latest version of curated plugins (BSR).
+	curatedPluginVersionProvider CuratedPluginVersionProvider
 
 	lock sync.Mutex
 
@@ -150,7 +188,10 @@ func (l *lsp) newHandler() (jsonrpc2.Handler, error) {
 		return nil, err
 	}
 	actual := protocol.ServerHandler(server, nil)
-	return jsonrpc2.AsyncHandler(func(ctx context.Context, reply jsonrpc2.Replier, req jsonrpc2.Request) error {
+	// [protocol.CancelHandler] intercepts $/cancelRequest notifications from the client and
+	// cancels the context of the matching in-flight request. It must wrap AsyncHandler so
+	// that the cancellable context is the one running inside each spawned goroutine.
+	return protocol.CancelHandler(jsonrpc2.AsyncHandler(func(ctx context.Context, reply jsonrpc2.Replier, req jsonrpc2.Request) error {
 		l.logger.Debug(
 			"handling request",
 			slog.String("method", req.Method()),
@@ -181,5 +222,5 @@ func (l *lsp) newHandler() (jsonrpc2.Handler, error) {
 			)
 		}
 		return nil
-	}), nil
+	})), nil
 }

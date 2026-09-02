@@ -1,4 +1,4 @@
-// Copyright 2020-2025 Buf Technologies, Inc.
+// Copyright 2020-2026 Buf Technologies, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,14 +17,18 @@ package ir
 import (
 	"iter"
 
+	"google.golang.org/protobuf/types/descriptorpb"
+
 	"github.com/bufbuild/protocompile/experimental/ast"
 	"github.com/bufbuild/protocompile/experimental/ast/predeclared"
+	"github.com/bufbuild/protocompile/experimental/ast/syntax"
 	"github.com/bufbuild/protocompile/experimental/id"
 	"github.com/bufbuild/protocompile/experimental/internal/taxa"
 	"github.com/bufbuild/protocompile/experimental/ir/presence"
 	"github.com/bufbuild/protocompile/experimental/seq"
 	"github.com/bufbuild/protocompile/internal/arena"
 	"github.com/bufbuild/protocompile/internal/intern"
+	"github.com/bufbuild/protocompile/internal/tags"
 )
 
 //go:generate go run github.com/bufbuild/protocompile/internal/enum option_target.yaml
@@ -104,7 +108,7 @@ func (m Member) IsRepeated() bool {
 
 // IsMap returns whether this is a map field.
 func (m Member) IsMap() bool {
-	return !m.IsZero() && m == m.Element().MapField()
+	return !m.IsZero() && !m.IsGroup() && m == m.Element().MapField()
 }
 
 // IsPacked returns whether this is a packed message field.
@@ -119,9 +123,18 @@ func (m Member) IsPacked() bool {
 		return packed
 	}
 
-	feature := m.FeatureSet().Lookup(builtins.FeaturePacked).Value()
-	value, _ := feature.AsInt()
-	return value == 1 // google.protobuf.FeatureSet.PACKED
+	// Syntax dictates default packing for proto2/proto3: proto2 repeated
+	// fields are expanded, proto3 are packed. The repeated_field_encoding
+	// feature only takes effect in editions.
+	switch s := m.Context().Syntax(); {
+	case s == syntax.Proto2:
+		return false
+	case s == syntax.Proto3:
+		return true
+	}
+
+	value, _ := m.FeatureSet().Lookup(builtins.FeaturePacked).Value().AsInt()
+	return value == tags.FeatureSet_RepeatedFieldEncoding_Packed
 }
 
 // IsUnicode returns whether this is a string-typed message field that must
@@ -131,9 +144,19 @@ func (m Member) IsUnicode() bool {
 		return false
 	}
 
+	// Syntax dictates UTF-8 validation for proto2/proto3: proto2 does not
+	// validate string fields, proto3 does. The utf8_validation feature only
+	// takes effect in editions.
+	switch s := m.Context().Syntax(); {
+	case s == syntax.Proto2:
+		return false
+	case s == syntax.Proto3:
+		return true
+	}
+
 	builtins := m.Context().builtins()
-	utf8Feature, _ := m.FeatureSet().Lookup(builtins.FeatureUTF8).Value().AsInt()
-	return utf8Feature == 2 // FeatureSet.VERIFY
+	value, _ := m.FeatureSet().Lookup(builtins.FeatureUTF8).Value().AsInt()
+	return value == tags.FeatureSet_Utf8Validation_Verify
 }
 
 // AsTagRange wraps this member in a TagRange.
@@ -172,9 +195,9 @@ func (m Member) TypeAST() ast.TypeAny {
 	if !ty.MapField().IsZero() {
 		k, v := ty.AST().Type().RemovePrefixes().AsGeneric().AsMap()
 		switch m.Number() {
-		case 1:
+		case tags.MapEntry_Key:
 			return k
-		case 2:
+		case tags.MapEntry_Value:
 			return v
 		}
 	}
@@ -299,6 +322,22 @@ func (m Member) Element() Type {
 		return Type{}
 	}
 	return GetRef(m.Context(), m.Raw().elem)
+}
+
+// FDPType returns the descriptor type that would be used for this field.
+func (m Member) FDPType() descriptorpb.FieldDescriptorProto_Type {
+	switch {
+	case m.IsZero() || m.IsEnumValue():
+		return 0
+	case m.IsGroup():
+		return descriptorpb.FieldDescriptorProto_TYPE_GROUP
+	case m.Element().IsMessage():
+		return descriptorpb.FieldDescriptorProto_TYPE_MESSAGE
+	case m.Element().IsEnum():
+		return descriptorpb.FieldDescriptorProto_TYPE_ENUM
+	default:
+		return m.Element().Predeclared().FDPType()
+	}
 }
 
 // Container returns the type which contains this member: this is either
@@ -456,6 +495,14 @@ func (m Member) noun() taxa.Noun {
 	default:
 		return taxa.Field
 	}
+}
+
+// numberOk returns true if the member number did not have errors during evaluation.
+func (m Member) numberOK() bool {
+	if m.IsZero() {
+		return false
+	}
+	return m.Raw().numberOk
 }
 
 // toRef returns a ref to this member relative to the given context.

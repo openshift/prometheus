@@ -1,4 +1,4 @@
-// Copyright 2020-2025 Buf Technologies, Inc.
+// Copyright 2020-2026 Buf Technologies, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -22,9 +22,9 @@ import (
 	modulev1 "buf.build/gen/go/bufbuild/registry/protocolbuffers/go/buf/registry/module/v1"
 	modulev1beta1 "buf.build/gen/go/bufbuild/registry/protocolbuffers/go/buf/registry/module/v1beta1"
 	"buf.build/go/standard/xslices"
-	"github.com/bufbuild/buf/private/bufpkg/bufcas"
 	"github.com/bufbuild/buf/private/bufpkg/bufmodule"
 	"github.com/bufbuild/buf/private/bufpkg/bufparse"
+	"github.com/bufbuild/buf/private/pkg/cas"
 	"github.com/bufbuild/buf/private/pkg/storage"
 	"github.com/bufbuild/buf/private/pkg/uuidutil"
 	"github.com/google/uuid"
@@ -71,11 +71,11 @@ func V1ProtoToDigest(protoDigest *modulev1.Digest) (bufmodule.Digest, error) {
 	if err != nil {
 		return nil, err
 	}
-	bufcasDigest, err := bufcas.NewDigest(protoDigest.Value)
+	casDigest, err := cas.NewDigest(cas.DigestTypeShake256, protoDigest.Value)
 	if err != nil {
 		return nil, err
 	}
-	return bufmodule.NewDigest(digestType, bufcasDigest)
+	return bufmodule.NewDigest(digestType, casDigest)
 }
 
 // DigestToV1Beta1Proto converts the given Digest to a proto Digest.
@@ -99,11 +99,11 @@ func V1Beta1ProtoToDigest(protoDigest *modulev1beta1.Digest) (bufmodule.Digest, 
 	if err != nil {
 		return nil, err
 	}
-	bufcasDigest, err := bufcas.NewDigest(protoDigest.Value)
+	casDigest, err := cas.NewDigest(cas.DigestTypeShake256, protoDigest.Value)
 	if err != nil {
 		return nil, err
 	}
-	return bufmodule.NewDigest(digestType, bufcasDigest)
+	return bufmodule.NewDigest(digestType, casDigest)
 }
 
 // *** PRIVATE ***
@@ -329,11 +329,21 @@ func v1ProtoCommitToV1Beta1ProtoCommit(
 }
 
 func v1ProtoGraphToV1Beta1ProtoGraph(
-	registry string,
+	primaryRegistry string,
 	v1ProtoGraph *modulev1.Graph,
 ) (*modulev1beta1.Graph, error) {
 	if v1ProtoGraph == nil {
 		return nil, nil
+	}
+	commitIDToRegistry := make(map[string]string)
+	for _, protoRegistryCommitID := range v1ProtoGraph.GetRegistryCommitIds() {
+		commitID := protoRegistryCommitID.GetCommitId()
+		registry := protoRegistryCommitID.GetRegistry()
+		// There should never be more than one registry associated with a given commit ID.
+		if existingRegistry, ok := commitIDToRegistry[commitID]; ok {
+			return nil, fmt.Errorf("invalid v1 graph: commitID %q already associated with %q but attempting to associate with %q", commitID, existingRegistry, registry)
+		}
+		commitIDToRegistry[commitID] = registry
 	}
 	v1beta1ProtoGraph := &modulev1beta1.Graph{
 		Commits: make([]*modulev1beta1.Graph_Commit, len(v1ProtoGraph.Commits)),
@@ -346,22 +356,36 @@ func v1ProtoGraphToV1Beta1ProtoGraph(
 		}
 		v1beta1ProtoGraph.Commits[i] = &modulev1beta1.Graph_Commit{
 			Commit:   v1beta1ProtoCommit,
-			Registry: registry,
+			Registry: getRegistryForV1GraphRegistries(commitIDToRegistry, v1beta1ProtoCommit.GetId(), primaryRegistry),
 		}
 	}
 	for i, v1ProtoEdge := range v1ProtoGraph.Edges {
 		v1beta1ProtoGraph.Edges[i] = &modulev1beta1.Graph_Edge{
 			FromNode: &modulev1beta1.Graph_Node{
 				CommitId: v1ProtoEdge.FromNode.CommitId,
-				Registry: registry,
+				Registry: getRegistryForV1GraphRegistries(commitIDToRegistry, v1ProtoEdge.GetFromNode().GetCommitId(), primaryRegistry),
 			},
 			ToNode: &modulev1beta1.Graph_Node{
 				CommitId: v1ProtoEdge.ToNode.CommitId,
-				Registry: registry,
+				Registry: getRegistryForV1GraphRegistries(commitIDToRegistry, v1ProtoEdge.GetToNode().GetCommitId(), primaryRegistry),
 			},
 		}
 	}
 	return v1beta1ProtoGraph, nil
+}
+
+// A helper function that takes a map from commitID to other registry. If the commit ID
+// is in the map, return that registry. Otherwise, return the primary registry.
+//
+// There are only RegistryCommitID values in the v1 Graph for Commits associated
+// with registries other than the one called against. See the v1 Graph
+// definition for more details.
+func getRegistryForV1GraphRegistries(commitIDToRegistry map[string]string, commitID string, primaryRegistry string) string {
+	registry, ok := commitIDToRegistry[commitID]
+	if !ok {
+		return primaryRegistry
+	}
+	return registry
 }
 
 func v1beta1ProtoModuleRefToV1ProtoModuleRef(

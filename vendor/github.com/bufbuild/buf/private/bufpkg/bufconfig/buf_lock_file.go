@@ -1,4 +1,4 @@
-// Copyright 2020-2025 Buf Technologies, Inc.
+// Copyright 2020-2026 Buf Technologies, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -816,7 +816,7 @@ type externalBufLockFileDepV1Beta1V1 struct {
 	// Dashless
 	Commit     string    `json:"commit,omitempty" yaml:"commit,omitempty"`
 	Digest     string    `json:"digest,omitempty" yaml:"digest,omitempty"`
-	CreateTime time.Time `json:"create_time,omitempty" yaml:"create_time,omitempty"`
+	CreateTime time.Time `json:"create_time" yaml:"create_time,omitempty"`
 }
 
 // externalBufLockFileV2 represents the v2 buf.lock file.

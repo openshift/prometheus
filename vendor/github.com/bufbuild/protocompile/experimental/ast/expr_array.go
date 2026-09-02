@@ -1,4 +1,4 @@
-// Copyright 2020-2025 Buf Technologies, Inc.
+// Copyright 2020-2026 Buf Technologies, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -69,7 +69,7 @@ func (e ExprArray) Elements() Commas[ExprAny] {
 				return id.WrapDyn(e.Context(), c.Value)
 			},
 			func(_ int, e ExprAny) withComma[id.Dyn[ExprAny, ExprKind]] {
-				e.Context().Nodes().panicIfNotOurs(e)
+				e.Context().Nodes().panicIfNotOurs(e.Context())
 				return withComma[id.Dyn[ExprAny, ExprKind]]{Value: e.ID()}
 			},
 		),

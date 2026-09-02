@@ -1,4 +1,4 @@
-// Copyright 2020-2025 Buf Technologies, Inc.
+// Copyright 2020-2026 Buf Technologies, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -165,4 +165,9 @@ func NoEscape[P ~*E, E any](ptr P) P {
 	// the compiler.
 	p = unsafe.Pointer(uintptr(p) ^ 0) //nolint:staticcheck
 	return P(p)
+}
+
+// NoEscapeSlice marks a slice as not escaping, as by [NoEscape].
+func NoEscapeSlice[S ~[]E, E any](s S) S {
+	return unsafe.Slice(NoEscape(unsafe.SliceData(s)), cap(s))[:len(s)]
 }

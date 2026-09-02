@@ -4,27 +4,24 @@
 package requests
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"reflect"
 	"regexp"
 	"strconv"
 
 	"github.com/pb33f/libopenapi/datamodel/high/base"
-	"github.com/pb33f/libopenapi/utils"
 	"github.com/santhosh-tekuri/jsonschema/v6"
 	"go.yaml.in/yaml/v4"
 	"golang.org/x/text/language"
 	"golang.org/x/text/message"
 
-	"github.com/pb33f/libopenapi-validator/cache"
 	"github.com/pb33f/libopenapi-validator/config"
 	liberrors "github.com/pb33f/libopenapi-validator/errors"
 	"github.com/pb33f/libopenapi-validator/helpers"
+	"github.com/pb33f/libopenapi-validator/internal/requeststate"
 	"github.com/pb33f/libopenapi-validator/schema_validation"
 	"github.com/pb33f/libopenapi-validator/strict"
 )
@@ -38,97 +35,18 @@ type ValidateRequestSchemaInput struct {
 	Version      float32         // Required: OpenAPI version (3.0 or 3.1)
 	Options      []config.Option // Optional: Functional options (defaults applied if empty/nil)
 	BodyRequired bool            // Optional: Whether the request body is required (default false)
-}
-
-type replayableBody interface {
-	io.ReaderAt
-	Size() int64
+	DecodedValue any             // Optional: A value produced by a registered body decoder
+	RawBody      []byte          // Optional: Original bytes used for diagnostics with DecodedValue
+	ValueDecoded bool            // Distinguishes an explicitly decoded nil from the legacy JSON path
 }
 
 func setRequestBody(request *http.Request, body []byte) {
-	if request == nil {
-		return
-	}
-	bodyCopy := append([]byte(nil), body...)
-	request.Body = io.NopCloser(bytes.NewReader(bodyCopy))
-	request.ContentLength = int64(len(bodyCopy))
-	request.GetBody = func() (io.ReadCloser, error) {
-		return io.NopCloser(bytes.NewReader(bodyCopy)), nil
-	}
-}
-
-func requestBodySnapshot(request *http.Request) ([]byte, bool) {
-	if request == nil || request.Body == nil || request.Body == http.NoBody {
-		return nil, false
-	}
-	reader := requestBodyReader(request.Body)
-	body, ok := reader.(replayableBody)
-	if !ok {
-		return nil, false
-	}
-	size := body.Size()
-	if size <= 0 {
-		return nil, false
-	}
-	snapshot, err := io.ReadAll(io.NewSectionReader(body, 0, size))
-	if err != nil {
-		return nil, false
-	}
-	return snapshot, true
-}
-
-func requestBodyReader(body io.ReadCloser) io.Reader {
-	if body == nil || body == http.NoBody {
-		return nil
-	}
-
-	value := reflect.ValueOf(body)
-	if value.Kind() == reflect.Ptr {
-		if value.IsNil() {
-			return nil
-		}
-		value = value.Elem()
-	}
-	if value.Kind() == reflect.Struct {
-		field := value.FieldByName("Reader")
-		if field.IsValid() && field.CanInterface() {
-			if reader, ok := field.Interface().(io.Reader); ok {
-				return reader
-			}
-		}
-	}
-	return body
+	requeststate.Install(request, body)
 }
 
 func readAndResetRequestBody(request *http.Request) []byte {
-	if request == nil {
-		return nil
-	}
-
-	var requestBody []byte
-	bodyRead := false
-	bodySnapshot, hasBodySnapshot := requestBodySnapshot(request)
-	if request.Body != nil {
-		requestBody, _ = io.ReadAll(request.Body)
-		_ = request.Body.Close()
-		bodyRead = true
-	}
-
-	if len(requestBody) == 0 && hasBodySnapshot && request.GetBody != nil {
-		if body, err := request.GetBody(); err == nil && body != nil {
-			replayedBody, _ := io.ReadAll(body)
-			_ = body.Close()
-			if bytes.Equal(replayedBody, bodySnapshot) {
-				requestBody = replayedBody
-				bodyRead = true
-			}
-		}
-	}
-
-	if bodyRead {
-		setRequestBody(request, requestBody)
-	}
-	return requestBody
+	body, _ := requeststate.Snapshot(request)
+	return body
 }
 
 // ValidateRequestSchema will validate a http.Request pointer against a schema.
@@ -141,6 +59,7 @@ func ValidateRequestSchema(input *ValidateRequestSchemaInput) (bool, []*liberror
 	var referenceSchema string
 	var compiledSchema *jsonschema.Schema
 	var cachedNode *yaml.Node
+	var resourceNodes map[string]*yaml.Node
 
 	if input.Schema == nil {
 		return false, []*liberrors.ValidationError{{
@@ -159,52 +78,26 @@ func ValidateRequestSchema(input *ValidateRequestSchemaInput) (bool, []*liberror
 	}
 
 	if validationOptions.SchemaCache != nil {
-		hash := input.Schema.GoLow().Hash()
+		hash := schema_validation.SchemaCacheKey(
+			input.Schema.GoLow().Hash(),
+			input.Version,
+			schema_validation.SchemaValidationPurposeRequestBody,
+		)
 		if cached, ok := validationOptions.SchemaCache.Load(hash); ok && cached != nil && cached.CompiledSchema != nil {
 			renderedSchema = cached.RenderedInline
 			referenceSchema = cached.ReferenceSchema
 			jsonSchema = cached.RenderedJSON
 			compiledSchema = cached.CompiledSchema
 			cachedNode = cached.RenderedNode
+			resourceNodes = cached.ResourceNodes
 		}
 	}
 
 	// Cache miss or no cache - render and compile
 	if compiledSchema == nil {
-		renderCtx := base.NewInlineRenderContextForValidation()
-		var renderErr error
-		renderedSchema, renderErr = input.Schema.RenderInlineWithContext(renderCtx)
-		referenceSchema = string(renderedSchema)
-
-		// If rendering failed (e.g., circular reference), return the render error
-		if renderErr != nil {
-			violation := &liberrors.SchemaValidationFailure{
-				Reason:          renderErr.Error(),
-				ReferenceSchema: referenceSchema,
-			}
-			validationErrors = append(validationErrors, &liberrors.ValidationError{
-				ValidationType:    helpers.RequestBodyValidation,
-				ValidationSubType: helpers.Schema,
-				Message: fmt.Sprintf("%s request body for '%s' failed schema rendering",
-					input.Request.Method, input.Request.URL.Path),
-				Reason: fmt.Sprintf("The request schema failed to render: %s",
-					renderErr.Error()),
-				SpecLine:               1,
-				SpecCol:                0,
-				SchemaValidationErrors: []*liberrors.SchemaValidationFailure{violation},
-				HowToFix:               liberrors.HowToFixInvalidRenderedSchema,
-				Context:                referenceSchema,
-			})
-			return false, validationErrors
-		}
-
-		jsonSchema, _ = utils.ConvertYAMLtoJSON(renderedSchema)
-
-		var err error
-		schemaName := fmt.Sprintf("%x", input.Schema.GoLow().Hash())
-		compiledSchema, err = helpers.NewCompiledSchemaWithVersion(
-			schemaName,
-			jsonSchema,
+		compiled, err := schema_validation.CompileSchemaForValidation(
+			input.Schema,
+			schema_validation.SchemaValidationPurposeRequestBody,
 			validationOptions,
 			input.Version,
 		)
@@ -222,27 +115,33 @@ func ValidateRequestSchema(input *ValidateRequestSchemaInput) (bool, []*liberror
 			})
 			return false, validationErrors
 		}
+		renderedSchema = compiled.RenderedInline
+		referenceSchema = compiled.ReferenceSchema
+		jsonSchema = compiled.RenderedJSON
+		cachedNode = compiled.RenderedNode
+		resourceNodes = compiled.ResourceNodes
+		compiledSchema = compiled.CompiledSchema
 
 		if validationOptions.SchemaCache != nil {
-			hash := input.Schema.GoLow().Hash()
-			validationOptions.SchemaCache.Store(hash, &cache.SchemaCacheEntry{
-				Schema:          input.Schema,
-				RenderedInline:  renderedSchema,
-				ReferenceSchema: referenceSchema,
-				RenderedJSON:    jsonSchema,
-				CompiledSchema:  compiledSchema,
-			})
+			hash := schema_validation.SchemaCacheKey(
+				input.Schema.GoLow().Hash(),
+				input.Version,
+				schema_validation.SchemaValidationPurposeRequestBody,
+			)
+			validationOptions.SchemaCache.Store(hash, compiled.ToCacheEntry(input.Schema))
 		}
 	}
 
 	request := input.Request
 	schema := input.Schema
 
-	requestBody := readAndResetRequestBody(request)
+	requestBody := input.RawBody
+	decodedObj := input.DecodedValue
+	if !input.ValueDecoded {
+		requestBody = readAndResetRequestBody(request)
+	}
 
-	var decodedObj interface{}
-
-	if len(requestBody) > 0 {
+	if !input.ValueDecoded && len(requestBody) > 0 {
 		err := json.Unmarshal(requestBody, &decodedObj)
 		if err != nil {
 			// cannot decode the request body, so it's not valid
@@ -304,14 +203,9 @@ func ValidateRequestSchema(input *ValidateRequestSchemaInput) (bool, []*liberror
 
 		if errors.As(scErrs, &jk) {
 			// flatten the validationErrors
-			schFlatErrs := jk.BasicOutput().Errors
+			schFlatErrs := helpers.FlattenSchemaOutputErrors(jk.DetailedOutput())
 
-			// Use cached node if available, otherwise parse
-			renderedNode := cachedNode
-			if renderedNode == nil {
-				renderedNode = new(yaml.Node)
-				_ = yaml.Unmarshal(renderedSchema, renderedNode)
-			}
+			renderedNode, resourceNodes := schema_validation.DiagnosticLocationNodes(renderedSchema, cachedNode, resourceNodes)
 			for q := range schFlatErrs {
 				er := schFlatErrs[q]
 
@@ -324,8 +218,13 @@ func ValidateRequestSchema(input *ValidateRequestSchemaInput) (bool, []*liberror
 
 					// locate the violated property in the schema
 					var located *yaml.Node
-					if len(renderedNode.Content) > 0 {
-						located = schema_validation.LocateSchemaPropertyNodeByJSONPath(renderedNode.Content[0], er.KeywordLocation)
+					if renderedNode != nil {
+						located = schema_validation.LocateSchemaPropertyNodeByJSONPathWithResources(
+							renderedNode,
+							resourceNodes,
+							er.KeywordLocation,
+							er.AbsoluteKeywordLocation,
+						)
 					}
 
 					// extract the element specified by the instance

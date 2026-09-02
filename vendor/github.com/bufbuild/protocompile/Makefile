@@ -8,8 +8,8 @@ MAKEFLAGS += --no-builtin-rules
 MAKEFLAGS += --no-print-directory
 BIN ?= $(abspath .tmp/bin)
 CACHE := $(abspath .tmp/cache)
-COPYRIGHT_YEARS := 2020-2025
-LICENSE_IGNORE := -E -e "/testdata/|^wellknownimports/google/protobuf/"
+COPYRIGHT_YEARS := 2020-2026
+LICENSE_IGNORE := -E -e "/testdata/|^wellknownimports/google/protobuf/|^[^/]+\.ya?ml$$|^\.github/"
 # Set to use a different compiler. For example, `GO=go1.18rc1 make test`.
 GO ?= go
 TOOLS_MOD_DIR := ./internal/tools
@@ -56,13 +56,13 @@ clean: ## Delete intermediate build artifacts
 	git clean -Xdf
 
 .PHONY: test
-test: build ## Run unit tests
-	$(GO) test -race -cover ./...
+test: $(PROTOC) ## Run unit tests
+	$(GO) test $(if $(filter 386,$(GOARCH)),,-race) -cover ./...
 	$(GO) test -tags protolegacy ./...
-	cd internal/benchmarks && SKIP_DOWNLOAD_GOOGLEAPIS=true $(GO) test -race -cover ./...
 
 .PHONY: benchmarks
-benchmarks: build ## Run benchmarks
+benchmarks: $(PROTOC) ## Run benchmarks
+	$(GO) test -bench=. -benchmem -v ./experimental/benchmark
 	cd internal/benchmarks && $(GO) test -bench=. -benchmem -v ./...
 
 .PHONY: build
@@ -75,7 +75,7 @@ install: ## Install all binaries
 
 .PHONY: lint
 lint: $(BIN)/golangci-lint ## Lint Go
-	@# golanci-lint already catches unsafe.Pointer misuse, and can be silenced
+	@# golangci-lint already catches unsafe.Pointer misuse, and can be silenced
 	@# when it has false positives, unlike go vet, which cannot.
 	$(GO) vet  -unsafeptr=false ./... ./internal/benchmarks/...
 	$(BIN)/golangci-lint run
@@ -105,7 +105,7 @@ generate: $(BIN)/license-header $(BIN)/goyacc wellknownimports test-descriptors 
 
 .PHONY: generate-golden
 generate-golden: generate
-	PATH="$(BIN)$(PATH_SEP)$(PATH)" PROTOCOMPILE_REFRESH=** $(GO) test  ./... -run 'TestSourceCodeInfoOptions|TestIR|TestLexer|TestParse|TestRender' || true
+	PATH="$(BIN)$(PATH_SEP)$(PATH)" PROTOCOMPILE_REFRESH=** $(GO) test  ./... -run 'TestSourceCodeInfoOptions|TestIR|TestLexer|TestParse|TestRender|TestFormat|TestEdits' || true
 
 .PHONY: upgrade
 upgrade: ## Upgrade dependencies
@@ -117,6 +117,7 @@ checkgenerate:
 	@echo git status --porcelain
 	@if [[ -n "$$(git status --porcelain | tee /dev/stderr)" ]]; then \
 	  git diff; \
+	  xxd wellknownimports/wkt.pb; \
 	  false; \
 	fi
 
@@ -128,7 +129,7 @@ $(BIN)/license-header: internal/tools/go.mod internal/tools/go.sum
 $(BIN)/golangci-lint: internal/tools/go.mod internal/tools/go.sum
 	@mkdir -p $(@D)
 	cd $(TOOLS_MOD_DIR) && \
-		GOWORK=off $(GO_TOOL_CMD) build -o $@ github.com/golangci/golangci-lint/cmd/golangci-lint
+		GOWORK=off $(GO_TOOL_CMD) build -o $@ github.com/golangci/golangci-lint/v2/cmd/golangci-lint
 
 $(BIN)/goyacc: internal/tools/go.mod internal/tools/go.sum
 	@mkdir -p $(@D)
@@ -153,6 +154,7 @@ wellknownimports: $(PROTOC) $(sort $(wildcard $(PROTOC_DIR)/include/google/proto
 	@mkdir -p wellknownimports/google/protobuf/compiler
 	cp -R $(PROTOC_DIR)/include/google/protobuf/*.proto wellknownimports/google/protobuf
 	cp -R $(PROTOC_DIR)/include/google/protobuf/compiler/*.proto wellknownimports/google/protobuf/compiler
+	find wellknownimports/google -type f | sed 's|wellknownimports/||' | sort | xargs $(PROTOC) -I wellknownimports -owellknownimports/wkt.pb
 
 internal/testdata/all.protoset: $(PROTOC) $(sort $(wildcard internal/testdata/*.proto))
 	cd $(@D) && $(PROTOC) --descriptor_set_out=$(@F) --include_imports -I. $(filter-out protoc,$(^F))

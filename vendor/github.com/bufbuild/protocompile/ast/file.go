@@ -1,4 +1,4 @@
-// Copyright 2020-2025 Buf Technologies, Inc.
+// Copyright 2020-2026 Buf Technologies, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -260,9 +260,11 @@ type ImportNode struct {
 	compositeNode
 	Keyword *KeywordNode
 	// Optional; if present indicates this is a public import
+	//
 	// Deprecated: Use Modifier field instead.
 	Public *KeywordNode
 	// Optional; if present indicates this is a weak import
+	//
 	// Deprecated: Use Modifier field instead.
 	Weak *KeywordNode
 	// Optional; if present indicates modifier (public/weak/option)

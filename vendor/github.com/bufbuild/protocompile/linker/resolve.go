@@ -1,4 +1,4 @@
-// Copyright 2020-2025 Buf Technologies, Inc.
+// Copyright 2020-2026 Buf Technologies, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,6 +17,7 @@ package linker
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"google.golang.org/protobuf/proto"
@@ -51,11 +52,9 @@ func (r *result) resolveElement(name protoreflect.FullName, checkedCache []strin
 func resolveInFile[T any](f File, publicImportsOnly bool, checked []string, fn func(File) (T, error)) (T, error) {
 	var zero T
 	path := f.Path()
-	for _, str := range checked {
-		if str == path {
-			// already checked
-			return zero, protoregistry.NotFound
-		}
+	if slices.Contains(checked, path) {
+		// already checked
+		return zero, protoregistry.NotFound
 	}
 	checked = append(checked, path)
 

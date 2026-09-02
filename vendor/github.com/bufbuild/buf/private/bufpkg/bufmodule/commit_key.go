@@ -1,4 +1,4 @@
-// Copyright 2020-2025 Buf Technologies, Inc.
+// Copyright 2020-2026 Buf Technologies, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -42,7 +42,7 @@ type CommitKey interface {
 	CommitID() uuid.UUID
 	// DigestType returns the DigestType of the Commit.
 	//
-	// Note this is *not* a bufcas.Digest - this is a Digest. bufcas.Digests are a lower-level
+	// Note this is *not* a cas.Digest - this is a Digest. cas.Digests are a lower-level
 	// type that just deal in terms of files and content. A ModuleDigest is a specific algorithm
 	// applied to a set of files and dependencies.
 	DigestType() DigestType

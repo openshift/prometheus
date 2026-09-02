@@ -1,4 +1,4 @@
-// Copyright 2020-2025 Buf Technologies, Inc.
+// Copyright 2020-2026 Buf Technologies, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -432,7 +432,7 @@ func getRawPathAndOptions(value string) (string, map[string]string, error) {
 			return "", nil, newValueEndsWithHashtagError(value)
 		}
 		options := make(map[string]string)
-		for _, pair := range strings.Split(optionsString, ",") {
+		for pair := range strings.SplitSeq(optionsString, ",") {
 			split := strings.Split(pair, "=")
 			if len(split) != 2 {
 				return "", nil, newOptionsInvalidError(optionsString)

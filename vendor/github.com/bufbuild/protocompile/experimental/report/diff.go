@@ -1,4 +1,4 @@
-// Copyright 2020-2025 Buf Technologies, Inc.
+// Copyright 2020-2026 Buf Technologies, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -94,7 +94,7 @@ func unifiedDiff(span source.Span, edits []Edit) (source.Span, []hunk) {
 			strings.Contains(src[edit.End:next.Start], "\n")
 	})
 
-	var out []hunk //nolint:prealloc // False positive.
+	var out []hunk
 	var prevHunk int
 	for edits := range parts {
 		if len(edits) == 0 {

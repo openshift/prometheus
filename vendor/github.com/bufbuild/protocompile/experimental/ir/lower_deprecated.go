@@ -1,4 +1,4 @@
-// Copyright 2020-2025 Buf Technologies, Inc.
+// Copyright 2020-2026 Buf Technologies, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,7 +16,7 @@ package ir
 
 import (
 	"github.com/bufbuild/protocompile/experimental/report"
-	"github.com/bufbuild/protocompile/experimental/report/tags"
+	"github.com/bufbuild/protocompile/experimental/report/rtags"
 	"github.com/bufbuild/protocompile/experimental/seq"
 	"github.com/bufbuild/protocompile/experimental/source"
 )
@@ -129,6 +129,6 @@ func (e errDeprecated) Diagnose(d *report.Diagnostic) {
 		report.Message("`%s` is deprecated", e.name),
 		report.Snippet(e.ref),
 		report.Snippetf(e.cause, "deprecated here"),
-		report.Tag(tags.Deprecated),
+		report.Tag(rtags.Deprecated),
 	)
 }

@@ -1,4 +1,4 @@
-// Copyright 2020-2025 Buf Technologies, Inc.
+// Copyright 2020-2026 Buf Technologies, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -29,7 +29,7 @@ type ExternalConfig struct {
 	// If editing ExternalConfig, make sure to update ExternalConfig.IsEmpty!
 
 	Version string                             `json:"version,omitempty" yaml:"version,omitempty"`
-	TLS     certclient.ExternalClientTLSConfig `json:"tls,omitempty" yaml:"tls,omitempty"`
+	TLS     certclient.ExternalClientTLSConfig `json:"tls" yaml:"tls,omitempty"`
 }
 
 // IsEmpty returns true if the externalConfig is empty.

@@ -9,14 +9,15 @@ MAKEFLAGS += --no-print-directory
 BIN := .tmp/bin
 export PATH := $(abspath $(BIN)):$(PATH)
 export GOBIN := $(abspath $(BIN))
-COPYRIGHT_YEARS := 2025
+COPYRIGHT_YEARS := 2025-2026
 LICENSE_IGNORE := --ignore testdata/
 
-BUF_VERSION := v1.53.0
-GO_MOD_GOTOOLCHAIN := go1.24.3
-GOLANGCI_LINT_VERSION := v1.64.8
-# https://github.com/golangci/golangci-lint/issues/4837
-GOLANGCI_LINT_GOTOOLCHAIN := $(GO_MOD_GOTOOLCHAIN)
+# https://github.com/bufbuild/buf/releases
+BUF_VERSION := v1.66.1
+GOLANGCI_LINT_VERSION := v2.9.0
+# This version is the go toolchain version (which may be more specific than the module
+# version) to ensure the build handles specific language features in newer toolchains.
+GOLANGCILINT_GOTOOLCHAIN_VERSION := $(shell go env GOVERSION | sed 's/^go//')
 #GO_GET_PKGS :=
 
 .PHONY: help
@@ -48,11 +49,11 @@ install: ## Install all binaries
 .PHONY: lint
 lint: $(BIN)/golangci-lint ## Lint
 	go vet ./...
-	GOTOOLCHAIN=$(GOLANGCI_LINT_GOTOOLCHAIN) golangci-lint run --modules-download-mode=readonly --timeout=3m0s
+	GOTOOLCHAIN=go$(GOLANGCILINT_GOTOOLCHAIN_VERSION) golangci-lint run --modules-download-mode=readonly --timeout=3m0s
 
 .PHONY: lintfix
 lintfix: $(BIN)/golangci-lint ## Automatically fix some lint errors
-	GOTOOLCHAIN=$(GOLANGCI_LINT_GOTOOLCHAIN) golangci-lint run --fix --modules-download-mode=readonly --timeout=3m0s
+	GOTOOLCHAIN=go$(GOLANGCILINT_GOTOOLCHAIN_VERSION) golangci-lint run --fix --modules-download-mode=readonly --timeout=3m0s
 
 .PHONY: generate
 generate: $(BIN)/license-header ## Regenerate code and licenses
@@ -63,7 +64,6 @@ generate: $(BIN)/license-header ## Regenerate code and licenses
 
 .PHONY: upgrade
 upgrade: ## Upgrade dependencies
-	go mod edit -toolchain=$(GO_MOD_GOTOOLCHAIN)
 	go get -u -t ./... $(GO_GET_PKGS)
 	go mod tidy -v
 
@@ -78,4 +78,4 @@ $(BIN)/license-header: Makefile
 
 $(BIN)/golangci-lint: Makefile
 	@mkdir -p $(@D)
-	GOTOOLCHAIN=$(GOLANGCI_LINT_GOTOOLCHAIN) go install github.com/golangci/golangci-lint/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
+	GOTOOLCHAIN=go$(GOLANGCILINT_GOTOOLCHAIN_VERSION) go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)

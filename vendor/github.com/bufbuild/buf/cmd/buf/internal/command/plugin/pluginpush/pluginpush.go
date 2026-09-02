@@ -1,4 +1,4 @@
-// Copyright 2020-2025 Buf Technologies, Inc.
+// Copyright 2020-2026 Buf Technologies, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,6 +16,7 @@ package pluginpush
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"slices"
@@ -29,6 +30,7 @@ import (
 	"github.com/bufbuild/buf/private/bufpkg/bufparse"
 	"github.com/bufbuild/buf/private/bufpkg/bufplugin"
 	"github.com/bufbuild/buf/private/pkg/syserror"
+	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )
 
@@ -58,6 +60,21 @@ func NewCommand(
 			},
 		),
 		BindFlags: flags.Bind,
+		ModifyCobra: func(cmd *cobra.Command) error {
+			return errors.Join(
+				bufcli.RegisterFlagCompletionVisibility(cmd, createVisibilityFlagName),
+				cmd.RegisterFlagCompletionFunc(
+					createTypeFlagName,
+					cobra.FixedCompletions(bufplugin.AllPluginTypeStrings, cobra.ShellCompDirectiveNoFileComp|cobra.ShellCompDirectiveKeepOrder),
+				),
+				cmd.RegisterFlagCompletionFunc(
+					binaryFlagName,
+					cobra.FixedCompletions([]string{"wasm"}, cobra.ShellCompDirectiveFilterFileExt),
+				),
+				cmd.RegisterFlagCompletionFunc(labelFlagName, cobra.NoFileCompletions),
+				cmd.RegisterFlagCompletionFunc(sourceControlURLFlagName, cobra.NoFileCompletions),
+			)
+		},
 	}
 }
 

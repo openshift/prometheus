@@ -1,4 +1,4 @@
-// Copyright 2020-2025 Buf Technologies, Inc.
+// Copyright 2020-2026 Buf Technologies, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 
 	"github.com/bufbuild/protocompile/experimental/ast"
@@ -522,12 +523,7 @@ func (d *fullNameMatcher) matchesPrefix(fqn ir.FullName) bool {
 
 // matchesExact returns true if the given FQN matches exactly.
 func (d *fullNameMatcher) matchesExact(fqn ir.FullName) bool {
-	for _, prefix := range d.prefixes {
-		if fqn == prefix {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(d.prefixes, fqn)
 }
 
 // fqnMatchesPrefix returns true if fqn starts with prefix using component-based matching.

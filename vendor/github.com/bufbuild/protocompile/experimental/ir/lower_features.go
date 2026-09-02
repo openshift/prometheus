@@ -1,4 +1,4 @@
-// Copyright 2020-2025 Buf Technologies, Inc.
+// Copyright 2020-2026 Buf Technologies, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -257,7 +257,7 @@ func validateAllFeatures(file *File, r *report.Report) {
 
 	for ty := range seq.Values(file.AllTypes()) {
 		if !ty.MapField().IsZero() {
-			// Map entries never have features.
+			// Do not set features on map entry fields here.
 			continue
 		}
 
@@ -278,25 +278,33 @@ func validateAllFeatures(file *File, r *report.Report) {
 			parent:  parent,
 		}))
 
-		for member := range seq.Values(ty.Members()) {
-			option := builtins.FieldFeatures
-			if member.IsEnumValue() {
-				option = builtins.EnumFeatures
-			}
-
-			features := member.Options().Field(option)
-			validateFeatures(features.AsMessage(), r)
-			member.Raw().features = id.ID[FeatureSet](file.arenas.features.NewCompressed(rawFeatureSet{
-				options: features.ID(),
-				parent:  ty.Raw().features,
-			}))
-		}
+		// Oneof features must be resolved before member features, since a field
+		// declared inside a oneof inherits from the oneof.
 		for oneof := range seq.Values(ty.Oneofs()) {
 			features := oneof.Options().Field(builtins.OneofFeatures)
 			validateFeatures(features.AsMessage(), r)
 			oneof.Raw().features = id.ID[FeatureSet](file.arenas.features.NewCompressed(rawFeatureSet{
 				options: features.ID(),
 				parent:  ty.Raw().features,
+			}))
+		}
+		for member := range seq.Values(ty.Members()) {
+			option := builtins.FieldFeatures
+			if member.IsEnumValue() {
+				option = builtins.EnumFeatures
+			}
+
+			// A field belonging to a oneof inherits features from the oneof.
+			parent := ty.Raw().features
+			if oneof := member.Oneof(); !oneof.IsZero() {
+				parent = oneof.Raw().features
+			}
+
+			features := member.Options().Field(option)
+			validateFeatures(features.AsMessage(), r)
+			member.Raw().features = id.ID[FeatureSet](file.arenas.features.NewCompressed(rawFeatureSet{
+				options: features.ID(),
+				parent:  parent,
 			}))
 		}
 		for extns := range seq.Values(ty.ExtensionRanges()) {
