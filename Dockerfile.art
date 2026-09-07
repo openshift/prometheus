@@ -1,0 +1,68 @@
+FROM brew.registry.redhat.io/rh-osbs/openshift-golang-builder:rhel_9_golang_1.25 AS builder
+
+WORKDIR /workspace
+
+# RUN microdnf install -y bzip2 jq && microdnf clean all
+
+COPY prometheus/ .
+
+# Use the prebuilt web UI assets fetched by cachi2 instead of building them from
+# source, then compile the assets into the Prometheus binary.
+RUN cp /cachi2/output/deps/generic/prometheus-web-ui.tar.gz ./web/ui/
+RUN tar -xzf ./web/ui/prometheus-web-ui.tar.gz -C ./web/ui/
+RUN make assets-compress PREBUILT_ASSETS_STATIC_DIR=web/ui/static
+
+ARG GIT_VERSION=
+ARG GIT_REVISION=unknown
+ARG GIT_BRANCH=
+
+ENV GOFLAGS='-mod=readonly -tags=builtinassets,netgo,stringlabels'
+ENV GOTOOLCHAIN=local
+ENV CGO_ENABLED=1
+ENV GOEXPERIMENT=strictfipsruntime
+ENV GONOSUMCHECK=*
+ENV GONOSUMDB=*
+ENV GOWORK=off
+
+RUN GOLDFLAGS="-X github.com/prometheus/common/version.Version=${GIT_VERSION} \
+    -X github.com/prometheus/common/version.Revision=${GIT_REVISION} \
+    -X github.com/prometheus/common/version.Branch=${GIT_BRANCH} \
+    -X github.com/prometheus/common/version.BuildDate=$(date -u +%Y%m%d-%H:%M:%S)" && \
+    GOOS=$TARGETOS GOARCH=$TARGETARCH go build -ldflags="$GOLDFLAGS" -o ./prometheus ./cmd/prometheus && \
+    GOOS=$TARGETOS GOARCH=$TARGETARCH go build -ldflags="$GOLDFLAGS" -o ./promtool ./cmd/promtool
+
+FROM registry.redhat.io/ubi9/ubi-minimal:latest@sha256:8eb2830d0936237fc13a1f2f7e45aecf90d69043380ad167fad0343632937f41
+
+COPY --from=builder /workspace/prometheus                            /bin/prometheus
+COPY --from=builder /workspace/promtool                              /bin/promtool
+COPY --from=builder /workspace/documentation/examples/prometheus.yml /etc/prometheus/prometheus.yml
+COPY --from=builder /workspace/LICENSE      /licenses/.
+
+
+RUN mkdir -p /prometheus \
+    && chgrp -R 0 /etc/prometheus /prometheus \
+    && chmod -R g=u /etc/prometheus /prometheus
+
+USER       nobody
+EXPOSE     9090
+WORKDIR    /prometheus
+VOLUME     ["/prometheus"]
+ENTRYPOINT ["/bin/prometheus"]
+CMD        [ "--config.file=/etc/prometheus/prometheus.yml", \
+    "--storage.tsdb.path=/prometheus" ]
+
+LABEL com.redhat.component="coo-prometheus-container" \
+    name="cluster-observability-operator/prometheus-rhel9" \
+    cpe="cpe:/a:redhat:cluster_observability_operator:1.5::el9" \
+    version="${GIT_VERSION}" \
+    release="${GIT_VERSION}" \
+    vendor="Red Hat, Inc." \
+    distribution-scope="public" \
+    url="https://github.com/rhobs/obo-prometheus" \
+    summary="Prometheus for Cluster Observability Operator" \
+    io.openshift.expose-services="" \
+    io.openshift.tags="monitoring" \
+    io.k8s.display-name="COO Prometheus" \
+    io.k8s.description="Prometheus is a CNCF project that collects metrics, evaluates rules and triggers alerts." \
+    maintainer="team-monitoring@redhat.com" \
+    description="Prometheus for Cluster Observability Operator"
