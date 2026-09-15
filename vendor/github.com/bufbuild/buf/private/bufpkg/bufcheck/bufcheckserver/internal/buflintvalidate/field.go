@@ -1,4 +1,4 @@
-// Copyright 2020-2025 Buf Technologies, Inc.
+// Copyright 2020-2026 Buf Technologies, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -415,7 +415,7 @@ func checkRepeatedRules(
 	if !fieldDescriptor.IsList() {
 		baseAdder.addForPathf(
 			[]int32{repeatedRulesFieldNumber},
-			"Field %q is not repeated but has %s.",
+			"Field %q is not repeated but has %s rules.",
 			baseAdder.fieldName(),
 			baseAdder.getFieldRuleName(repeatedRulesFieldNumber),
 		)

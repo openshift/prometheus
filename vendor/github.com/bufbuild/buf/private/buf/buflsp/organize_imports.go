@@ -1,4 +1,4 @@
-// Copyright 2020-2025 Buf Technologies, Inc.
+// Copyright 2020-2026 Buf Technologies, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -25,7 +25,7 @@ import (
 
 	"github.com/bufbuild/protocompile/experimental/ast"
 	"github.com/bufbuild/protocompile/experimental/ir"
-	"github.com/bufbuild/protocompile/experimental/report/tags"
+	"github.com/bufbuild/protocompile/experimental/report/rtags"
 	"github.com/bufbuild/protocompile/experimental/seq"
 	"github.com/bufbuild/protocompile/experimental/source"
 	"github.com/bufbuild/protocompile/experimental/source/length"
@@ -57,7 +57,7 @@ func (s *server) getOrganizeImportsCodeAction(ctx context.Context, file *file) *
 		}
 
 		// Process UnknownSymbol diagnostics (missing imports)
-		if diag.Tag() == tags.UnknownSymbol {
+		if diag.Tag() == rtags.UnknownSymbol {
 			// Get the exact symbol name as written in the source
 			missingType := diag.Primary().Text()
 			if missingType != "" {
@@ -68,7 +68,7 @@ func (s *server) getOrganizeImportsCodeAction(ctx context.Context, file *file) *
 		}
 
 		// Process UnusedImport diagnostics (imports to remove)
-		if diag.Tag() == tags.UnusedImport {
+		if diag.Tag() == rtags.UnusedImport {
 			// The diagnostic text contains the import path
 			unusedImportPath := diag.Primary().Text()
 			if unusedImportPath != "" {

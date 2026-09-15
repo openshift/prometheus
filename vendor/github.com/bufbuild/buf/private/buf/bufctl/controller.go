@@ -1,4 +1,4 @@
-// Copyright 2020-2025 Buf Technologies, Inc.
+// Copyright 2020-2026 Buf Technologies, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -751,7 +751,9 @@ func (c *controller) GetMessage(
 	}
 	var validator protoyaml.Validator
 	if functionOptions.messageValidation {
-		protovalidateValidator, err := protovalidate.New()
+		protovalidateValidator, err := protovalidate.New(
+			protovalidate.WithExtensionTypeResolver(schemaImage.Resolver()),
+		)
 		if err != nil {
 			return nil, 0, err
 		}

@@ -1,4 +1,4 @@
-// Copyright 2020-2025 Buf Technologies, Inc.
+// Copyright 2020-2026 Buf Technologies, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -108,5 +108,16 @@ var builtinDocs = map[string][]string{
 
 	"map": {
 		"A set of distinct keys, each of which is associated with a value.",
+	},
+
+	"export": {
+		"Marks a definition as exported, making it visible outside the current file.",
+		"",
+		"Available in edition 2024 and later.",
+	},
+	"local": {
+		"Marks a definition as local, restricting its visibility to the current file.",
+		"",
+		"Available in edition 2024 and later.",
 	},
 }

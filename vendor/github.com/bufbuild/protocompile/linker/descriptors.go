@@ -1,4 +1,4 @@
-// Copyright 2020-2025 Buf Technologies, Inc.
+// Copyright 2020-2026 Buf Technologies, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -332,7 +332,6 @@ func (r *result) createImports() fileImports {
 		imps[int(publicIndex)].IsPublic = true
 	}
 	for _, weakIndex := range fd.WeakDependency {
-		//nolint:staticcheck // yes, is_weak is deprecated; but we still have to set it to compile the file
 		imps[int(weakIndex)].IsWeak = true
 	}
 	return fileImports{files: imps}
@@ -587,12 +586,7 @@ func (n names) Get(i int) protoreflect.Name {
 }
 
 func (n names) Has(s protoreflect.Name) bool {
-	for _, name := range n.s {
-		if name == string(s) {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(n.s, string(s))
 }
 
 type fieldNums struct {
@@ -609,12 +603,7 @@ func (n fieldNums) Get(i int) protoreflect.FieldNumber {
 }
 
 func (n fieldNums) Has(s protoreflect.FieldNumber) bool {
-	for _, num := range n.s {
-		if num == int32(s) {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(n.s, int32(s))
 }
 
 type fieldRanges struct {
@@ -1214,7 +1203,7 @@ func (f *fldDescriptor) HasOptionalKeyword() bool {
 }
 
 func (f *fldDescriptor) IsWeak() bool {
-	return f.proto.Options.GetWeak() //nolint:staticcheck // yes, is_weak is deprecated; but we still have to query it to implement this interface
+	return f.proto.Options.GetWeak()
 }
 
 func (f *fldDescriptor) IsPacked() bool {
@@ -1477,10 +1466,7 @@ func isHex(b byte) bool {
 	return (b >= '0' && b <= '9') || (b >= 'a' && b <= 'f') || (b >= 'A' && b <= 'F')
 }
 func matchPrefix(s string, limit int, fn func(byte) bool) int {
-	l := len(s)
-	if l > limit {
-		l = limit
-	}
+	l := min(len(s), limit)
 	i := 0
 	for ; i < l; i++ {
 		if !fn(s[i]) {

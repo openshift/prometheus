@@ -1,4 +1,4 @@
-// Copyright 2020-2025 Buf Technologies, Inc.
+// Copyright 2020-2026 Buf Technologies, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,8 +17,10 @@
 package buflsp
 
 import (
+	"strings"
+
 	"github.com/bufbuild/protocompile/experimental/report"
-	"github.com/bufbuild/protocompile/experimental/report/tags"
+	"github.com/bufbuild/protocompile/experimental/report/rtags"
 	"github.com/bufbuild/protocompile/experimental/source/length"
 	"go.lsp.dev/protocol"
 )
@@ -41,10 +43,25 @@ var reportLevelToDiagnosticSeverity = map[report.Level]protocol.DiagnosticSeveri
 func reportDiagnosticToProtocolDiagnostic(
 	reportDiagnostic report.Diagnostic,
 ) protocol.Diagnostic {
+	parts := []string{reportDiagnostic.Message()}
+	for _, note := range reportDiagnostic.Notes() {
+		parts = append(parts, "note: "+note)
+	}
+	for _, help := range reportDiagnostic.Help() {
+		parts = append(parts, "help: "+help)
+	}
+	// Debug info is implementation-level detail; only include it for ICE where
+	// all available context helps diagnose the unexpected failure.
+	if reportDiagnostic.Level() == report.ICE {
+		for _, debug := range reportDiagnostic.Debug() {
+			parts = append(parts, "debug: "+debug)
+		}
+	}
+	message := strings.Join(parts, "\n")
 	diagnostic := protocol.Diagnostic{
 		Source:   serverName,
 		Severity: reportLevelToDiagnosticSeverity[reportDiagnostic.Level()],
-		Message:  reportDiagnostic.Message(),
+		Message:  message,
 	}
 	if primary := reportDiagnostic.Primary(); !primary.IsZero() {
 		startLocation := primary.Location(primary.Start, positionalEncoding)
@@ -61,11 +78,11 @@ func reportDiagnosticToProtocolDiagnostic(
 		}
 	}
 	switch reportDiagnostic.Tag() {
-	case tags.UnusedImport:
+	case rtags.UnusedImport:
 		diagnostic.Tags = []protocol.DiagnosticTag{
 			protocol.DiagnosticTagUnnecessary,
 		}
-	case tags.Deprecated:
+	case rtags.Deprecated:
 		diagnostic.Tags = []protocol.DiagnosticTag{
 			protocol.DiagnosticTagDeprecated,
 		}

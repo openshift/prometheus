@@ -1,4 +1,4 @@
-// Copyright 2020-2025 Buf Technologies, Inc.
+// Copyright 2020-2026 Buf Technologies, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -31,16 +31,19 @@ import (
 	"github.com/bufbuild/protocompile/experimental/internal/taxa"
 	"github.com/bufbuild/protocompile/experimental/ir/presence"
 	"github.com/bufbuild/protocompile/experimental/report"
-	"github.com/bufbuild/protocompile/experimental/report/tags"
+	"github.com/bufbuild/protocompile/experimental/report/rtags"
 	"github.com/bufbuild/protocompile/experimental/seq"
 	"github.com/bufbuild/protocompile/experimental/source"
 	"github.com/bufbuild/protocompile/experimental/token"
 	"github.com/bufbuild/protocompile/experimental/token/keyword"
+	"github.com/bufbuild/protocompile/internal"
+	"github.com/bufbuild/protocompile/internal/cases"
 	"github.com/bufbuild/protocompile/internal/ext/cmpx"
 	"github.com/bufbuild/protocompile/internal/ext/iterx"
 	"github.com/bufbuild/protocompile/internal/ext/mapsx"
 	"github.com/bufbuild/protocompile/internal/ext/slicesx"
 	"github.com/bufbuild/protocompile/internal/intern"
+	"github.com/bufbuild/protocompile/internal/tags"
 )
 
 var asciiIdent = regexp.MustCompile(`^[a-zA-Z_][0-9a-zA-Z_]*$`)
@@ -58,7 +61,7 @@ func diagnoseUnusedImports(f *File, r *report.Report) {
 				Start: 0, End: imp.Decl.Span().Len(),
 			}),
 			report.Helpf("no symbols from this file are referenced"),
-			report.Tag(tags.UnusedImport),
+			report.Tag(rtags.UnusedImport),
 		)
 	}
 }
@@ -182,6 +185,70 @@ func validateEnum(ty Type, r *report.Report) {
 			report.Helpf("open enums must define a zero value, and it must be the first one"),
 		)
 	}
+
+	validateEnumValueNames(ty, r)
+}
+
+// validateEnumValueNames checks that enum values don't collide after
+// prefix stripping and case normalization. Protoc strips the enum type
+// name prefix and normalizes to PascalCase to ensure generated code
+// in languages with proper enum scoping (Java, Swift, C#) won't have
+// duplicate names.
+func validateEnumValueNames(ty Type, r *report.Report) {
+	builtins := ty.Context().builtins()
+	jsonFormat, _ := ty.FeatureSet().Lookup(builtins.FeatureJSON).Value().AsInt()
+	strict := jsonFormat == tags.FeatureSet_JsonFormat_Allow
+
+	type seen struct {
+		member Member
+		canon  string
+	}
+	canonical := make(map[string]seen)
+
+	for member := range seq.Values(ty.Members()) {
+		name := canonicalEnumValueName(member.Name(), ty.Name())
+		prev, ok := canonical[name]
+		if !ok {
+			canonical[name] = seen{member, name}
+			continue
+		}
+		if prev.member.Number() == member.Number() {
+			// allow_alias: same number means not a real collision.
+			continue
+		}
+
+		r.SoftError(strict, errEnumValueConflict{
+			first: prev.member, second: member,
+			enumName:      ty.Name(),
+			canonicalName: name,
+		})
+	}
+}
+
+// canonicalEnumValueName computes the canonical name for an enum value
+// by stripping the enum type name prefix and converting to PascalCase
+// with naive (underscore-only) word splitting.
+func canonicalEnumValueName(enumValueName, enumName string) string {
+	suffix := internal.TrimPrefix(enumValueName, enumName)
+	return cases.Converter{Case: cases.Pascal, NaiveSplit: true}.Convert(suffix)
+}
+
+// errEnumValueConflict diagnoses a collision between two enum values
+// whose canonical names (after prefix stripping and case normalization)
+// are the same.
+type errEnumValueConflict struct {
+	first, second Member
+	enumName      string
+	canonicalName string
+}
+
+func (e errEnumValueConflict) Diagnose(d *report.Diagnostic) {
+	d.Apply(report.Message("%ss have the same name with the `%s` prefix removed",
+		e.first.noun(), e.enumName))
+	d.Apply(
+		report.Snippetf(e.second.AST().Name(), "this also implies that name"),
+		report.Snippetf(e.first.AST().Name(), "this implies canonical name `%s`", e.canonicalName),
+	)
 }
 
 func validateFileOptions(f *File, r *report.Report) {
@@ -220,10 +287,10 @@ func validateFileOptions(f *File, r *report.Report) {
 	}
 
 	optimize := f.Options().Field(builtins.OptimizeFor)
-	if v, _ := optimize.AsInt(); v != 3 { // google.protobuf.FileOptions.LITE_RUNTIME
+	if v, _ := optimize.AsInt(); v != tags.FileOptions_OptimizeMode_LiteRuntime {
 		for imp := range seq.Values(f.Imports()) {
 			impOptimize := imp.Options().Field(builtins.OptimizeFor)
-			if v, _ := impOptimize.AsInt(); v == 3 { // google.protobuf.FileOptions.LITE_RUNTIME
+			if v, _ := impOptimize.AsInt(); v == tags.FileOptions_OptimizeMode_LiteRuntime {
 				r.Errorf("`LITE_RUNTIME` file imported in non-`LITE_RUNTIME` file").Apply(
 					report.Snippet(imp.Decl.ImportPath()),
 					report.Snippetf(optimize.ValueAST(), "optimization level set here"),
@@ -236,7 +303,7 @@ func validateFileOptions(f *File, r *report.Report) {
 	}
 
 	defaultPresence := f.FeatureSet().Lookup(builtins.FeaturePresence).Value()
-	if v, _ := defaultPresence.AsInt(); v == 3 { // google.protobuf.FeatureSet.LEGACY_REQUIRED
+	if v, _ := defaultPresence.AsInt(); v == tags.FeatureSet_FieldPresence_LegacyRequired {
 		r.Errorf("cannot set `LEGACY_REQUIRED` at the file level").Apply(
 			report.Snippet(defaultPresence.ValueAST()),
 		)
@@ -332,7 +399,7 @@ func validateExtend(extend Extend, r *report.Report) {
 	}).Apply(
 		report.PageBreak,
 		report.Snippetf(extend.Context().AST().Syntax().Value(), "\"proto3\" specified here"),
-		report.Helpf("extendees in \"proto3\" files are restricted to an `google.protobuf.*Options` message types", taxa.Extend),
+		report.Helpf("extendees in \"proto3\" files are restricted to extending `google.protobuf.*Options` message types"),
 	)
 }
 
@@ -738,8 +805,8 @@ func validatePresence(m Member, r *report.Report) {
 	}
 
 	switch v, _ := feature.Value().AsInt(); v {
-	case 1: // EXPLICIT
-	case 2: // IMPLICIT
+	case tags.FeatureSet_FieldPresence_Explicit:
+	case tags.FeatureSet_FieldPresence_Implicit:
 		if m.Element().IsMessage() {
 			r.Error(errTypeConstraint{
 				want: taxa.MessageType,
@@ -754,7 +821,7 @@ func validatePresence(m Member, r *report.Report) {
 				report.Helpf("all message-typed fields explicit presence"),
 			)
 		}
-	case 3: // LEGACY_REQUIRED
+	case tags.FeatureSet_FieldPresence_LegacyRequired:
 		r.Warnf("required fields are deprecated").Apply(
 			report.Snippet(feature.Value().ValueAST()),
 			report.Helpf(
@@ -768,7 +835,7 @@ func validatePresence(m Member, r *report.Report) {
 func validatePacked(m Member, r *report.Report) {
 	builtins := m.Context().builtins()
 
-	validate := func(span source.Span) {
+	validate := func(span source.Span, isPacked bool) {
 		switch {
 		case m.IsSingular() || m.IsMap():
 			r.Errorf("expected repeated field, found singular field").Apply(
@@ -776,7 +843,7 @@ func validatePacked(m Member, r *report.Report) {
 				report.Snippetf(span, "packed encoding set here"),
 				report.Helpf("packed encoding can only be set on repeated fields of integer, float, `bool`, or enum type"),
 			)
-		case !m.Element().IsPackable():
+		case isPacked && !m.Element().IsPackable():
 			r.Error(errTypeConstraint{
 				want: "packable type",
 				got:  m.Element(),
@@ -790,8 +857,8 @@ func validatePacked(m Member, r *report.Report) {
 
 	option := m.Options().Field(builtins.Packed)
 	if !option.IsZero() {
+		packed, _ := option.AsBool()
 		if m.Context().Syntax().IsEdition() {
-			packed, _ := option.AsBool()
 			want := "PACKED"
 			if !packed {
 				want = "EXPANDED"
@@ -807,15 +874,17 @@ func validatePacked(m Member, r *report.Report) {
 				builtins.FeaturePacked.Name(), want,
 				"replace with `%s`", builtins.FeaturePacked.Name(),
 			))
-		} else if v, _ := option.AsBool(); v {
+		} else if packed {
 			// Don't validate [packed = false], protoc accepts that.
-			validate(option.ValueAST().Span())
+			validate(option.ValueAST().Span(), true)
 		}
 	}
 
 	feature := m.FeatureSet().Lookup(builtins.FeaturePacked)
 	if feature.IsExplicit() {
-		validate(feature.Value().KeyAST().Span())
+		value, _ := feature.Value().AsInt()
+		isPacked := value == tags.FeatureSet_RepeatedFieldEncoding_Packed
+		validate(feature.Value().KeyAST().Span(), isPacked)
 	}
 }
 
@@ -851,7 +920,7 @@ func validateLazy(m Member, r *report.Report) {
 
 		group := m.FeatureSet().Lookup(builtins.FeatureGroup)
 		groupValue, _ := group.Value().AsInt()
-		if groupValue == 2 { // FeatureSet.DELIMITED
+		if groupValue == tags.FeatureSet_MessageEncoding_Delimited {
 			d := r.SoftErrorf(set, "expected length-prefixed field").Apply(
 				report.Snippet(m.AST()),
 				report.Snippetf(lazy.KeyAST(), "`%s` set here", lazy.Field().Name()),
@@ -904,11 +973,11 @@ func validateCType(m Member, r *report.Report) {
 
 	var want string
 	switch ctypeValue {
-	case 0: // FieldOptions.STRING
+	case tags.FieldOptions_CType_String:
 		want = "STRING"
-	case 1: // FieldOptions.CORD
+	case tags.FieldOptions_CType_Cord:
 		want = "CORD"
-	case 2: // FieldOptions.STRING_PIECE
+	case tags.FieldOptions_CType_StringPiece:
 		want = "VIEW"
 	}
 
@@ -941,7 +1010,7 @@ func validateCType(m Member, r *report.Report) {
 			d.Apply(report.Helpf("this becomes a hard error in %s", syntax.Edition2023.Name()))
 		}
 
-	case m.IsExtension() && ctypeValue == 1: // google.protobuf.FieldOptions.CORD
+	case m.IsExtension() && ctypeValue == tags.FieldOptions_CType_Cord:
 		d := r.SoftErrorf(is2023, "cannot use `CORD` on an extension field").Apply(
 			report.Snippet(m.AST()),
 			report.Snippetf(ctype.ValueAST(), "`CORD` set here"),
@@ -1094,14 +1163,16 @@ func validateVisibility(ty Type, r *report.Report) {
 	}
 	feature := ty.FeatureSet().Lookup(key)
 	value, _ := feature.Value().AsInt()
-	strict := value == 4 // STRICT
+	strict := value == tags.FeatureSet_DefaultSymbolVisibility_Strict
 	var impliedExport bool
 	switch value {
-	case 0, 1: // DEFAULT_SYMBOL_VISIBILITY_UNKNOWN, EXPORT_ALL
+	case tags.FeatureSet_DefaultSymbolVisibility_Unknown,
+		tags.FeatureSet_DefaultSymbolVisibility_ExportAll:
 		impliedExport = true
-	case 2: // EXPORT_TOP_LEVEL
+	case tags.FeatureSet_DefaultSymbolVisibility_ExportTopLevel:
 		impliedExport = ty.Parent().IsZero()
-	case 3, 4: // LOCAL_ALL, STRICT
+	case tags.FeatureSet_DefaultSymbolVisibility_LocalAll,
+		tags.FeatureSet_DefaultSymbolVisibility_Strict:
 		impliedExport = false
 	}
 
@@ -1239,7 +1310,7 @@ func validateNamingStyle(f *File, r *report.Report) {
 	isStyle2024 := func(featureSet FeatureSet) bool {
 		feature := featureSet.Lookup(key)
 		value, _ := feature.Value().AsInt()
-		return value == 1 // STYLE2024
+		return value == tags.FeatureSet_EnforceNamingStyle_2024
 	}
 
 	// Validate package name (file-level scope).

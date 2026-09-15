@@ -1,4 +1,4 @@
-// Copyright 2025 Buf Technologies, Inc.
+// Copyright 2025-2026 Buf Technologies, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -103,10 +103,17 @@ func walk(
 	symlinks bool,
 ) error {
 	if symlinks {
-		if _, ok := resolvedPathMap[resolvedPath]; ok {
-			// Do not walk down this path.
-			// We could later make it optional to error in this case.
-			return nil
+		// walkPath != resolvedPath means this path was reached via a symlink.
+		// Only apply cycle detection to symlink-resolved paths — never skip real
+		// directories, which would otherwise be incorrectly treated as already
+		// visited when an alphabetically-earlier symlink resolves to the same
+		// real directory (e.g. bazel's bazel-<repo> symlinks).
+		if walkPath != resolvedPath {
+			if _, ok := resolvedPathMap[resolvedPath]; ok {
+				// Do not walk down this path.
+				// We could later make it optional to error in this case.
+				return nil
+			}
 		}
 		resolvedPathMap[resolvedPath] = struct{}{}
 	}

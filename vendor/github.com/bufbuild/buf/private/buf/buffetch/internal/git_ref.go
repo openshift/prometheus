@@ -1,4 +1,4 @@
-// Copyright 2020-2025 Buf Technologies, Inc.
+// Copyright 2020-2026 Buf Technologies, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -149,8 +149,8 @@ func getGitSchemeAndPath(format string, path string) (GitScheme, string, error) 
 		return 0, "", NewInvalidPathError(format, path)
 	}
 	for prefix, gitScheme := range gitSchemePrefixToGitScheme {
-		if strings.HasPrefix(path, prefix) {
-			path := strings.TrimPrefix(path, prefix)
+		if after, ok := strings.CutPrefix(path, prefix); ok {
+			path := after
 			if gitScheme == GitSchemeLocal {
 				path = normalpath.Normalize(path)
 			}

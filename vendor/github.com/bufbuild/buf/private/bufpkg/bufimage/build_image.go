@@ -1,4 +1,4 @@
-// Copyright 2020-2025 Buf Technologies, Inc.
+// Copyright 2020-2026 Buf Technologies, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -19,24 +19,42 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"math"
-	"strings"
 
+	descriptorv1 "buf.build/gen/go/bufbuild/protodescriptor/protocolbuffers/go/buf/descriptor/v1"
 	"buf.build/go/standard/xlog/xslog"
+	"buf.build/go/standard/xslices"
 	"github.com/bufbuild/buf/private/bufpkg/bufanalysis"
 	"github.com/bufbuild/buf/private/bufpkg/bufmodule"
-	"github.com/bufbuild/buf/private/bufpkg/bufprotocompile"
+	"github.com/bufbuild/buf/private/bufpkg/bufparse"
 	"github.com/bufbuild/buf/private/pkg/protoencoding"
 	"github.com/bufbuild/buf/private/pkg/syserror"
 	"github.com/bufbuild/buf/private/pkg/thread"
-	"github.com/bufbuild/protocompile"
-	"github.com/bufbuild/protocompile/linker"
-	"github.com/bufbuild/protocompile/parser"
-	"github.com/bufbuild/protocompile/protoutil"
-	"github.com/bufbuild/protocompile/reporter"
-	"google.golang.org/protobuf/reflect/protoreflect"
-	"google.golang.org/protobuf/reflect/protoregistry"
+	"github.com/bufbuild/protocompile/experimental/fdp"
+	"github.com/bufbuild/protocompile/experimental/incremental"
+	"github.com/bufbuild/protocompile/experimental/incremental/queries"
+	"github.com/bufbuild/protocompile/experimental/ir"
+	"github.com/bufbuild/protocompile/experimental/report"
+	"github.com/bufbuild/protocompile/experimental/source"
+	"github.com/bufbuild/protocompile/experimental/source/length"
+	"github.com/google/uuid"
+	"google.golang.org/protobuf/reflect/protodesc"
+	"google.golang.org/protobuf/types/descriptorpb"
 	"google.golang.org/protobuf/types/dynamicpb"
+)
+
+// compileFDPOptions are the fdp options used for all image compilation: always
+// include source code info (for E_BufSourceCodeInfoExtension) and generate
+// extra option locations (for lint and breaking change detection).
+var compileFDPOptions = func() fdp.Options {
+	var opts fdp.Options
+	opts.Apply(fdp.IncludeSourceCodeInfo(true), fdp.GenerateExtraOptionLocations(true))
+	return opts
+}()
+
+// bufDescriptorResolver resolves Buf's descriptor extensions, notably
+// [descriptorv1.E_BufSourceCodeInfoExtension] carrying unused-import info.
+var bufDescriptorResolver = protoencoding.NewLazyResolver(
+	protodesc.ToFileDescriptorProto(descriptorv1.File_buf_descriptor_v1_descriptor_proto),
 )
 
 func buildImage(
@@ -49,283 +67,322 @@ func buildImage(
 	defer xslog.DebugProfile(logger)()
 
 	if !moduleReadBucket.ShouldBeSelfContained() {
-		return nil, syserror.New("passed a ModuleReadBucket to BuildImage that was not expected to be self-contained")
+		return nil, syserror.New(
+			"passed a ModuleReadBucket to BuildImage that was not expected to be self-contained",
+		)
 	}
-	moduleReadBucket = bufmodule.ModuleReadBucketWithOnlyProtoFiles(moduleReadBucket)
-	parserAccessorHandler := newParserAccessorHandler(ctx, moduleReadBucket)
+
 	targetFileInfos, err := bufmodule.GetTargetFileInfos(ctx, moduleReadBucket)
 	if err != nil {
 		return nil, err
 	}
+
 	if len(targetFileInfos) == 0 {
-		// If we had no no target files within the module after path filtering, this is an error.
+		// If we had no target files within the module after path filtering, this is an error.
 		// We could have a better user error than this. This gets back to the lack of allowNotExist.
 		return nil, bufmodule.ErrNoTargetProtoFiles
 	}
-	paths := bufmodule.FileInfoPaths(targetFileInfos)
 
-	buildResult := getBuildResult(
+	image, err := compileImage(
 		ctx,
-		parserAccessorHandler,
-		paths,
+		bufmodule.ModuleReadBucketWithOnlyProtoFiles(moduleReadBucket),
+		bufmodule.FileInfoPaths(targetFileInfos),
 		excludeSourceCodeInfo,
 		noParallelism,
 	)
-	if buildResult.Err != nil {
-		return nil, buildResult.Err
-	}
-	sortedFiles, err := checkAndSortFiles(buildResult.Files, paths)
 	if err != nil {
 		return nil, err
 	}
-	image, err := getImage(
-		ctx,
-		excludeSourceCodeInfo,
-		sortedFiles,
-		buildResult.Symbols,
-		parserAccessorHandler,
-		buildResult.SyntaxUnspecifiedFilenames,
-		buildResult.FilenameToUnusedDependencyFilenames,
-	)
-	if err != nil {
-		return nil, err
-	}
+
 	return image, nil
 }
 
-func getBuildResult(
+// compileImage compiles the [Image] for the given [bufmodule.ModuleReadBucket].
+func compileImage(
 	ctx context.Context,
-	parserAccessorHandler *parserAccessorHandler,
+	moduleReadBucket bufmodule.ModuleReadBucket,
 	paths []string,
 	excludeSourceCodeInfo bool,
 	noParallelism bool,
-) *buildResult {
-	var errorsWithPos []reporter.ErrorWithPos
-	var warningErrorsWithPos []reporter.ErrorWithPos
-	// With "extra option locations", buf can include more comments
-	// for an option value than protoc can. In particular, this allows
-	// it to preserve comments inside of message literals.
-	sourceInfoMode := protocompile.SourceInfoExtraOptionLocations
-	if excludeSourceCodeInfo {
-		sourceInfoMode = protocompile.SourceInfoNone
-	}
+) (Image, error) {
+	session := new(ir.Session)
+	moduleFileResolver := newModuleFileResolver(ctx, moduleReadBucket)
+
 	parallelism := thread.Parallelism()
 	if noParallelism {
 		parallelism = 1
 	}
-	symbols := &linker.Symbols{}
-	compiler := protocompile.Compiler{
-		MaxParallelism: parallelism,
-		SourceInfoMode: sourceInfoMode,
-		Resolver:       &protocompile.SourceResolver{Accessor: parserAccessorHandler.Open},
-		Symbols:        symbols,
-		Reporter: reporter.NewReporter(
-			func(errorWithPos reporter.ErrorWithPos) error {
-				errorsWithPos = append(errorsWithPos, errorWithPos)
-				return nil
-			},
-			func(errorWithPos reporter.ErrorWithPos) {
-				warningErrorsWithPos = append(warningErrorsWithPos, errorWithPos)
-			},
-		),
-	}
-	// fileDescriptors are in the same order as paths per the documentation
-	compiledFiles, err := compiler.Compile(ctx, paths...)
-	if err != nil {
-		if err == reporter.ErrInvalidSource {
-			if len(errorsWithPos) == 0 {
-				return newFailedBuildResult(
-					errors.New("got invalid source error from parse but no errors reported"),
-				)
-			}
-			fileAnnotationSet, err := bufprotocompile.FileAnnotationSetForErrorsWithPos(
-				errorsWithPos,
-				bufprotocompile.WithExternalPathResolver(parserAccessorHandler.ExternalPath),
-			)
-			if err != nil {
-				return newFailedBuildResult(err)
-			}
-			return newFailedBuildResult(fileAnnotationSet)
-		}
-		if errorWithPos, ok := err.(reporter.ErrorWithPos); ok {
-			fileAnnotation, err := bufprotocompile.FileAnnotationForErrorWithPos(
-				errorWithPos,
-				bufprotocompile.WithExternalPathResolver(parserAccessorHandler.ExternalPath),
-			)
-			if err != nil {
-				return newFailedBuildResult(err)
-			}
-			return newFailedBuildResult(bufanalysis.NewFileAnnotationSet(fileAnnotation))
-		}
-		return newFailedBuildResult(err)
-	} else if len(errorsWithPos) > 0 {
-		// https://github.com/jhump/protoreflect/pull/331
-		return newFailedBuildResult(
-			errors.New("got no error from parse but errors reported"),
-		)
-	}
-	if len(compiledFiles) != len(paths) {
-		return newFailedBuildResult(
-			fmt.Errorf("expected FileDescriptors to be of length %d but was %d", len(paths), len(compiledFiles)),
-		)
-	}
-	for i, fileDescriptor := range compiledFiles {
-		path := paths[i]
-		filename := fileDescriptor.Path()
-		// doing another rough verification
-		// NO LONGER NEED TO DO SUFFIX SINCE WE KNOW THE ROOT FILE NAME
-		if path != filename {
-			return newFailedBuildResult(
-				fmt.Errorf("expected fileDescriptor name %s to be a equal to %s", filename, path),
-			)
-		}
-	}
-	syntaxUnspecifiedFilenames := make(map[string]struct{})
-	filenameToUnusedDependencyFilenames := make(map[string]map[string]struct{})
-	for _, warningErrorWithPos := range warningErrorsWithPos {
-		maybeAddSyntaxUnspecified(syntaxUnspecifiedFilenames, warningErrorWithPos)
-		maybeAddUnusedImport(filenameToUnusedDependencyFilenames, warningErrorWithPos)
-	}
-	return newBuildResult(
-		compiledFiles,
-		symbols,
-		syntaxUnspecifiedFilenames,
-		filenameToUnusedDependencyFilenames,
+
+	exec := incremental.New(
+		incremental.WithParallelism(int64(parallelism)),
+		// Warnings are filtered out below and never surfaced to the user from this path,
+		// so suppress them before compilation to avoid the cost of generating them.
+		incremental.WithReportOptions(report.Options{SuppressWarnings: true}),
 	)
+	results, diagnostics, err := incremental.Run(
+		ctx,
+		exec,
+		queries.FDS{
+			Opener:    moduleFileResolver,
+			Session:   session,
+			Workspace: source.NewWorkspace(paths...),
+			Options:   compileFDPOptions,
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// Validate that there is a single result for all files.
+	if len(results) != 1 {
+		return nil, fmt.Errorf("expected a single result from query, instead got: %d", len(results))
+	}
+
+	// Check for fatal errors before processing diagnostics so that callers can
+	// inspect typed errors (e.g. DuplicateProtoPathError) via errors.As. Spanless
+	// diagnostics that accompany these fatal errors are suppressed in the loop below.
+	if results[0].Fatal != nil {
+		return nil, results[0].Fatal
+	}
+
+	var fileAnnotations []bufanalysis.FileAnnotation
+	for _, diagnostic := range diagnostics.Diagnostics {
+		if diagnostic.Level() > report.Error {
+			// We only surface [report.Error] level or more severe diagnostics as build errors.
+			// In the future, we should handle warnings and other checks in a unified way.
+			continue
+		}
+		primary := diagnostic.Primary()
+		if primary.IsZero() {
+			// Spanless diagnostics (e.g. from file-open errors like DuplicateProtoPathError)
+			// are companion messages to fatal errors already handled above. Suppress them here
+			// so their typed errors are preserved for callers rather than being lost as strings.
+			continue
+		}
+		start := primary.Location(primary.Start, length.Bytes)
+		end := primary.Location(primary.End, length.Bytes)
+
+		// We resolve the path and external path using moduleFileResolver, since the span
+		// uses the path set by moduleFileResolver, which is the moduleFile.LocalPath().
+		path := moduleFileResolver.PathForLocalPath(primary.Path())
+		if path == "" {
+			// If there is no path, fallback to using the path from the diagnostic span directly.
+			path = primary.Path()
+		}
+		fileAnnotations = append(
+			fileAnnotations,
+			bufanalysis.NewFileAnnotation(
+				&fileInfo{
+					path:         path,
+					externalPath: moduleFileResolver.ExternalPath(path),
+				},
+				start.Line,
+				start.Column,
+				end.Line,
+				end.Column,
+				"COMPILE",
+				diagnostic.Message(),
+				"", // pluginName
+				"", // policyName
+			),
+		)
+	}
+	if len(fileAnnotations) > 0 {
+		return nil, bufanalysis.NewFileAnnotationSet(fileAnnotations...)
+	}
+	fds, resolver, err := resolverForFDS(results[0].Value)
+	if err != nil {
+		return nil, err
+	}
+	return fileDescriptorSetToImage(resolver, moduleFileResolver, paths, fds, excludeSourceCodeInfo)
 }
 
-// We need to sort the files as they may/probably are out of order
-// relative to input order after concurrent builds. This mimics the output
-// order of protoc.
-func checkAndSortFiles(
-	fileDescriptors linker.Files,
-	rootRelFilePaths []string,
-) (linker.Files, error) {
-	if len(fileDescriptors) != len(rootRelFilePaths) {
-		return nil, fmt.Errorf("rootRelFilePath length was %d but FileDescriptor length was %d", len(rootRelFilePaths), len(fileDescriptors))
-	}
-	nameToFileDescriptor := make(map[string]linker.File, len(fileDescriptors))
-	for _, fileDescriptor := range fileDescriptors {
-		name := fileDescriptor.Path()
-		if name == "" {
-			return nil, errors.New("no name on FileDescriptor")
-		}
-		if _, ok := nameToFileDescriptor[name]; ok {
-			return nil, fmt.Errorf("duplicate FileDescriptor: %s", name)
-		}
-		nameToFileDescriptor[name] = fileDescriptor
-	}
-	// We now know that all FileDescriptors had unique names and the number of FileDescriptors
-	// is equal to the number of rootRelFilePaths. We also verified earlier that rootRelFilePaths
-	// has only unique values. Now we can put them in order.
-	sortedFileDescriptors := make(linker.Files, 0, len(fileDescriptors))
-	for _, rootRelFilePath := range rootRelFilePaths {
-		fileDescriptor, ok := nameToFileDescriptor[rootRelFilePath]
-		if !ok {
-			return nil, fmt.Errorf("no FileDescriptor for rootRelFilePath: %q", rootRelFilePath)
-		}
-		sortedFileDescriptors = append(sortedFileDescriptors, fileDescriptor)
-	}
-	return sortedFileDescriptors, nil
+// imageFileMetadataResolver provides path metadata when constructing [ImageFile]s.
+// This abstraction allows image building to work both with a full [moduleFileResolver]
+// (which tracks module names, commit IDs, and external/local paths) and with a simpler
+// identity resolver (for cases like the LSP where path == externalPath).
+type imageFileMetadataResolver interface {
+	ExternalPath(path string) string
+	LocalPath(path string) string
+	FullName(path string) bufparse.FullName
+	CommitID(path string) uuid.UUID
 }
 
-// getImage gets the Image for the protoreflect.FileDescriptors.
+// identityImageFileMetadataResolver is an [imageFileMetadataResolver] that returns
+// identity values: external path equals path, and no module metadata.
+// Used by [BuildImageFromOpener] where the caller owns the file contents directly.
+type identityImageFileMetadataResolver struct{}
+
+func (identityImageFileMetadataResolver) ExternalPath(path string) string     { return path }
+func (identityImageFileMetadataResolver) LocalPath(_ string) string           { return "" }
+func (identityImageFileMetadataResolver) FullName(_ string) bufparse.FullName { return nil }
+func (identityImageFileMetadataResolver) CommitID(_ string) uuid.UUID         { return uuid.Nil }
+
+// BuildImageFromOpener is like [BuildImage] but accepts a [source.Opener] directly
+// instead of a [bufmodule.ModuleReadBucket]. It is intended for use cases where the
+// caller controls the file contents directly, such as the LSP where files may have
+// unsaved modifications.
 //
-// This mimics protoc's output order.
-// This assumes checkAndSortFiles was called.
-func getImage(
+// The returned [*report.Report] always contains the full diagnostic output from
+// compilation, including both errors and warnings, regardless of whether the [Image]
+// is nil. The [Image] is nil only when a fatal error prevents descriptor generation.
+func BuildImageFromOpener(
 	ctx context.Context,
+	logger *slog.Logger,
+	opener source.Opener,
+	paths []string,
+	options ...BuildImageOption,
+) (Image, *report.Report, error) {
+	opts := newBuildImageOptions()
+	for _, option := range options {
+		option(opts)
+	}
+
+	session := new(ir.Session)
+	parallelism := thread.Parallelism()
+	if opts.noParallelism {
+		parallelism = 1
+	}
+
+	exec := incremental.New(incremental.WithParallelism(int64(parallelism)))
+	results, diagnostics, err := incremental.Run(
+		ctx,
+		exec,
+		queries.FDS{
+			Opener:    opener,
+			Session:   session,
+			Workspace: source.NewWorkspace(paths...),
+			Options:   compileFDPOptions,
+		},
+	)
+	// incremental.Run can return a nil report on a fatal internal error. Normalize
+	// to non-nil so callers can always range over Diagnostics safely.
+	if diagnostics == nil {
+		diagnostics = new(report.Report)
+	}
+	if err != nil {
+		return nil, diagnostics, err
+	}
+	if len(results) != 1 {
+		return nil, diagnostics, fmt.Errorf("expected a single result from query, instead got: %d", len(results))
+	}
+	if results[0].Fatal != nil {
+		return nil, diagnostics, results[0].Fatal
+	}
+	fds, resolver, err := resolverForFDS(results[0].Value)
+	if err != nil {
+		return nil, diagnostics, err
+	}
+	image, err := fileDescriptorSetToImage(resolver, identityImageFileMetadataResolver{}, paths, fds, opts.excludeSourceCodeInfo)
+	if err != nil {
+		return nil, diagnostics, err
+	}
+	return image, diagnostics, nil
+}
+
+// resolverForFDS normalizes the given [*descriptorpb.FileDescriptorSet] by
+// marshaling and re-parsing it, then builds a [protoencoding.Resolver] with
+// Buf's custom descriptor extensions recognised, ready for [fileDescriptorSetToImage].
+//
+// The marshal/unmarshal round-trip is necessary because [fdp.DescriptorProto]
+// stores option values as unknown bytes via SetUnknown. Re-parsing converts those
+// bytes to their properly-typed proto fields (e.g. EnumOptions.allow_alias), which
+// is required for correct resolver building by protodesc.NewFiles.
+func resolverForFDS(fds *descriptorpb.FileDescriptorSet) (*descriptorpb.FileDescriptorSet, protoencoding.Resolver, error) {
+	descriptorSetBytes, err := protoencoding.NewWireMarshaler().Marshal(fds)
+	if err != nil {
+		return nil, nil, err
+	}
+	normalizedFDS := new(descriptorpb.FileDescriptorSet)
+	if err := protoencoding.NewWireUnmarshaler(nil).Unmarshal(descriptorSetBytes, normalizedFDS); err != nil {
+		return nil, nil, err
+	}
+	// The file graph is built only from the compiled files, so it matches the
+	// input exactly (including any vendored google/protobuf/descriptor.proto).
+	// Buf's descriptor extensions are supplied by a fallback resolver consulted
+	// only when the file graph cannot resolve a descriptor, so ReparseExtensions
+	// can recognise them without altering the graph.
+	fileResolver := protoencoding.NewLazyResolver(normalizedFDS.File...)
+	resolver := protoencoding.CombineResolvers(fileResolver, bufDescriptorResolver)
+	for _, fileDescriptor := range normalizedFDS.File {
+		if err := protoencoding.ReparseExtensions(resolver, fileDescriptor.ProtoReflect()); err != nil {
+			return nil, nil, err
+		}
+	}
+	return normalizedFDS, resolver, nil
+}
+
+// fileDescriptorSetToImage is a helper function that converts a [descriptorpb.FileDescriptorSet]
+// to an [Image], preserving the order of the paths based on the module paths.
+//
+// Note that this iterates through the given paths and constructs the the [ImageFile]s
+// based on that rather than using the file descriptor set compiled through the compiler.
+// This is because there is a difference in the topological sorting algo used in the
+// compiler vs. expected protoc ordering, and so for conformance reasons, we reconstruct
+// the ordering of the [ImageFile]s.
+func fileDescriptorSetToImage(
+	resolver protoencoding.Resolver,
+	metadataResolver imageFileMetadataResolver,
+	paths []string,
+	fds *descriptorpb.FileDescriptorSet,
 	excludeSourceCodeInfo bool,
-	sortedFiles linker.Files,
-	symbols *linker.Symbols,
-	parserAccessorHandler *parserAccessorHandler,
-	syntaxUnspecifiedFilenames map[string]struct{},
-	filenameToUnusedDependencyFilenames map[string]map[string]struct{},
 ) (Image, error) {
-	// if we aren't including imports, then we need a set of file names that
-	// are included so we can create a topologically sorted list w/out
-	// including imports that should not be present.
-	//
-	// if we are including imports, then we need to know what filenames
-	// are imports are what filenames are not
-	// all input protoreflect.FileDescriptors are not imports, we derive the imports
-	// from GetDependencies.
-	nonImportFilenames := map[string]struct{}{}
-	for _, fileDescriptor := range sortedFiles {
-		nonImportFilenames[fileDescriptor.Path()] = struct{}{}
+	pathToDescriptor := make(map[string]*descriptorpb.FileDescriptorProto)
+	for _, fileDescriptor := range fds.File {
+		pathToDescriptor[fileDescriptor.GetName()] = fileDescriptor
 	}
 
 	var imageFiles []ImageFile
 	var err error
-	alreadySeen := map[string]struct{}{}
-	for _, fileDescriptor := range sortedFiles {
-		imageFiles, err = getImageFilesRec(
-			ctx,
+	seen := make(map[string]struct{})
+	nonImportPaths := xslices.ToStructMap(paths)
+
+	for _, path := range paths {
+		imageFiles, err = getImageFilesForPath(
+			path,
+			pathToDescriptor,
+			metadataResolver,
 			excludeSourceCodeInfo,
-			fileDescriptor,
-			parserAccessorHandler,
-			syntaxUnspecifiedFilenames,
-			filenameToUnusedDependencyFilenames,
-			alreadySeen,
-			nonImportFilenames,
+			seen,
+			nonImportPaths,
 			imageFiles,
 		)
+
 		if err != nil {
 			return nil, err
 		}
 	}
-	return newImage(imageFiles, false, newResolverForFiles(sortedFiles, symbols))
+
+	return newImage(imageFiles, false, resolver)
 }
 
-func getImageFilesRec(
-	ctx context.Context,
+func getImageFilesForPath(
+	path string,
+	pathToDescriptor map[string]*descriptorpb.FileDescriptorProto,
+	metadataResolver imageFileMetadataResolver,
 	excludeSourceCodeInfo bool,
-	fileDescriptor protoreflect.FileDescriptor,
-	parserAccessorHandler *parserAccessorHandler,
-	syntaxUnspecifiedFilenames map[string]struct{},
-	filenameToUnusedDependencyFilenames map[string]map[string]struct{},
-	alreadySeen map[string]struct{},
+	seen map[string]struct{},
 	nonImportFilenames map[string]struct{},
 	imageFiles []ImageFile,
 ) ([]ImageFile, error) {
+	fileDescriptor := pathToDescriptor[path]
 	if fileDescriptor == nil {
 		return nil, errors.New("nil FileDescriptor")
 	}
-	path := fileDescriptor.Path()
-	if _, ok := alreadySeen[path]; ok {
+
+	if _, ok := seen[path]; ok {
 		return imageFiles, nil
 	}
-	alreadySeen[path] = struct{}{}
+	seen[path] = struct{}{}
 
-	unusedDependencyFilenames, ok := filenameToUnusedDependencyFilenames[path]
-	var unusedDependencyIndexes []int32
-	if ok {
-		unusedDependencyIndexes = make([]int32, 0, len(unusedDependencyFilenames))
-	}
 	var err error
-	for i := range fileDescriptor.Imports().Len() {
-		dependency := fileDescriptor.Imports().Get(i).FileDescriptor
-		if unusedDependencyFilenames != nil {
-			if _, ok := unusedDependencyFilenames[dependency.Path()]; ok {
-				// This should never happen, however we do a bounds check to ensure that we are
-				// doing a safe conversion for the index.
-				if i > math.MaxInt32 || i < math.MinInt32 {
-					return nil, fmt.Errorf("unused dependency index out-of-bounds for int32 conversion: %v", i)
-				}
-				unusedDependencyIndexes = append(
-					unusedDependencyIndexes,
-					int32(i),
-				)
-			}
-		}
-		imageFiles, err = getImageFilesRec(
-			ctx,
-			excludeSourceCodeInfo,
+	for _, dependency := range fileDescriptor.Dependency {
+		imageFiles, err = getImageFilesForPath(
 			dependency,
-			parserAccessorHandler,
-			syntaxUnspecifiedFilenames,
-			filenameToUnusedDependencyFilenames,
-			alreadySeen,
+			pathToDescriptor,
+			metadataResolver,
+			excludeSourceCodeInfo,
+			seen,
 			nonImportFilenames,
 			imageFiles,
 		)
@@ -334,26 +391,13 @@ func getImageFilesRec(
 		}
 	}
 
-	fileDescriptorProto := protoutil.ProtoFromFileDescriptor(fileDescriptor)
-	if fileDescriptorProto == nil {
-		return nil, errors.New("nil FileDescriptorProto")
-	}
-	if excludeSourceCodeInfo {
-		// need to do this anyways as Parser does not respect this for FileDescriptorProtos
-		fileDescriptorProto.SourceCodeInfo = nil
-	}
 	_, isNotImport := nonImportFilenames[path]
-	_, syntaxUnspecified := syntaxUnspecifiedFilenames[path]
-	imageFile, err := NewImageFile(
-		fileDescriptorProto,
-		parserAccessorHandler.FullName(path),
-		parserAccessorHandler.CommitID(path),
-		// if empty, defaults to path
-		parserAccessorHandler.ExternalPath(path),
-		parserAccessorHandler.LocalPath(path),
+
+	imageFile, err := fileDescriptorProtoToImageFile(
+		metadataResolver,
+		fileDescriptor,
+		excludeSourceCodeInfo,
 		!isNotImport,
-		syntaxUnspecified,
-		unusedDependencyIndexes,
 	)
 	if err != nil {
 		return nil, err
@@ -361,57 +405,53 @@ func getImageFilesRec(
 	return append(imageFiles, imageFile), nil
 }
 
-func maybeAddSyntaxUnspecified(
-	syntaxUnspecifiedFilenames map[string]struct{},
-	errorWithPos reporter.ErrorWithPos,
-) {
-	if errorWithPos.Unwrap() != parser.ErrNoSyntax {
-		return
-	}
-	syntaxUnspecifiedFilenames[errorWithPos.GetPosition().Filename] = struct{}{}
-}
+// fileDescriptorProtoToImageFile is a helper function that converts a [descriptorpb.FileDescriptorProto]
+// to an [ImageFile].
+func fileDescriptorProtoToImageFile(
+	metadataResolver imageFileMetadataResolver,
+	fileDescriptor *descriptorpb.FileDescriptorProto,
+	excludeSourceCodeInfo bool,
+	isImport bool,
+) (ImageFile, error) {
+	var (
+		isSyntaxUnspecified     bool
+		unusedDependencyIndexes []int32
+	)
 
-func maybeAddUnusedImport(
-	filenameToUnusedImportFilenames map[string]map[string]struct{},
-	errorWithPos reporter.ErrorWithPos,
-) {
-	errorUnusedImport, ok := errorWithPos.Unwrap().(linker.ErrorUnusedImport)
-	if !ok {
-		return
+	sourceCodeInfo := fileDescriptor.GetSourceCodeInfo()
+	extensionDescriptor := descriptorv1.E_BufSourceCodeInfoExtension.TypeDescriptor()
+	if sourceCodeInfo.ProtoReflect().Has(extensionDescriptor) {
+		sourceCodeInfoExt := new(descriptorv1.SourceCodeInfoExtension)
+		switch sourceCodeInfoExtMessage := sourceCodeInfo.ProtoReflect().Get(extensionDescriptor).Message().Interface().(type) {
+		case *dynamicpb.Message:
+			bytes, err := protoencoding.NewWireMarshaler().Marshal(sourceCodeInfoExtMessage)
+			if err != nil {
+				return nil, err
+			}
+			if err := protoencoding.NewWireUnmarshaler(nil).Unmarshal(bytes, sourceCodeInfoExt); err != nil {
+				return nil, err
+			}
+		case *descriptorv1.SourceCodeInfoExtension:
+			sourceCodeInfoExt = sourceCodeInfoExtMessage
+		}
+		isSyntaxUnspecified = sourceCodeInfoExt.GetIsSyntaxUnspecified()
+		unusedDependencyIndexes = sourceCodeInfoExt.GetUnusedDependency()
 	}
-	pos := errorWithPos.GetPosition()
-	unusedImportFilenames, ok := filenameToUnusedImportFilenames[pos.Filename]
-	if !ok {
-		unusedImportFilenames = make(map[string]struct{})
-		filenameToUnusedImportFilenames[pos.Filename] = unusedImportFilenames
+
+	if excludeSourceCodeInfo {
+		fileDescriptor.SourceCodeInfo = nil
 	}
-	unusedImportFilenames[errorUnusedImport.UnusedImport()] = struct{}{}
-}
 
-type buildResult struct {
-	Files                               linker.Files
-	Symbols                             *linker.Symbols
-	SyntaxUnspecifiedFilenames          map[string]struct{}
-	FilenameToUnusedDependencyFilenames map[string]map[string]struct{}
-	Err                                 error
-}
-
-func newBuildResult(
-	fileDescriptors linker.Files,
-	symbols *linker.Symbols,
-	syntaxUnspecifiedFilenames map[string]struct{},
-	filenameToUnusedDependencyFilenames map[string]map[string]struct{},
-) *buildResult {
-	return &buildResult{
-		Files:                               fileDescriptors,
-		Symbols:                             symbols,
-		SyntaxUnspecifiedFilenames:          syntaxUnspecifiedFilenames,
-		FilenameToUnusedDependencyFilenames: filenameToUnusedDependencyFilenames,
-	}
-}
-
-func newFailedBuildResult(err error) *buildResult {
-	return &buildResult{Err: err}
+	return NewImageFile(
+		fileDescriptor,
+		metadataResolver.FullName(fileDescriptor.GetName()),
+		metadataResolver.CommitID(fileDescriptor.GetName()),
+		metadataResolver.ExternalPath(fileDescriptor.GetName()),
+		metadataResolver.LocalPath(fileDescriptor.GetName()),
+		isImport,
+		isSyntaxUnspecified,
+		unusedDependencyIndexes,
+	)
 }
 
 type buildImageOptions struct {
@@ -423,132 +463,18 @@ func newBuildImageOptions() *buildImageOptions {
 	return &buildImageOptions{}
 }
 
-// resolverForFiles implements protoencoding.Resolver and is backed
-// by a linker.Files and the *linker.Symbols symbol table produced
-// when compiling the files. The symbol table is used as an index
-// for more efficient lookup.
-type resolverForFiles struct {
-	pathToFile map[string]linker.File
-	symbols    *linker.Symbols
+type fileInfo struct {
+	path         string
+	externalPath string
 }
 
-func newResolverForFiles(files linker.Files, symbols *linker.Symbols) protoencoding.Resolver {
-	// Expand the set of files so it includes the entire transitive graph
-	pathToFile := make(map[string]linker.File, len(files))
-	for _, file := range files {
-		addFileToMapRec(pathToFile, file)
-	}
-	return &resolverForFiles{pathToFile: pathToFile, symbols: symbols}
+func (f *fileInfo) Path() string {
+	return f.path
 }
 
-func (r *resolverForFiles) FindFileByPath(path string) (protoreflect.FileDescriptor, error) {
-	fileDescriptor, ok := r.pathToFile[path]
-	if !ok {
-		return nil, protoregistry.NotFound
+func (f *fileInfo) ExternalPath() string {
+	if f.externalPath != "" {
+		return f.externalPath
 	}
-	return fileDescriptor, nil
-}
-
-func (r *resolverForFiles) FindDescriptorByName(name protoreflect.FullName) (protoreflect.Descriptor, error) {
-	span := r.symbols.Lookup(name)
-	if span == nil {
-		return nil, protoregistry.NotFound
-	}
-	descriptor := r.pathToFile[span.Start().Filename].FindDescriptorByName(name)
-	if descriptor == nil {
-		return nil, protoregistry.NotFound
-	}
-	return descriptor, nil
-}
-
-func (r *resolverForFiles) FindExtensionByName(field protoreflect.FullName) (protoreflect.ExtensionType, error) {
-	descriptor, err := r.FindDescriptorByName(field)
-	if err != nil {
-		return nil, err
-	}
-	extensionDescriptor, ok := descriptor.(protoreflect.ExtensionDescriptor)
-	if !ok {
-		return nil, fmt.Errorf("%s is a %T, not a protoreflect.ExtensionDescriptor", field, descriptor)
-	}
-	if extensionTypeDescriptor, ok := extensionDescriptor.(protoreflect.ExtensionTypeDescriptor); ok {
-		return extensionTypeDescriptor.Type(), nil
-	}
-	return dynamicpb.NewExtensionType(extensionDescriptor), nil
-}
-
-func (r *resolverForFiles) FindExtensionByNumber(message protoreflect.FullName, field protoreflect.FieldNumber) (protoreflect.ExtensionType, error) {
-	span := r.symbols.LookupExtension(message, field)
-	if span == nil {
-		return nil, protoregistry.NotFound
-	}
-	extensionDescriptor := findExtension(r.pathToFile[span.Start().Filename], message, field)
-	if extensionDescriptor == nil {
-		return nil, protoregistry.NotFound
-	}
-	if extensionTypeDescriptor, ok := extensionDescriptor.(protoreflect.ExtensionTypeDescriptor); ok {
-		return extensionTypeDescriptor.Type(), nil
-	}
-	return dynamicpb.NewExtensionType(extensionDescriptor), nil
-}
-
-func (r *resolverForFiles) FindMessageByName(message protoreflect.FullName) (protoreflect.MessageType, error) {
-	descriptor, err := r.FindDescriptorByName(message)
-	if err != nil {
-		return nil, err
-	}
-	messageDescriptor, ok := descriptor.(protoreflect.MessageDescriptor)
-	if !ok {
-		return nil, fmt.Errorf("%s is a %T, not a protoreflect.MessageDescriptor", message, descriptor)
-	}
-	return dynamicpb.NewMessageType(messageDescriptor), nil
-}
-
-func (r *resolverForFiles) FindMessageByURL(url string) (protoreflect.MessageType, error) {
-	pos := strings.LastIndexByte(url, '/')
-	return r.FindMessageByName(protoreflect.FullName(url[pos+1:]))
-}
-
-func (r *resolverForFiles) FindEnumByName(enum protoreflect.FullName) (protoreflect.EnumType, error) {
-	descriptor, err := r.FindDescriptorByName(enum)
-	if err != nil {
-		return nil, err
-	}
-	enumDescriptor, ok := descriptor.(protoreflect.EnumDescriptor)
-	if !ok {
-		return nil, fmt.Errorf("%s is a %T, not a protoreflect.EnumDescriptor", enum, descriptor)
-	}
-	return dynamicpb.NewEnumType(enumDescriptor), nil
-}
-
-type container interface {
-	Messages() protoreflect.MessageDescriptors
-	Extensions() protoreflect.ExtensionDescriptors
-}
-
-func findExtension(d container, message protoreflect.FullName, field protoreflect.FieldNumber) protoreflect.ExtensionDescriptor {
-	extensions := d.Extensions()
-	for i, length := 0, extensions.Len(); i < length; i++ {
-		extension := extensions.Get(i)
-		if extension.Number() == field && extension.ContainingMessage().FullName() == message {
-			return extension
-		}
-	}
-	for i := range d.Messages().Len() {
-		if ext := findExtension(d.Messages().Get(i), message, field); ext != nil {
-			return ext
-		}
-	}
-	return nil // could not be found
-}
-
-func addFileToMapRec(pathToFile map[string]linker.File, file linker.File) {
-	if _, alreadyAdded := pathToFile[file.Path()]; alreadyAdded {
-		return
-	}
-	pathToFile[file.Path()] = file
-	imports := file.Imports()
-	for i, length := 0, imports.Len(); i < length; i++ {
-		importedFile := file.FindImportByPath(imports.Get(i).Path())
-		addFileToMapRec(pathToFile, importedFile)
-	}
+	return f.path
 }

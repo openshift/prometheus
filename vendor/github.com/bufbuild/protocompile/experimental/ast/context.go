@@ -1,4 +1,4 @@
-// Copyright 2020-2025 Buf Technologies, Inc.
+// Copyright 2020-2026 Buf Technologies, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -135,7 +135,7 @@ func (f *File) Nodes() *Nodes {
 	return (*Nodes)(f)
 }
 
-// Stream returns the underlying token stream.
+// Span returns the span for this file.
 func (f *File) Span() source.Span {
 	return id.Wrap(f, id.ID[DeclBody](1)).Span()
 }

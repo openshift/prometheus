@@ -1,4 +1,4 @@
-// Copyright 2020-2025 Buf Technologies, Inc.
+// Copyright 2020-2026 Buf Technologies, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -66,7 +66,7 @@ func (c commas[T, _]) AppendComma(value T, comma token.Token) {
 }
 
 func (c commas[T, _]) InsertComma(n int, value T, comma token.Token) {
-	c.file.Nodes().panicIfNotOurs(comma)
+	c.file.Nodes().panicIfNotOurs(comma.Context())
 	v := c.SliceInserter.Unwrap(n, value)
 	v.Comma = comma.ID()
 
@@ -74,6 +74,6 @@ func (c commas[T, _]) InsertComma(n int, value T, comma token.Token) {
 }
 
 func (c commas[T, _]) SetComma(n int, comma token.Token) {
-	c.file.Nodes().panicIfNotOurs(comma)
+	c.file.Nodes().panicIfNotOurs(comma.Context())
 	(*c.SliceInserter.Slice)[n].Comma = comma.ID()
 }

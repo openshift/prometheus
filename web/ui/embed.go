@@ -17,5 +17,5 @@ package ui
 
 import "embed"
 
-//go:embed static/mantine-ui/assets/codicon-B_nZgZYP.ttf.gz static/mantine-ui/assets/index-AJC8xPli.js.gz static/mantine-ui/assets/index-BvKf2n0L.css.gz static/mantine-ui/assets/third-party-licenses.txt.gz static/mantine-ui/favicon.svg.gz static/mantine-ui/index.html.gz
+//go:embed static/mantine-ui/assets/codicon-B_nZgZYP.ttf.gz static/mantine-ui/assets/index-BcMucWQA.css.gz static/mantine-ui/assets/index-CmezSgth.js.gz static/mantine-ui/assets/third-party-licenses.txt.gz static/mantine-ui/favicon.svg.gz static/mantine-ui/index.html.gz
 var EmbedFS embed.FS

@@ -1,4 +1,4 @@
-// Copyright 2025 Buf Technologies, Inc.
+// Copyright 2025-2026 Buf Technologies, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -68,7 +68,7 @@ type Command struct {
 	// ModifyCobra will modify the underlying [cobra.Command] that is created from this [Command].
 	//
 	// This should be used sparingly. Almost all operations should be able to be performed
-	// by the fields of Command. However, ModifyCommand exists as a break-class feature.
+	// by the fields of Command. However, ModifyCobra exists as a break-glass feature.
 	ModifyCobra func(*cobra.Command) error
 	// Version the version of the command.
 	//
@@ -226,13 +226,6 @@ func run(
 		cobraCommand.AddCommand(manpagesCobraCommand)
 	}
 
-	// Apply any modifications specified by ModifyCobra
-	if command.ModifyCobra != nil {
-		if err := command.ModifyCobra(cobraCommand); err != nil {
-			return err
-		}
-	}
-
 	cobraCommand.SetOut(container.Stderr())
 	args := app.Args(container)[1:]
 	// cobra will implicitly create __complete and __completeNoDesc subcommands
@@ -337,7 +330,7 @@ func commandToCobra(
 		cobraCommand.Run = func(_ *cobra.Command, args []string) {
 			printUsage(container, cobraCommand.UsageString())
 			if len(args) == 0 {
-				*runErrAddr = errors.New("Sub-command required.")
+				*runErrAddr = errors.New("Sub-command required")
 			} else {
 				*runErrAddr = fmt.Errorf("Unknown sub-command: %s", strings.Join(args, " "))
 			}
@@ -371,6 +364,12 @@ func commandToCobra(
 	}
 	// appcommand prints errors, disable to prevent duplicates.
 	cobraCommand.SilenceErrors = true
+	// ModifyCobra is applied last so it can override anything set above.
+	if command.ModifyCobra != nil {
+		if err := command.ModifyCobra(cobraCommand); err != nil {
+			return nil, err
+		}
+	}
 	return cobraCommand, nil
 }
 
@@ -450,15 +449,8 @@ func maxPaddingRec(cmd *cobra.Command, curIndentCount int) int {
 	maxPadding := (curIndentCount * 2) + len(cmd.Name())
 	for _, child := range cmd.Commands() {
 		if !child.Hidden {
-			maxPadding = maxInt(maxPadding, maxPaddingRec(child, curIndentCount+1))
+			maxPadding = max(maxPadding, maxPaddingRec(child, curIndentCount+1))
 		}
 	}
 	return maxPadding
-}
-
-func maxInt(i int, j int) int {
-	if i > j {
-		return i
-	}
-	return j
 }

@@ -1,4 +1,4 @@
-// Copyright 2020-2025 Buf Technologies, Inc.
+// Copyright 2020-2026 Buf Technologies, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -20,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -35,6 +36,21 @@ type cloner struct {
 	logger            *slog.Logger
 	storageosProvider storageos.Provider
 	options           ClonerOptions
+}
+
+// gitConfigNoAutoMaintenanceArgs prevents background Git tasks from racing with
+// storage.Copy over files in the cloned .git directory.
+var gitConfigNoAutoMaintenanceArgs = []string{
+	"-c",
+	"maintenance.auto=false",
+	"-c",
+	"maintenance.autoDetach=false",
+	"-c",
+	"gc.auto=0",
+	"-c",
+	"gc.autoDetach=false",
+	"-c",
+	"fetch.writeCommitGraph=false",
 }
 
 func newCloner(
@@ -77,12 +93,13 @@ func (c *cloner) CloneToBucket(
 	depthArg := strconv.Itoa(int(depth))
 
 	envContainer = app.NewEnvContainerWithOverrides(envContainer, map[string]string{
-		// In the case where this is being run in an environment where GIT_DIR and GIT_INDEX_FILE
-		// are set, e.g. within a submodule, we want to treat this as a stand-alone, non-bare
-		// clone rather than interacting with an existing GIT_DIR and GIT_INDEX_FILE.
-		// So we filter out GIT_DIR and GIT_INDEX_FILE from our environment variables.
+		// In the case where this is being run in an environment where GIT_DIR, GIT_INDEX_FILE,
+		// or GIT_WORK_TREE are set, e.g. within a submodule or git worktree, we want to treat
+		// this as a stand-alone, non-bare clone rather than interacting with an existing git
+		// directory. So we filter out these variables from our environment.
 		"GIT_DIR":        "",
 		"GIT_INDEX_FILE": "",
+		"GIT_WORK_TREE":  "",
 	})
 
 	baseDir, err := tmp.NewDir(ctx)
@@ -117,15 +134,15 @@ func (c *cloner) CloneToBucket(
 		return newGitCommandError(err, buffer)
 	}
 
-	var gitConfigAuthArgs []string
+	gitConfigArgs := slices.Clone(gitConfigNoAutoMaintenanceArgs)
 	if strings.HasPrefix(url, "https://") {
-		// These extraArgs MUST be first, as the -c flag potentially produced
-		// is only a flag on the parent git command, not on git fetch.
+		// These extraArgs MUST be before the sub-command, as the -c flag potentially
+		// produced is only a flag on the parent git command, not on git fetch.
 		extraArgs, err := c.getArgsForHTTPSCommand(envContainer)
 		if err != nil {
 			return err
 		}
-		gitConfigAuthArgs = append(gitConfigAuthArgs, extraArgs...)
+		gitConfigArgs = append(gitConfigArgs, extraArgs...)
 	}
 
 	if strings.HasPrefix(url, "ssh://") {
@@ -137,7 +154,7 @@ func (c *cloner) CloneToBucket(
 
 	// Build the args for the fetch command.
 	fetchArgs := []string{}
-	fetchArgs = append(fetchArgs, gitConfigAuthArgs...)
+	fetchArgs = append(fetchArgs, gitConfigArgs...)
 	fetchArgs = append(
 		fetchArgs,
 		"fetch",
@@ -190,7 +207,7 @@ func (c *cloner) CloneToBucket(
 		if err := xexec.Run(
 			ctx,
 			"git",
-			xexec.WithArgs(append(gitConfigAuthArgs, "sparse-checkout", "set", options.SubDir)...),
+			xexec.WithArgs(append(gitConfigArgs, "sparse-checkout", "set", options.SubDir)...),
 			xexec.WithEnv(app.Environ(envContainer)),
 			xexec.WithStderr(buffer),
 			xexec.WithDir(baseDir.Path()),
@@ -205,7 +222,7 @@ func (c *cloner) CloneToBucket(
 	if err := xexec.Run(
 		ctx,
 		"git",
-		xexec.WithArgs(append(gitConfigAuthArgs, "checkout", "--force", "FETCH_HEAD")...),
+		xexec.WithArgs(append(gitConfigArgs, "checkout", "--force", "FETCH_HEAD")...),
 		xexec.WithEnv(app.Environ(envContainer)),
 		xexec.WithStderr(buffer),
 		xexec.WithDir(baseDir.Path()),
@@ -219,7 +236,7 @@ func (c *cloner) CloneToBucket(
 		if err := xexec.Run(
 			ctx,
 			"git",
-			xexec.WithArgs(append(gitConfigAuthArgs, "checkout", "--force", checkoutRef)...),
+			xexec.WithArgs(append(gitConfigArgs, "checkout", "--force", checkoutRef)...),
 			xexec.WithEnv(app.Environ(envContainer)),
 			xexec.WithStderr(buffer),
 			xexec.WithDir(baseDir.Path()),
@@ -234,7 +251,7 @@ func (c *cloner) CloneToBucket(
 			ctx,
 			"git",
 			xexec.WithArgs(append(
-				gitConfigAuthArgs,
+				gitConfigArgs,
 				"submodule",
 				"update",
 				"--init",
@@ -343,7 +360,7 @@ func getSSHKnownHostsFilePaths(sshKnownHostsFiles string) []string {
 		return nil
 	}
 	var filePaths []string
-	for _, filePath := range strings.Split(sshKnownHostsFiles, ":") {
+	for filePath := range strings.SplitSeq(sshKnownHostsFiles, ":") {
 		filePath = strings.TrimSpace(filePath)
 		if filePath != "" {
 			filePaths = append(filePaths, filePath)

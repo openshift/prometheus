@@ -1,4 +1,4 @@
-// Copyright 2020-2025 Buf Technologies, Inc.
+// Copyright 2020-2026 Buf Technologies, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -18,8 +18,8 @@ import (
 	"fmt"
 
 	pluginv1beta1 "buf.build/gen/go/bufbuild/registry/protocolbuffers/go/buf/registry/plugin/v1beta1"
-	"github.com/bufbuild/buf/private/bufpkg/bufcas"
 	"github.com/bufbuild/buf/private/bufpkg/bufplugin"
+	"github.com/bufbuild/buf/private/pkg/cas"
 )
 
 var (
@@ -37,11 +37,11 @@ func V1Beta1ProtoToDigest(protoDigest *pluginv1beta1.Digest) (bufplugin.Digest, 
 	if err != nil {
 		return nil, err
 	}
-	bufcasDigest, err := bufcas.NewDigest(protoDigest.Value)
+	casDigest, err := cas.NewDigest(cas.DigestTypeShake256, protoDigest.Value)
 	if err != nil {
 		return nil, err
 	}
-	return bufplugin.NewDigest(digestType, bufcasDigest)
+	return bufplugin.NewDigest(digestType, casDigest)
 }
 
 // *** PRIVATE ***

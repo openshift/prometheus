@@ -1,4 +1,4 @@
-// Copyright 2020-2025 Buf Technologies, Inc.
+// Copyright 2020-2026 Buf Technologies, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,53 +15,59 @@
 package ir
 
 import (
-	"fmt"
 	"reflect"
 	"strings"
 
 	"github.com/bufbuild/protocompile/experimental/id"
+	"github.com/bufbuild/protocompile/experimental/report"
 	"github.com/bufbuild/protocompile/internal/arena"
 	"github.com/bufbuild/protocompile/internal/intern"
 )
 
-// builtinIDs contains [intern.ID]s for symbols with special meaning in the
-// language.
-// builtins contains those symbols that are built into the language, and which the compiler cannot
-// handle not being present. This field is only present in the Context
-// for descriptor.proto.
+// builtins contains those symbols that are built into the language, referenced
+// by the compiler for lowering. This field is only present in the Context for
+// descriptor.proto.
 //
-// This is resolved using reflection in [resolveLangSymbols]. The names of the
-// fields of this type must match those in builtinIDs that names its symbol.
+// Fields are resolved using reflection in [resolveBuiltins]. The names of the
+// fields of this type must match the corresponding entries in [builtinIDs].
+//
+// Fields without a tag are required: any descriptor.proto missing one of them
+// is considered genuinely broken, and [resolveBuiltins] emits an error
+// diagnostic for each missing required symbol. Fields tagged
+// `builtin:"optional"` may be absent without diagnostic — they correspond to
+// post-proto2 or editions-only features, and older vendored copies of
+// descriptor.proto will legitimately not contain them.
 type builtins struct {
 	FileOptions      Member
 	MessageOptions   Member
 	FieldOptions     Member
 	OneofOptions     Member
-	RangeOptions     Member
+	RangeOptions     Member `builtin:"optional"`
 	EnumOptions      Member
 	EnumValueOptions Member
 	ServiceOptions   Member
 	MethodOptions    Member
 
-	JavaUTF8             Member
-	JavaMultipleFiles    Member
-	OptimizeFor          Member
-	MapEntry             Member
-	Packed               Member
-	OptionTargets        Member
-	CType, JSType        Member
-	Lazy, UnverifiedLazy Member
-	AllowAlias           Member
-	MessageSet           Member
-	JSONName             Member
+	JavaUTF8          Member
+	JavaMultipleFiles Member
+	OptimizeFor       Member
+	MapEntry          Member
+	Packed            Member
+	OptionTargets     Member `builtin:"optional"`
+	CType, JSType     Member
+	Lazy              Member
+	UnverifiedLazy    Member `builtin:"optional"`
+	AllowAlias        Member
+	MessageSet        Member
+	JSONName          Member
 
-	ExtnDecls        Member
-	ExtnVerification Member
-	ExtnDeclNumber   Member
-	ExtnDeclName     Member
-	ExtnDeclType     Member
-	ExtnDeclReserved Member
-	ExtnDeclRepeated Member
+	ExtnDecls        Member `builtin:"optional"`
+	ExtnVerification Member `builtin:"optional"`
+	ExtnDeclNumber   Member `builtin:"optional"`
+	ExtnDeclName     Member `builtin:"optional"`
+	ExtnDeclType     Member `builtin:"optional"`
+	ExtnDeclReserved Member `builtin:"optional"`
+	ExtnDeclRepeated Member `builtin:"optional"`
 
 	FileDeprecated      Member
 	MessageDeprecated   Member
@@ -71,34 +77,36 @@ type builtins struct {
 	ServiceDeprecated   Member
 	MethodDeprecated    Member
 
-	EditionDefaults, EditionDefaultsKey, EditionDefaultsValue Member
+	EditionDefaults      Member `builtin:"optional"`
+	EditionDefaultsKey   Member `builtin:"optional"`
+	EditionDefaultsValue Member `builtin:"optional"`
 
-	EditionSupport           Member
-	EditionSupportIntroduced Member
-	EditionSupportDeprecated Member
-	EditionSupportWarning    Member
-	EditionSupportRemoved    Member
+	EditionSupport           Member `builtin:"optional"`
+	EditionSupportIntroduced Member `builtin:"optional"`
+	EditionSupportDeprecated Member `builtin:"optional"`
+	EditionSupportWarning    Member `builtin:"optional"`
+	EditionSupportRemoved    Member `builtin:"optional"`
 
-	FeatureSet         Type
-	FeaturePresence    Member
-	FeatureEnumType    Member
-	FeaturePacked      Member
-	FeatureUTF8        Member
-	FeatureGroup       Member
-	FeatureEnum        Member
-	FeatureJSON        Member
+	FeatureSet         Type   `builtin:"optional"`
+	FeaturePresence    Member `builtin:"optional"`
+	FeatureEnumType    Member `builtin:"optional"`
+	FeaturePacked      Member `builtin:"optional"`
+	FeatureUTF8        Member `builtin:"optional"`
+	FeatureGroup       Member `builtin:"optional"`
+	FeatureEnum        Member `builtin:"optional"`
+	FeatureJSON        Member `builtin:"optional"`
 	FeatureVisibility  Member `builtin:"optional"`
 	FeatureNamingStyle Member `builtin:"optional"`
 
-	FileFeatures      Member
-	MessageFeatures   Member
-	FieldFeatures     Member
-	OneofFeatures     Member
-	RangeFeatures     Member
-	EnumFeatures      Member
-	EnumValueFeatures Member
-	ServiceFeatures   Member
-	MethodFeatures    Member
+	FileFeatures      Member `builtin:"optional"`
+	MessageFeatures   Member `builtin:"optional"`
+	FieldFeatures     Member `builtin:"optional"`
+	OneofFeatures     Member `builtin:"optional"`
+	RangeFeatures     Member `builtin:"optional"`
+	EnumFeatures      Member `builtin:"optional"`
+	EnumValueFeatures Member `builtin:"optional"`
+	ServiceFeatures   Member `builtin:"optional"`
+	MethodFeatures    Member `builtin:"optional"`
 }
 
 // builtinIDs is all of the interning IDs of names in [builtins], plus some
@@ -189,7 +197,14 @@ type builtinIDs struct {
 	MethodFeatures    intern.ID `intern:"google.protobuf.MethodOptions.features"`
 }
 
-func resolveBuiltins(file *File) {
+// resolveBuiltins resolves the symbols from descriptor.proto.
+//
+// For each required field (untagged in [builtins]) that cannot be resolved,
+// an error diagnostic is emitted on the descriptor.proto file. Optional
+// fields (tagged `builtin:"optional"`) silently remain zero when absent.
+// Downstream accessors handle zero members gracefully, so non-editions files
+// continue to compile against older vendored copies of descriptor.proto.
+func resolveBuiltins(file *File, r *report.Report) {
 	if !file.IsDescriptorProto() {
 		return
 	}
@@ -212,30 +227,25 @@ func resolveBuiltins(file *File) {
 	file.dpBuiltins = new(builtins)
 	v := reflect.ValueOf(file.dpBuiltins).Elem()
 	ids := reflect.ValueOf(file.session.builtins)
+
 	for i := range v.NumField() {
 		field := v.Field(i)
 		tyField := v.Type().Field(i)
+
 		id := ids.FieldByName(tyField.Name).Interface().(intern.ID) //nolint:errcheck
 		kind := kinds[field.Type()]
 
-		var optional bool
-		for option := range strings.SplitSeq(tyField.Tag.Get("builtin"), ",") {
-			if option == "optional" {
-				optional = true
-			}
-		}
-
-		ref := file.exported.lookup(file, id)
+		ref := file.exported.lookup(id)
 		sym := GetRef(file, ref)
-		if sym.IsZero() && optional {
-			continue
-		}
-
 		if sym.Kind() != kind.kind {
-			panic(fmt.Errorf(
-				"missing descriptor.proto symbol: %s `%s`; got kind %s",
-				kind.kind.noun(), file.session.intern.Value(id), sym.Kind(),
-			))
+			if !isOptionalBuiltinField(tyField) {
+				r.Errorf("`%s` is missing required symbol `%s`", file.Path(), file.session.intern.Value(id)).Apply(
+					report.Snippet(file.AST()),
+					report.Helpf("the descriptor.proto supplied to the compiler does not declare this %s; "+
+						"it may be vendored from a version that predates this symbol, or may be genuinely corrupt", kind.kind.noun()),
+				)
+			}
+			continue
 		}
 		kind.wrap(sym.Raw().data, field)
 	}
@@ -249,4 +259,36 @@ func makeBuiltinWrapper[T ~id.Node[T, *File, Raw], Raw any](
 		x := id.Wrap(file, id.ID[T](p))
 		out.Set(reflect.ValueOf(x))
 	}
+}
+
+// isOptionalBuiltinField reports whether the given [builtins] field is tagged
+// `builtin:"optional"`.
+func isOptionalBuiltinField(f reflect.StructField) bool {
+	for option := range strings.SplitSeq(f.Tag.Get("builtin"), ",") {
+		if option == "optional" {
+			return true
+		}
+	}
+	return false
+}
+
+// optionalBuiltinIDs is the set of intern IDs for symbols declared optional in
+// [builtins]. It is populated at session init and consulted when emitting
+// diagnostics about user references to missing optional builtins.
+func optionalBuiltinIDs(ids *builtinIDs) map[intern.ID]struct{} {
+	out := make(map[intern.ID]struct{})
+	bs := reflect.TypeFor[builtins]()
+	idsV := reflect.ValueOf(*ids)
+	for i := range bs.NumField() {
+		f := bs.Field(i)
+		if !isOptionalBuiltinField(f) {
+			continue
+		}
+		idField := idsV.FieldByName(f.Name)
+		if !idField.IsValid() {
+			continue
+		}
+		out[idField.Interface().(intern.ID)] = struct{}{} //nolint:errcheck
+	}
+	return out
 }

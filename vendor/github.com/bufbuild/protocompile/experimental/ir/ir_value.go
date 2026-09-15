@@ -1,4 +1,4 @@
-// Copyright 2020-2025 Buf Technologies, Inc.
+// Copyright 2020-2026 Buf Technologies, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -103,6 +103,12 @@ type rawValue struct {
 
 	// The message which contains this value.
 	container id.ID[MessageValue]
+
+	// Indicates whether this value corresponds with a top-level option declaration in source.
+	//
+	// This is not set for options on synthetic types, e.g. the map_entry option on map
+	// entry types.
+	isTopLevel bool
 }
 
 // rawValueBits is used to represent the actual value for all types, according to
@@ -282,14 +288,29 @@ func (v Value) Container() MessageValue {
 // The indexer will be nonempty except for the zero Value. That is to say, unset
 // fields of [MessageValue]s are not represented as a distinct "empty" Value.
 func (v Value) Elements() seq.Indexer[Element] {
-	return seq.NewFixedSlice(v.getElements(), func(n int, bits rawValueBits) Element {
-		return Element{
-			withContext: id.WrapContext(v.Context()),
-			index:       n,
-			value:       v,
-			bits:        bits,
-		}
-	})
+	return seq.Slice[Element, rawValueBits]{
+		Slice: v.getElements(),
+		Wrap: func(n int, bits rawValueBits) Element {
+			return Element{
+				withContext: id.WrapContext(v.Context()),
+				index:       n,
+				value:       v,
+				bits:        bits,
+			}
+		},
+	}
+}
+
+// IsTopLevel returns whether this value corresponds with a top-level option declaration
+// in source.
+//
+// This will return false on options for synthetic types, e.g. the map_entry option on
+// map entry types, because this is not set for synthetic types.
+func (v Value) IsTopLevel() bool {
+	if v.IsZero() {
+		return false
+	}
+	return v.Raw().isTopLevel
 }
 
 // Outlined to promote inlining of Elements().
@@ -494,8 +515,7 @@ func (v Value) marshal(buf []byte, r *report.Report, ranges *[][2]int) ([]byte, 
 			m := v.AsMessage()
 
 			var k int
-			var group bool // TODO: v.Field().IsGroup()
-			if group {
+			if v.Field().IsGroup() {
 				buf = protowire.AppendTag(buf, protowire.Number(v.Field().Number()), protowire.StartGroupType)
 				buf, k = m.marshal(buf, r, ranges)
 				buf = protowire.AppendTag(buf, protowire.Number(v.Field().Number()), protowire.EndGroupType)
@@ -785,8 +805,18 @@ func (v MessageValue) Concrete() MessageValue {
 	return id.Wrap(v.Context(), v.Raw().concrete)
 }
 
+// IsEmpty returns whether any fields are set on this value.
+func (v MessageValue) IsEmpty() bool {
+	return v.IsZero() || len(v.Raw().entries) == 0
+}
+
 // Field returns the field corresponding with the given member, if it is set.
+//
+// Returns a zero [Value] if either the member or the message value is zero.
 func (v MessageValue) Field(field Member) Value {
+	if field.IsZero() || v.IsZero() {
+		return Value{}
+	}
 	if field.Container() != v.Type() {
 		return Value{}
 	}

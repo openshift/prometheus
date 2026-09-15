@@ -1,4 +1,4 @@
-// Copyright 2020-2025 Buf Technologies, Inc.
+// Copyright 2020-2026 Buf Technologies, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -31,8 +31,9 @@ import (
 type Session struct {
 	intern intern.Table
 
-	once     sync.Once
-	builtins builtinIDs
+	once             sync.Once
+	builtins         builtinIDs
+	optionalBuiltins map[intern.ID]struct{}
 }
 
 // RecordInternStats enables instrumentation of the session's intern table.
@@ -78,7 +79,10 @@ func (s *Session) Lower(source *ast.File, errs *report.Report, importer Importer
 }
 
 func (s *Session) init() {
-	s.once.Do(func() { s.intern.Preload(&s.builtins) })
+	s.once.Do(func() {
+		s.intern.Preload(&s.builtins)
+		s.optionalBuiltins = optionalBuiltinIDs(&s.builtins)
+	})
 }
 
 func lower(file *File, r *report.Report, importer Importer) {
@@ -100,6 +104,8 @@ func lower(file *File, r *report.Report, importer Importer) {
 	mergeImportedSymbolTables(file, r)
 
 	// Perform "early" name resolution, i.e. field names and extension types.
+	// Name resolution always proceeds regardless of builtin validity; field
+	// types, method types, and extensions use the symbol table, not builtins.
 	resolveNames(file, r)
 	resolveEarlyOptions(file)
 
