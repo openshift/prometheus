@@ -1,4 +1,4 @@
-// Copyright 2020-2025 Buf Technologies, Inc.
+// Copyright 2020-2026 Buf Technologies, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -159,7 +159,7 @@ func (c *protoEncoder) path(path ast.Path) *compilerpb.Path {
 	proto := &compilerpb.Path{
 		Span: c.span(path),
 	}
-	for pc := range path.Components {
+	for pc := range path.Components() {
 		component := new(compilerpb.Path_Component)
 		switch pc.Separator().Text() {
 		case ".":

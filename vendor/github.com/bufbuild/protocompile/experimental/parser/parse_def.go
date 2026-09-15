@@ -1,4 +1,4 @@
-// Copyright 2020-2025 Buf Technologies, Inc.
+// Copyright 2020-2026 Buf Technologies, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -247,16 +247,16 @@ func (defOutputs) parse(p *defParser) source.Span {
 	}
 
 	if !list.IsZero() {
-		return source.Join(returns, list)
+		return source.JoinSpans(returns.Span(), list.Span())
 	}
-	return source.Join(returns, ty)
+	return source.JoinSpans(returns.Span(), ty.Span())
 }
 
 func (defOutputs) prev(p *defParser) source.Span {
 	if !p.outputTy.IsZero() {
-		return source.Join(p.args.Returns, p.outputTy)
+		return source.JoinSpans(p.args.Returns.Span(), p.outputTy.Span())
 	}
-	return source.Join(p.args.Returns, p.outputs)
+	return source.JoinSpans(p.args.Returns.Span(), p.outputs.Span())
 }
 
 type defValue struct{}
@@ -321,14 +321,14 @@ func (defValue) parse(p *defParser) source.Span {
 		p.args.Equals = eq
 		p.args.Value = expr
 	}
-	return source.Join(eq, expr)
+	return source.JoinSpans(eq.Span(), expr.Span())
 }
 
 func (defValue) prev(p *defParser) source.Span {
 	if p.args.Value.IsZero() {
 		return source.Span{}
 	}
-	return source.Join(p.args.Equals, p.args.Value)
+	return source.JoinSpans(p.args.Equals.Span(), p.args.Value.Span())
 }
 
 type defOptions struct{}

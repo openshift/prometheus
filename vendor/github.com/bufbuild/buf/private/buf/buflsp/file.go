@@ -1,4 +1,4 @@
-// Copyright 2020-2025 Buf Technologies, Inc.
+// Copyright 2020-2026 Buf Technologies, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -41,6 +41,7 @@ import (
 	"github.com/bufbuild/protocompile/experimental/report"
 	"github.com/bufbuild/protocompile/experimental/seq"
 	"github.com/bufbuild/protocompile/experimental/source"
+	"github.com/bufbuild/protocompile/experimental/token/keyword"
 	"go.lsp.dev/protocol"
 )
 
@@ -55,9 +56,8 @@ type file struct {
 	// Version is an opaque version identifier given to us by the LSP client. This
 	// is used in the protocol to disambiguate which version of a file e.g. publishing
 	// diagnostics or symbols an operating refers to.
-	version int32
-	hasText bool // Whether this file has ever had text read into it.
-
+	version    int32
+	hasText    bool               // Whether this file has ever had text read into it.
 	workspace  *workspace         // May be nil.
 	objectInfo storage.ObjectInfo // Info in the context of the workspace.
 
@@ -101,15 +101,17 @@ func (f *file) Reset(ctx context.Context) {
 	// Evict the query key if there is a query cached on the file. We cache the [queries.File]
 	// query since this allows the executor to evict all dependent queries, e.g. AST and IR.
 	f.lsp.queryExecutor.Evict(f.queryFileKeys()...)
+	f.clearEditorState(ctx)
 	// Clear the file as nothing should use it after reset. This asserts that.
 	*f = file{}
 }
 
-// Close marks a file as closed.
-//
-// This will not necessarily evict the file, since there may be more than one user
-// for this file.
+// Close marks a file as closed by the editor. It clears the editor state
+// (cancels in-flight checks and publishes empty diagnostics) then decrements
+// the ref count. The file is only evicted when the ref count reaches zero,
+// since the workspace may hold additional references.
 func (f *file) Close(ctx context.Context) {
+	f.clearEditorState(ctx)
 	f.Manager().Close(ctx, f.uri)
 }
 
@@ -240,7 +242,7 @@ func (f *file) RefreshIR(ctx context.Context) {
 	for path, file := range pathToFiles {
 		current := openerMap[path]
 		// If there is no entry for the current path or if the file content has changed, we
-		// update the opener and set a new query.
+		// update the opener and evict stale [queries.File] queries.
 		if current == nil || current.Text() != file.file.Text() {
 			openerMap[path] = file.file
 			if current != nil {
@@ -250,6 +252,7 @@ func (f *file) RefreshIR(ctx context.Context) {
 		}
 		files = append(files, file)
 	}
+
 	// Remove paths that are no longer in the current workspace and evict stale query keys.
 	for path := range openerMap {
 		if _, ok := pathToFiles[path]; !ok {
@@ -276,6 +279,7 @@ func (f *file) RefreshIR(ctx context.Context) {
 		)
 		return
 	}
+
 	for i, file := range files {
 		file.ir = results[i].Value
 		if f != file {
@@ -283,14 +287,18 @@ func (f *file) RefreshIR(ctx context.Context) {
 			file.IndexSymbols(ctx)
 		}
 	}
+
 	// Store the IR report for code actions
 	f.irReport = diagnosticReport
 
-	// Only hold on to diagnostics where the primary span is for this path.
+	// Only hold on to diagnostics where the primary span is for this file.
 	fileDiagnostics := xslices.Filter(diagnosticReport.Diagnostics, func(d report.Diagnostic) bool {
-		return d.Primary().Path() == f.objectInfo.Path()
+		// We avoid returning warnings from the compiler for now, since these may conflate with
+		// lint checks.
+		return d.Primary().Path() == f.objectInfo.LocalPath() && d.Level() < report.Warning
 	})
 	f.diagnostics = xslices.Map(fileDiagnostics, reportDiagnosticToProtocolDiagnostic)
+
 	f.lsp.logger.DebugContext(
 		ctx, "ir diagnostic(s)",
 		slog.String("uri", f.uri.Filename()),
@@ -338,7 +346,7 @@ func (f *file) queryFileKeys() []any {
 // This operation requires RefreshIR.
 func (f *file) IndexSymbols(ctx context.Context) {
 	defer xslog.DebugProfile(f.lsp.logger, slog.String("uri", string(f.uri)))()
-	// We cannot index symbols without the IR, so we keep the symbols as-is.
+
 	if f.ir == nil {
 		return
 	}
@@ -537,6 +545,7 @@ func (f *file) irToSymbols(irSymbol ir.Symbol) ([]*symbol, []*symbol) {
 		}
 		msg.def = msg
 		resolved = append(resolved, msg)
+		resolved = append(resolved, f.visibilityPrefixSymbols(irSymbol, irSymbol.AsType().AST())...)
 		unresolved = append(unresolved, f.messageToSymbols(irSymbol.AsType().Options())...)
 	case ir.SymbolKindEnum:
 		enum := &symbol{
@@ -549,6 +558,7 @@ func (f *file) irToSymbols(irSymbol ir.Symbol) ([]*symbol, []*symbol) {
 		}
 		enum.def = enum
 		resolved = append(resolved, enum)
+		resolved = append(resolved, f.visibilityPrefixSymbols(irSymbol, irSymbol.AsType().AST())...)
 		unresolved = append(unresolved, f.messageToSymbols(irSymbol.AsType().Options())...)
 	case ir.SymbolKindEnumValue:
 		name := &symbol{
@@ -723,6 +733,7 @@ func (f *file) irToSymbols(irSymbol ir.Symbol) ([]*symbol, []*symbol) {
 		}
 		service.def = service
 		resolved = append(resolved, service)
+		resolved = append(resolved, f.visibilityPrefixSymbols(irSymbol, irSymbol.AsService().AST())...)
 		unresolved = append(unresolved, f.messageToSymbols(irSymbol.AsService().Options())...)
 	case ir.SymbolKindMethod:
 		method := &symbol{
@@ -837,6 +848,30 @@ func getKindForMapType(typeAST ast.TypeAny, mapField ir.Member, isKey bool) (kin
 	return &static{ast: mapField.AST()}, false
 }
 
+// visibilityPrefixSymbols returns keywordBuiltin symbols for any export/local visibility
+// prefix tokens on the given decl, to support hover documentation on those keywords.
+func (f *file) visibilityPrefixSymbols(irSymbol ir.Symbol, decl ast.DeclDef) []*symbol {
+	var syms []*symbol
+	for prefix := range decl.Prefixes() {
+		kw := prefix.Prefix()
+		if kw != keyword.Export && kw != keyword.Local {
+			continue
+		}
+		prefixTok := prefix.PrefixToken()
+		if prefixTok.IsZero() {
+			continue
+		}
+		kwSym := &symbol{
+			ir:   irSymbol,
+			file: f,
+			span: prefixTok.Span(),
+			kind: &keywordBuiltin{name: kw.String(), anchor: "symbol-visibility"},
+		}
+		syms = append(syms, kwSym)
+	}
+	return syms
+}
+
 // importToSymbol takes an [ir.Import] and returns a symbol for it.
 func (f *file) importToSymbol(imp ir.Import) *symbol {
 	return &symbol{
@@ -894,7 +929,7 @@ func (f *file) messageToSymbolsHelper(msg ir.MessageValue, index int, parents []
 		// each path component.
 		for element := range seq.Values(field.Elements()) {
 			key := field.KeyASTs().At(element.ValueNodeIndex())
-			components := slices.Collect(key.AsPath().Components)
+			components := slices.Collect(key.AsPath().Components())
 			// If there are no path components for an element, then we skip it, since there are
 			// no symbols to track.
 			if len(components) == 0 {
@@ -966,6 +1001,23 @@ func (f *file) messageToSymbolsHelper(msg ir.MessageValue, index int, parents []
 	return symbols
 }
 
+// findSymbolByFullName searches for a referenceable symbol with the given full name
+// in the current file and its workspace.
+func (f *file) findSymbolByFullName(fullName ir.FullName) *symbol {
+	if sym, ok := f.referenceableSymbols[fullName]; ok {
+		return sym
+	}
+	if f.workspace == nil {
+		return nil
+	}
+	for _, wsFile := range f.workspace.PathToFile() {
+		if sym, ok := wsFile.referenceableSymbols[fullName]; ok {
+			return sym
+		}
+	}
+	return nil
+}
+
 // resolveASTDefinition is a helper for resolving the [ast.DeclDef] to the *[symbol], if
 // there is a matching indexed *[symbol].
 func (f *file) resolveASTDefinition(def ast.DeclDef, defName ir.FullName) *symbol {
@@ -1030,6 +1082,26 @@ func (f *file) CancelChecks(ctx context.Context) {
 	}
 }
 
+// clearEditorState cancels in-flight checks, publishes empty diagnostics to clear
+// the client's Problems panel (only when diagnostics are non-empty, to avoid a
+// no-op network write), and marks the file as no longer open in the editor by
+// setting version=-1. Called while the LSP lock is held, before the editor ref
+// is decremented.
+//
+// The publish must happen before version is set to -1 because PublishDiagnostics
+// checks IsOpenInEditor (which returns f.version != -1) and returns early if false.
+func (f *file) clearEditorState(ctx context.Context) {
+	if !f.IsOpenInEditor() {
+		return
+	}
+	f.CancelChecks(ctx)
+	if len(f.diagnostics) > 0 {
+		f.diagnostics = nil
+		f.PublishDiagnostics(ctx)
+	}
+	f.version = -1
+}
+
 // RunChecks triggers the run of checks for this file. Diagnostics are published asynchronously.
 func (f *file) RunChecks(ctx context.Context) {
 	if f.IsWKT() || !f.IsOpenInEditor() {
@@ -1056,13 +1128,19 @@ func (f *file) RunChecks(ctx context.Context) {
 	}
 	path := f.objectInfo.Path()
 
-	opener := make(fileOpener)
-	for path, file := range f.workspace.PathToFile() {
-		opener[path] = file.file.Text()
+	// Snapshot the current workspace files into a source.Openers so that the
+	// image build sees a consistent view of file contents, including any unsaved
+	// modifications. source.WKTs() provides a fallback for well-known types that
+	// may not be present in the workspace.
+	workspaceOpener := source.NewMap(nil)
+	workspaceFiles := workspaceOpener.Get()
+	for filePath, workspaceFile := range f.workspace.PathToFile() {
+		workspaceFiles[filePath] = workspaceFile.file
 	}
+	opener := &source.Openers{workspaceOpener, source.WKTs()}
 
 	const checkTimeout = 30 * time.Second
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), checkTimeout)
+	ctx, cancel := context.WithTimeout(f.lsp.connCtx, checkTimeout)
 	f.cancelChecks = cancel
 
 	go func() {
@@ -1079,7 +1157,7 @@ func (f *file) RunChecks(ctx context.Context) {
 			); err != nil {
 				var fileAnnotationSet bufanalysis.FileAnnotationSet
 				if !errors.As(err, &fileAnnotationSet) {
-					if errors.Is(err, context.Canceled) {
+					if errors.Is(err, context.Canceled) || ctx.Err() != nil {
 						f.lsp.logger.DebugContext(ctx, "checks cancelled", slog.String("uri", f.uri.Filename()), xslog.ErrorAttr(err))
 					} else if errors.Is(err, context.DeadlineExceeded) {
 						f.lsp.logger.WarnContext(ctx, "checks deadline exceeded", slog.String("uri", f.uri.Filename()), xslog.ErrorAttr(err))
@@ -1118,7 +1196,7 @@ func (f *file) RunChecks(ctx context.Context) {
 			// TODO: prefer diagnostics from the old compiler to the new compiler to remove duplicates from both.
 			f.diagnostics = diagnostics
 		}
-		f.appendAnnotations("buf lint", annotations)
+		f.appendAnnotations(lintSourceName, annotations)
 		f.PublishDiagnostics(ctx)
 	}()
 }
@@ -1130,14 +1208,18 @@ func (f *file) appendAnnotations(source string, annotations []bufanalysis.FileAn
 		endLocation := f.file.InverseLocation(annotation.EndLine(), annotation.EndColumn(), positionalEncoding)
 		protocolRange := reportLocationsToProtocolRange(startLocation, endLocation)
 		diagnostic := protocol.Diagnostic{
-			Range: protocolRange,
-			Code:  annotation.Type(),
-			CodeDescription: &protocol.CodeDescription{
-				Href: protocol.URI("https://buf.build/docs/lint/rules/#" + strings.ToLower(annotation.Type())),
-			},
+			Range:    protocolRange,
+			Code:     annotation.Type(),
 			Severity: protocol.DiagnosticSeverityWarning,
 			Source:   source,
 			Message:  annotation.Message(),
+		}
+		// Only link to buf.build/docs for built-in rules. Plugin and policy
+		// rules have their own documentation, so we skip the link entirely.
+		if annotation.PluginName() == "" && annotation.PolicyName() == "" {
+			diagnostic.CodeDescription = &protocol.CodeDescription{
+				Href: protocol.URI("https://buf.build/docs/lint/rules/#" + strings.ToLower(annotation.Type())),
+			}
 		}
 		if annotation.Type() == "IMPORT_USED" {
 			diagnostic.Tags = []protocol.DiagnosticTag{

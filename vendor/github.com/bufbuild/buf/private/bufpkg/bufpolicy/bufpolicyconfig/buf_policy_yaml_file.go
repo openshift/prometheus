@@ -1,4 +1,4 @@
-// Copyright 2020-2025 Buf Technologies, Inc.
+// Copyright 2020-2026 Buf Technologies, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -177,8 +177,8 @@ func (*bufPolicyYAMLFile) isFile()              {}
 type externalBufPolicyYAMLFileV2 struct {
 	Version  string                              `json:"version,omitempty" yaml:"version,omitempty"`
 	Name     string                              `json:"name,omitempty" yaml:"name,omitempty"`
-	Lint     externalBufPolicyYAMLFileLintV2     `json:"lint,omitempty" yaml:"lint,omitempty"`
-	Breaking externalBufPolicyYAMLFileBreakingV2 `json:"breaking,omitempty" yaml:"breaking,omitempty"`
+	Lint     externalBufPolicyYAMLFileLintV2     `json:"lint" yaml:"lint,omitempty"`
+	Breaking externalBufPolicyYAMLFileBreakingV2 `json:"breaking" yaml:"breaking,omitempty"`
 	Plugins  []externalBufPolicyYAMLFilePluginV2 `json:"plugins,omitempty" yaml:"plugins,omitempty"`
 }
 

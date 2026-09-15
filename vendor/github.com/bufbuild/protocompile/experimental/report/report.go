@@ -1,4 +1,4 @@
-// Copyright 2020-2025 Buf Technologies, Inc.
+// Copyright 2020-2026 Buf Technologies, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -216,7 +216,7 @@ type icePanic struct {
 
 func (e *icePanic) Unwrap() error { return e.error }
 
-// AnnotatePanic will recover a panic and annotate it such that when [CatchICE]
+// AnnotateICE will recover a panic and annotate it such that when [CatchICE]
 // recovers it, it can extract this information and display it in the
 // diagnostic.
 func (r *Report) AnnotateICE(options ...DiagnosticOption) {

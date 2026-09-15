@@ -1,4 +1,4 @@
-// Copyright 2020-2025 Buf Technologies, Inc.
+// Copyright 2020-2026 Buf Technologies, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -98,5 +98,5 @@ func (t TypePrefixed) Span() source.Span {
 		return source.Span{}
 	}
 
-	return source.Join(t.PrefixToken(), t.Type())
+	return source.JoinSpans(t.PrefixToken().Span(), t.Type().Span())
 }

@@ -1,4 +1,4 @@
-// Copyright 2020-2025 Buf Technologies, Inc.
+// Copyright 2020-2026 Buf Technologies, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -25,15 +25,17 @@ import (
 	celpv "buf.build/go/protovalidate/cel"
 	"buf.build/go/standard/xslices"
 	"github.com/bufbuild/buf/private/buf/bufformat"
-	"github.com/bufbuild/protocompile/parser"
-	"github.com/bufbuild/protocompile/reporter"
+	"github.com/bufbuild/protocompile/experimental/parser"
+	"github.com/bufbuild/protocompile/experimental/report"
+	"github.com/bufbuild/protocompile/experimental/source"
 	"github.com/google/cel-go/cel"
 	"go.lsp.dev/protocol"
 	"mvdan.cc/xurls/v2"
 )
 
 const (
-	serverName = "buf-lsp"
+	serverName     = "buf-lsp"
+	lintSourceName = "buf lint"
 
 	maxSymbolResults = 1000
 )
@@ -139,6 +141,7 @@ func (s *server) Initialize(
 				CodeActionKinds: []protocol.CodeActionKind{
 					protocol.SourceOrganizeImports,
 					protocol.RefactorRewrite,
+					protocol.QuickFix,
 				},
 			},
 			CompletionProvider: &protocol.CompletionOptions{
@@ -165,6 +168,10 @@ func (s *server) Initialize(
 			DocumentSymbolProvider:  true,
 			FoldingRangeProvider:    true,
 			DocumentLinkProvider:    &protocol.DocumentLinkOptions{},
+			CodeLensProvider:        &protocol.CodeLensOptions{},
+			ExecuteCommandProvider: &protocol.ExecuteCommandOptions{
+				Commands: []string{commandUpdateAllDeps, commandCheckUpdates, CommandRunGenerate, CommandCheckPluginUpdates},
+			},
 		},
 		ServerInfo: info,
 	}, nil
@@ -192,6 +199,12 @@ func (s *server) SetTrace(
 // The client will wait until Shutdown returns, and then call Exit.
 func (s *server) Shutdown(ctx context.Context) error {
 	s.lsp.shutdown = true
+	// Cancel any in-progress checks for all tracked files, then cancel the
+	// connection context to stop any remaining background goroutines.
+	for _, file := range s.lsp.fileManager.uriToFile.Range {
+		file.CancelChecks(ctx)
+	}
+	s.lsp.connCancel()
 	return nil
 }
 
@@ -215,6 +228,23 @@ func (s *server) DidOpen(
 	ctx context.Context,
 	params *protocol.DidOpenTextDocumentParams,
 ) error {
+	if isBufYAMLURI(params.TextDocument.URI) {
+		s.bufYAMLManager.Track(params.TextDocument.URI, params.TextDocument.Text)
+		s.bufYAMLManager.CheckIgnorePaths(params.TextDocument.URI)
+		return nil
+	}
+	if isBufGenYAMLURI(params.TextDocument.URI) {
+		s.bufGenYAMLManager.Track(ctx, params.TextDocument.URI, params.TextDocument.Text)
+		return nil
+	}
+	if isBufPolicyYAMLURI(params.TextDocument.URI) {
+		s.bufPolicyYAMLManager.Track(params.TextDocument.URI, params.TextDocument.Text)
+		return nil
+	}
+	if isBufLockURI(params.TextDocument.URI) {
+		s.bufLockManager.Track(params.TextDocument.URI, params.TextDocument.Text)
+		return nil
+	}
 	file := s.fileManager.Track(params.TextDocument.URI)
 	file.RefreshWorkspace(ctx)
 	file.Update(ctx, params.TextDocument.Version, params.TextDocument.Text)
@@ -227,6 +257,23 @@ func (s *server) DidChange(
 	ctx context.Context,
 	params *protocol.DidChangeTextDocumentParams,
 ) error {
+	if isBufYAMLURI(params.TextDocument.URI) {
+		s.bufYAMLManager.Track(params.TextDocument.URI, params.ContentChanges[0].Text)
+		s.bufYAMLManager.CheckIgnorePaths(params.TextDocument.URI)
+		return nil
+	}
+	if isBufGenYAMLURI(params.TextDocument.URI) {
+		s.bufGenYAMLManager.Track(ctx, params.TextDocument.URI, params.ContentChanges[0].Text)
+		return nil
+	}
+	if isBufPolicyYAMLURI(params.TextDocument.URI) {
+		s.bufPolicyYAMLManager.Track(params.TextDocument.URI, params.ContentChanges[0].Text)
+		return nil
+	}
+	if isBufLockURI(params.TextDocument.URI) {
+		s.bufLockManager.Track(params.TextDocument.URI, params.ContentChanges[0].Text)
+		return nil
+	}
 	file := s.fileManager.Get(params.TextDocument.URI)
 	if file == nil {
 		// Update for a file we don't know about? Seems bad!
@@ -242,6 +289,10 @@ func (s *server) DidSave(
 	ctx context.Context,
 	params *protocol.DidSaveTextDocumentParams,
 ) error {
+	if isBufYAMLURI(params.TextDocument.URI) || isBufGenYAMLURI(params.TextDocument.URI) ||
+		isBufPolicyYAMLURI(params.TextDocument.URI) || isBufLockURI(params.TextDocument.URI) {
+		return nil
+	}
 	// We use this as an opportunity to do a refresh; some lints, such as
 	// breaking-against-last-saved, rely on this.
 	file := s.fileManager.Get(params.TextDocument.URI)
@@ -262,37 +313,29 @@ func (s *server) Formatting(
 	ctx context.Context,
 	params *protocol.DocumentFormattingParams,
 ) ([]protocol.TextEdit, error) {
+	if isBufYAMLURI(params.TextDocument.URI) || isBufGenYAMLURI(params.TextDocument.URI) ||
+		isBufPolicyYAMLURI(params.TextDocument.URI) || isBufLockURI(params.TextDocument.URI) {
+		return nil, nil
+	}
 	file := s.fileManager.Get(params.TextDocument.URI)
 	if file == nil {
 		// Format for a file we don't know about? Seems bad!
 		return nil, fmt.Errorf("received update for file that was not open: %q", params.TextDocument.URI)
 	}
-	var errorsWithPos []reporter.ErrorWithPos
-	var warningErrorsWithPos []reporter.ErrorWithPos
-	handler := reporter.NewHandler(reporter.NewReporter(
-		func(errorWithPos reporter.ErrorWithPos) error {
-			errorsWithPos = append(errorsWithPos, errorWithPos)
-			return nil
-		},
-		func(errorWithPos reporter.ErrorWithPos) {
-			warningErrorsWithPos = append(warningErrorsWithPos, errorWithPos)
-		},
-	))
-	parsed, err := parser.Parse(file.uri.Filename(), strings.NewReader(file.file.Text()), handler)
-	if err == nil {
-		_, _ = parser.ResultFromAST(parsed, true, handler)
-	}
-	if len(errorsWithPos) > 0 {
-		return nil, fmt.Errorf("cannot format file %q, %v error(s) found", file.uri.Filename(), len(errorsWithPos))
-	}
-	// Currently we have no way to honor any of the parameters.
-	_ = params
-	if parsed == nil {
-		return nil, nil
+	// We only use the diagnostic count to decide whether to fail, so suppress
+	// warnings at the source rather than generating them just to ignore.
+	r := &report.Report{Options: report.Options{SuppressWarnings: true}}
+	parsed, ok := parser.Parse(
+		file.uri.Filename(),
+		source.NewFile(file.uri.Filename(), file.file.Text()),
+		r,
+	)
+	if !ok {
+		return nil, fmt.Errorf("cannot format file: %d parse error(s)", len(r.Diagnostics))
 	}
 	var out strings.Builder
-	if err := bufformat.FormatFileNode(&out, parsed); err != nil {
-		return nil, err
+	if err := bufformat.FormatFile(&out, parsed); err != nil {
+		return nil, fmt.Errorf("format failed: %w", err)
 	}
 	newText := out.String()
 	if newText == file.file.Text() {
@@ -327,8 +370,51 @@ func (s *server) DidClose(
 	ctx context.Context,
 	params *protocol.DidCloseTextDocumentParams,
 ) error {
+	if isBufYAMLURI(params.TextDocument.URI) {
+		s.bufYAMLManager.Close(ctx, params.TextDocument.URI)
+		return nil
+	}
+	if isBufGenYAMLURI(params.TextDocument.URI) {
+		s.bufGenYAMLManager.Close(ctx, params.TextDocument.URI)
+		return nil
+	}
+	if isBufPolicyYAMLURI(params.TextDocument.URI) {
+		s.bufPolicyYAMLManager.Close(params.TextDocument.URI)
+		return nil
+	}
+	if isBufLockURI(params.TextDocument.URI) {
+		s.bufLockManager.Close(params.TextDocument.URI)
+		return nil
+	}
 	if file := s.fileManager.Get(params.TextDocument.URI); file != nil {
 		file.Close(ctx)
+	}
+	return nil
+}
+
+// DidDeleteFiles is called when files are deleted on disk (e.g. via the OS or
+// IDE file explorer). For each deleted file we close the corresponding tracked
+// resource so stale diagnostics are cleared from the client.
+func (s *server) DidDeleteFiles(
+	ctx context.Context,
+	params *protocol.DeleteFilesParams,
+) error {
+	for _, deleted := range params.Files {
+		uri := protocol.URI(deleted.URI)
+		switch {
+		case isBufYAMLURI(uri):
+			s.bufYAMLManager.Close(ctx, uri)
+		case isBufGenYAMLURI(uri):
+			s.bufGenYAMLManager.Close(ctx, uri)
+		case isBufPolicyYAMLURI(uri):
+			s.bufPolicyYAMLManager.Close(uri)
+		case isBufLockURI(uri):
+			s.bufLockManager.Close(uri)
+		default:
+			if file := s.fileManager.Get(uri); file != nil {
+				file.Close(ctx)
+			}
+		}
 	}
 	return nil
 }
@@ -340,7 +426,31 @@ func (s *server) Hover(
 	ctx context.Context,
 	params *protocol.HoverParams,
 ) (*protocol.Hover, error) {
-	symbol := s.getSymbol(ctx, params.TextDocument.URI, params.Position)
+	if isBufYAMLURI(params.TextDocument.URI) {
+		return s.bufYAMLManager.GetHover(params.TextDocument.URI, params.Position), nil
+	}
+	if isBufGenYAMLURI(params.TextDocument.URI) {
+		return s.bufGenYAMLManager.GetHover(params.TextDocument.URI, params.Position), nil
+	}
+	if isBufPolicyYAMLURI(params.TextDocument.URI) {
+		return s.bufPolicyYAMLManager.GetHover(params.TextDocument.URI, params.Position), nil
+	}
+	if isBufLockURI(params.TextDocument.URI) {
+		return s.bufLockManager.GetHover(params.TextDocument.URI, params.Position), nil
+	}
+	file := s.fileManager.Get(params.TextDocument.URI)
+	if file == nil {
+		return nil, nil
+	}
+
+	// First, try to get CEL hover documentation
+	celHover := getCELHover(file, params.Position, s.celEnv)
+	if celHover != nil {
+		return celHover, nil
+	}
+
+	// Fall back to regular symbol hover
+	symbol := file.SymbolAt(ctx, params.Position)
 	if symbol == nil {
 		return nil, nil
 	}
@@ -369,6 +479,12 @@ func (s *server) Definition(
 	ctx context.Context,
 	params *protocol.DefinitionParams,
 ) ([]protocol.Location, error) {
+	// First, try to resolve a CEL definition (e.g. `this` → field or message).
+	if file := s.fileManager.Get(params.TextDocument.URI); file != nil {
+		if loc := getCELDefinition(file, params.Position, s.celEnv); loc != nil {
+			return []protocol.Location{*loc}, nil
+		}
+	}
 	symbol := s.getSymbol(ctx, params.TextDocument.URI, params.Position)
 	if symbol == nil {
 		return nil, nil
@@ -416,10 +532,41 @@ func (s *server) Completion(
 	ctx context.Context,
 	params *protocol.CompletionParams,
 ) (*protocol.CompletionList, error) {
+	// buf.gen.yaml, buf.yaml, and buf.policy.yaml completion is text-based and
+	// does not require a file manager entry.
+	if isBufGenYAMLURI(params.TextDocument.URI) {
+		items := s.bufGenYAMLManager.GetCompletion(params.TextDocument.URI, params.Position)
+		if len(items) == 0 {
+			return nil, nil
+		}
+		return &protocol.CompletionList{Items: items}, nil
+	}
+	if isBufYAMLURI(params.TextDocument.URI) {
+		items := s.bufYAMLManager.GetCompletion(params.TextDocument.URI, params.Position)
+		if len(items) == 0 {
+			return nil, nil
+		}
+		return &protocol.CompletionList{Items: items}, nil
+	}
+	if isBufPolicyYAMLURI(params.TextDocument.URI) {
+		items := s.bufPolicyYAMLManager.GetCompletion(params.TextDocument.URI, params.Position)
+		if len(items) == 0 {
+			return nil, nil
+		}
+		return &protocol.CompletionList{Items: items}, nil
+	}
+
 	file := s.fileManager.Get(params.TextDocument.URI)
 	if file == nil {
 		return nil, nil
 	}
+
+	// First, try CEL completion when the cursor is inside a protovalidate expression.
+	if celItems := getCELCompletionItems(file, params.Position, s.celEnv); celItems != nil {
+		return &protocol.CompletionList{Items: celItems}, nil
+	}
+
+	// Fall back to proto-level completions.
 	items := getCompletionItems(ctx, file, params.Position)
 	if len(items) == 0 {
 		return nil, nil
@@ -512,7 +659,67 @@ func (s *server) CodeAction(ctx context.Context, params *protocol.CodeActionPara
 			actions = append(actions, *deprecateAction)
 		}
 	}
+	if _, ok := codeActionSet[protocol.QuickFix]; len(codeActionSet) == 0 || ok {
+		lintIgnoreActions := s.getLintIgnoreCodeActions(ctx, file, params)
+		actions = append(actions, lintIgnoreActions...)
+	}
 	return actions, nil
+}
+
+// CodeLens is called when the client requests code lenses for a document.
+func (s *server) CodeLens(ctx context.Context, params *protocol.CodeLensParams) ([]protocol.CodeLens, error) {
+	if isBufYAMLURI(params.TextDocument.URI) {
+		return s.bufYAMLManager.GetCodeLenses(params.TextDocument.URI), nil
+	}
+	if isBufGenYAMLURI(params.TextDocument.URI) {
+		return s.bufGenYAMLManager.GetCodeLenses(params.TextDocument.URI), nil
+	}
+	return nil, nil
+}
+
+// ExecuteCommand is called when the client invokes a workspace command registered
+// by this server.
+//
+// Supported commands:
+//   - buf.dep.updateAll: update all dependencies in the buf.yaml at the given URI.
+//   - buf.dep.checkUpdates: check for newer versions of dependencies and publish
+//     informational diagnostics for any that are outdated.
+//   - buf.generate.run: run buf generate for the buf.gen.yaml at the given URI.
+//   - buf.generate.checkPluginUpdates: check for newer versions of remote plugins
+//     in the buf.gen.yaml and publish informational diagnostics for outdated ones.
+func (s *server) ExecuteCommand(ctx context.Context, params *protocol.ExecuteCommandParams) (any, error) {
+	if len(params.Arguments) < 1 {
+		return nil, fmt.Errorf("%s: expected at least 1 argument (file URI), got %d", params.Command, len(params.Arguments))
+	}
+	uriStr, ok := params.Arguments[0].(string)
+	if !ok {
+		return nil, fmt.Errorf("%s: argument 0 must be a string URI, got %T", params.Command, params.Arguments[0])
+	}
+	uri := protocol.URI(uriStr)
+	switch params.Command {
+	case commandUpdateAllDeps:
+		if err := s.bufYAMLManager.ExecuteUpdateAll(ctx, uri); err != nil {
+			return nil, fmt.Errorf("%s: %w", params.Command, err)
+		}
+		return nil, nil
+	case commandCheckUpdates:
+		if err := s.bufYAMLManager.ExecuteCheckUpdates(ctx, uri); err != nil {
+			return nil, fmt.Errorf("%s: %w", params.Command, err)
+		}
+		return nil, nil
+	case CommandRunGenerate:
+		if err := s.bufGenYAMLManager.ExecuteRunGenerate(ctx, uri); err != nil {
+			return nil, fmt.Errorf("%s: %w", params.Command, err)
+		}
+		return nil, nil
+	case CommandCheckPluginUpdates:
+		if err := s.bufGenYAMLManager.ExecuteCheckPluginUpdates(ctx, uri); err != nil {
+			return nil, fmt.Errorf("%s: %w", params.Command, err)
+		}
+		return nil, nil
+	default:
+		return nil, fmt.Errorf("unknown command: %q", params.Command)
+	}
 }
 
 // PrepareRename is the entry point for checking workspace wide renaming of a symbol.
@@ -582,6 +789,18 @@ func (s *server) DocumentLink(
 	ctx context.Context,
 	params *protocol.DocumentLinkParams,
 ) ([]protocol.DocumentLink, error) {
+	if isBufYAMLURI(params.TextDocument.URI) {
+		return s.bufYAMLManager.GetDocumentLinks(params.TextDocument.URI), nil
+	}
+	if isBufGenYAMLURI(params.TextDocument.URI) {
+		return s.bufGenYAMLManager.GetDocumentLinks(params.TextDocument.URI), nil
+	}
+	if isBufPolicyYAMLURI(params.TextDocument.URI) {
+		return s.bufPolicyYAMLManager.GetDocumentLinks(params.TextDocument.URI), nil
+	}
+	if isBufLockURI(params.TextDocument.URI) {
+		return s.bufLockManager.GetDocumentLinks(params.TextDocument.URI), nil
+	}
 	file := s.fileManager.Get(params.TextDocument.URI)
 	if file == nil {
 		return nil, nil

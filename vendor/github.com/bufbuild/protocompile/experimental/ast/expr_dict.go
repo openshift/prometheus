@@ -1,4 +1,4 @@
-// Copyright 2020-2025 Buf Technologies, Inc.
+// Copyright 2020-2026 Buf Technologies, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -73,7 +73,7 @@ func (e ExprDict) Elements() Commas[ExprField] {
 				return id.Wrap(e.Context(), c.Value)
 			},
 			func(_ int, e ExprField) withComma[id.ID[ExprField]] {
-				e.Context().Nodes().panicIfNotOurs(e)
+				e.Context().Nodes().panicIfNotOurs(e.Context())
 				return withComma[id.ID[ExprField]]{Value: e.ID()}
 			},
 		),

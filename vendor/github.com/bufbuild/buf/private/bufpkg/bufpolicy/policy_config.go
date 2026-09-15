@@ -1,4 +1,4 @@
-// Copyright 2020-2025 Buf Technologies, Inc.
+// Copyright 2020-2026 Buf Technologies, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -514,7 +514,7 @@ type policyV1Beta1PolicyConfig_BreakingConfig struct {
 
 // policyV1Beta1PolicyConfig_PluginConfig is a stable JSON representation of the buf.registry.policy.v1beta1.PolicyConfig.PluginConfig.
 type policyV1Beta1PolicyConfig_PluginConfig struct {
-	Name    policyV1Beta1PolicyConfig_PluginConfig_Name `json:"name,omitempty"`
+	Name    policyV1Beta1PolicyConfig_PluginConfig_Name `json:"name"`
 	Options []*optionV1Option                           `json:"options,omitempty"`
 	Args    []string                                    `json:"args,omitempty"`
 }

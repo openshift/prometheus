@@ -1,4 +1,4 @@
-// Copyright 2025 Buf Technologies, Inc.
+// Copyright 2025-2026 Buf Technologies, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -97,8 +97,8 @@ func WithArgs(args ...string) RunStartOption {
 
 // WithEnv returns a new option that sets the environment variables.
 //
-// The default is to use the single envment variable __EMPTY_ENV__=1 as we
-// cannot explicitly set an empty envment with the exec package.
+// The default is to use the single environment variable __EMPTY_ENV__=1 as we
+// cannot explicitly set an empty environment with the exec package.
 //
 // If this and WithEnv are specified, the last option specified wins.
 func WithEnv(env []string) RunStartOption {
@@ -107,21 +107,21 @@ func WithEnv(env []string) RunStartOption {
 
 // WithStdin returns a new option that sets the stdin.
 //
-// The default is a [io.Reader] that always returns empty..
+// The default is a [io.Reader] that always returns empty.
 func WithStdin(stdin io.Reader) RunStartOption {
 	return &stdinOption{stdin: stdin}
 }
 
 // WithStdout returns a new option that sets the stdout.
 //
-// The default is a [io.Writer] that ignores all writes..
+// The default is a [io.Writer] that ignores all writes.
 func WithStdout(stdout io.Writer) RunStartOption {
 	return &stdoutOption{stdout: stdout}
 }
 
 // WithStderr returns a new option that sets the stderr.
 //
-// The default is a [io.Writer] that ignores all writes..
+// The default is a [io.Writer] that ignores all writes.
 func WithStderr(stderr io.Writer) RunStartOption {
 	return &stderrOption{stderr: stderr}
 }

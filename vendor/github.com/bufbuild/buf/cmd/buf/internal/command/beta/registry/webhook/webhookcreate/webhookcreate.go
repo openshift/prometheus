@@ -1,4 +1,4 @@
-// Copyright 2020-2025 Buf Technologies, Inc.
+// Copyright 2020-2026 Buf Technologies, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,7 +16,6 @@ package webhookcreate
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
 	"buf.build/go/app/appcmd"
@@ -26,6 +25,7 @@ import (
 	"github.com/bufbuild/buf/private/gen/proto/connect/buf/alpha/registry/v1alpha1/registryv1alpha1connect"
 	registryv1alpha1 "github.com/bufbuild/buf/private/gen/proto/go/buf/alpha/registry/v1alpha1"
 	"github.com/bufbuild/buf/private/pkg/connectclient"
+	"github.com/bufbuild/buf/private/pkg/protoencoding"
 	"github.com/spf13/pflag"
 )
 
@@ -135,7 +135,7 @@ func run(
 	if err != nil {
 		return err
 	}
-	webhookJSON, err := json.MarshalIndent(resp.Msg.GetWebhook(), "", "\t")
+	webhookJSON, err := protoencoding.NewJSONMarshaler(nil, protoencoding.JSONMarshalerWithIndent()).Marshal(resp.Msg)
 	if err != nil {
 		return err
 	}

@@ -1,4 +1,4 @@
-// Copyright 2020-2025 Buf Technologies, Inc.
+// Copyright 2020-2026 Buf Technologies, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,6 +17,7 @@ package depgraph
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 
@@ -31,6 +32,7 @@ import (
 	"github.com/bufbuild/buf/private/pkg/dag"
 	"github.com/bufbuild/buf/private/pkg/uuidutil"
 	"github.com/google/uuid"
+	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )
 
@@ -90,6 +92,18 @@ buf dep graph | dot -Tpng >| graph.png && open graph.png
 			},
 		),
 		BindFlags: flags.Bind,
+		ModifyCobra: func(cmd *cobra.Command) error {
+			return errors.Join(
+				bufcli.RegisterFlagCompletionErrorFormat(cmd, errorFormatFlagName),
+				cmd.RegisterFlagCompletionFunc(
+					formatFlagName,
+					cobra.FixedCompletions([]string{
+						cobra.CompletionWithDesc(dotFormatString, "Graphviz DOT"),
+						jsonFormatString,
+					}, cobra.ShellCompDirectiveNoFileComp|cobra.ShellCompDirectiveKeepOrder),
+				),
+			)
+		},
 	}
 }
 
@@ -253,9 +267,9 @@ func (e *externalModule) addDeps(
 		depExternalModule, ok := moduleFullNameOrOpaqueIDToExternalModule[depFullNameOrOpaqueID]
 		if ok {
 			// If this dependency has already been seen, we can simply update our current module
-			// and return early.
+			// and continue to the next dependency.
 			e.Deps = append(e.Deps, depExternalModule)
-			return nil
+			continue
 		}
 		// Otherwise, we create a new external module for our direct dependency. However, we do
 		// not add it to our map yet, we only add it once all transitive dependencies have been

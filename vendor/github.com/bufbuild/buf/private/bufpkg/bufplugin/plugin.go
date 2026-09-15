@@ -1,4 +1,4 @@
-// Copyright 2020-2025 Buf Technologies, Inc.
+// Copyright 2020-2026 Buf Technologies, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -20,8 +20,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/bufbuild/buf/private/bufpkg/bufcas"
 	"github.com/bufbuild/buf/private/bufpkg/bufparse"
+	"github.com/bufbuild/buf/private/pkg/cas"
 	"github.com/bufbuild/buf/private/pkg/syserror"
 	"github.com/google/uuid"
 )
@@ -75,8 +75,8 @@ type Plugin interface {
 	Description() string
 	// Digest returns the Plugin digest for the given DigestType.
 	//
-	// Note this is *not* a bufcas.Digest - this is a Digest.
-	// bufcas.Digests are a lower-level type that just deal in terms of
+	// Note this is *not* a cas.Digest - this is a Digest.
+	// cas.Digests are a lower-level type that just deal in terms of
 	// files and content. A Digest is a specific algorithm applied to the
 	// content of a Plugin.
 	//
@@ -309,10 +309,10 @@ func newGetDigestFuncForPluginAndDigestType(plugin *plugin, digestType DigestTyp
 		if err != nil {
 			return nil, err
 		}
-		bufcasDigest, err := bufcas.NewDigestForContent(bytes.NewReader(data))
+		casDigest, err := cas.NewDigestForContent(cas.DigestTypeShake256, bytes.NewReader(data))
 		if err != nil {
 			return nil, err
 		}
-		return NewDigest(digestType, bufcasDigest)
+		return NewDigest(digestType, casDigest)
 	}
 }

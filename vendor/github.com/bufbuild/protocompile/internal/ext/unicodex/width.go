@@ -1,4 +1,4 @@
-// Copyright 2020-2025 Buf Technologies, Inc.
+// Copyright 2020-2026 Buf Technologies, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -81,7 +81,7 @@ func (w *Width) WriteString(text string) (int, error) {
 		tabstop = TabstopWidth
 	}
 
-	for i, next := range iterx.Enumerate(stringsx.Split(text, '\t')) {
+	for i, next := range iterx.Enumerate(strings.SplitSeq(text, "\t")) {
 		if i > 0 {
 			tab := tabstop - (w.Column % tabstop)
 			w.Column += tab
@@ -148,7 +148,7 @@ func (w *Width) WordWrap(text string, maxWidth int) iter.Seq[string] {
 	return func(yield func(string) bool) {
 		// Split along lines first, since those are hard breaks we don't plan
 		// to change.
-		for line := range stringsx.Lines(text) {
+		for line := range strings.SplitSeq(text, "\n") {
 			w.Column = 0
 			var nextIsSpace bool
 			var cursor int

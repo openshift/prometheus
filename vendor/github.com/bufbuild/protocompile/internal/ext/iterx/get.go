@@ -1,4 +1,4 @@
-// Copyright 2020-2025 Buf Technologies, Inc.
+// Copyright 2020-2026 Buf Technologies, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -54,8 +54,8 @@ func Last2[K, V any](seq iter.Seq2[K, V]) (k K, v V, ok bool) {
 
 // OnlyOne retrieves the only element of an iterator.
 func OnlyOne[T any](seq iter.Seq[T]) (v T, ok bool) {
-	for i, x := range Enumerate(seq) {
-		if i > 0 {
+	for x := range seq {
+		if ok {
 			var z T
 			// Ensure we return the zero value if there is more
 			// than one element.

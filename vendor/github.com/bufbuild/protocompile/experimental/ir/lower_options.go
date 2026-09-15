@@ -1,4 +1,4 @@
-// Copyright 2020-2025 Buf Technologies, Inc.
+// Copyright 2020-2026 Buf Technologies, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -27,7 +27,29 @@ import (
 	"github.com/bufbuild/protocompile/experimental/token/keyword"
 	"github.com/bufbuild/protocompile/internal/ext/iterx"
 	"github.com/bufbuild/protocompile/internal/intern"
+	"github.com/bufbuild/protocompile/internal/messageset"
 )
+
+// checkMessageSetFieldUsage reports an error if the given field belongs to a
+// message set type. Message set wire format is a legacy proto1 feature that
+// is not supported.
+func checkMessageSetFieldUsage(field Member, span source.Spanner, r *report.Report) {
+	if field.IsZero() || !field.Container().IsMessageSet() {
+		return
+	}
+	if messageset.CanSupportMessageSets() {
+		return
+	}
+	extendee := field.Container()
+	r.Errorf(
+		"field `%s` may not be used in an option: it uses 'message set wire format' legacy proto1 feature which is not supported",
+		field.FullName(),
+	).Apply(
+		report.Snippet(span),
+		report.PageBreak,
+		report.Snippetf(extendee.AST().Stem(), "`%s` declared as message set here", extendee.FullName()),
+	)
+}
 
 // resolveEarlyOptions resolves options whose values must be discovered very
 // early during compilation. This does not create option values, nor does it
@@ -44,7 +66,7 @@ func resolveEarlyOptions(file *File) {
 			option := def.AsOption().Option
 
 			// If this option's path has more than one component, skip.
-			first, ok := iterx.OnlyOne(option.Path.Components)
+			first, ok := iterx.OnlyOne(option.Path.Components())
 			if !ok || !first.Separator().IsZero() {
 				continue
 			}
@@ -86,6 +108,7 @@ func resolveEarlyOptions(file *File) {
 // resolveOptions resolves all of the options in a file.
 func resolveOptions(file *File, r *report.Report) {
 	builtins := file.builtins()
+	ids := &file.session.builtins
 	bodyOptions := func(decls seq.Inserter[ast.DeclAny]) iter.Seq[ast.Option] {
 		return iterx.FilterMap(seq.Values(decls), func(d ast.DeclAny) (ast.Option, bool) {
 			def := d.AsDef()
@@ -104,8 +127,9 @@ func resolveOptions(file *File, r *report.Report) {
 			scope: file.Package(),
 			def:   def,
 
-			field: builtins.FileOptions,
-			raw:   &file.options,
+			field:    builtins.FileOptions,
+			fieldFQN: ids.FileOptions,
+			raw:      &file.options,
 		}.resolve()
 	}
 
@@ -119,8 +143,10 @@ func resolveOptions(file *File, r *report.Report) {
 
 		for def := range bodyOptions(ty.AST().Body().Decls()) {
 			options := builtins.MessageOptions
+			optionsFQN := ids.MessageOptions
 			if ty.IsEnum() {
 				options = builtins.EnumOptions
+				optionsFQN = ids.EnumOptions
 			}
 			optionRef{
 				File:   file,
@@ -129,16 +155,19 @@ func resolveOptions(file *File, r *report.Report) {
 				scope: ty.Scope(),
 				def:   def,
 
-				field: options,
-				raw:   &ty.Raw().options,
+				field:    options,
+				fieldFQN: optionsFQN,
+				raw:      &ty.Raw().options,
 			}.resolve()
 		}
 
 		for field := range seq.Values(ty.Members()) {
 			for def := range seq.Values(field.AST().Options().Entries()) {
 				options := builtins.FieldOptions
+				optionsFQN := ids.FieldOptions
 				if ty.IsEnum() {
 					options = builtins.EnumValueOptions
+					optionsFQN = ids.EnumValueOptions
 				}
 				optionRef{
 					File:   file,
@@ -147,9 +176,10 @@ func resolveOptions(file *File, r *report.Report) {
 					scope: field.Scope(),
 					def:   def,
 
-					field:  options,
-					raw:    &field.Raw().options,
-					target: field,
+					field:    options,
+					fieldFQN: optionsFQN,
+					raw:      &field.Raw().options,
+					target:   field,
 				}.resolve()
 			}
 		}
@@ -162,8 +192,9 @@ func resolveOptions(file *File, r *report.Report) {
 					scope: ty.Scope(),
 					def:   def,
 
-					field: builtins.OneofOptions,
-					raw:   &oneof.Raw().options,
+					field:    builtins.OneofOptions,
+					fieldFQN: ids.OneofOptions,
+					raw:      &oneof.Raw().options,
 				}.resolve()
 			}
 		}
@@ -184,8 +215,9 @@ func resolveOptions(file *File, r *report.Report) {
 					scope: ty.Scope(),
 					def:   def,
 
-					field: builtins.RangeOptions,
-					raw:   &extns.Raw().options,
+					field:    builtins.RangeOptions,
+					fieldFQN: ids.RangeOptions,
+					raw:      &extns.Raw().options,
 				}.resolve()
 			}
 
@@ -201,9 +233,10 @@ func resolveOptions(file *File, r *report.Report) {
 				scope: field.Scope(),
 				def:   def,
 
-				field:  builtins.FieldOptions,
-				raw:    &field.Raw().options,
-				target: field,
+				field:    builtins.FieldOptions,
+				fieldFQN: ids.FieldOptions,
+				raw:      &field.Raw().options,
+				target:   field,
 			}.resolve()
 		}
 	}
@@ -216,8 +249,9 @@ func resolveOptions(file *File, r *report.Report) {
 				scope: service.FullName(),
 				def:   def,
 
-				field: builtins.ServiceOptions,
-				raw:   &service.Raw().options,
+				field:    builtins.ServiceOptions,
+				fieldFQN: ids.ServiceOptions,
+				raw:      &service.Raw().options,
 			}.resolve()
 		}
 
@@ -230,8 +264,9 @@ func resolveOptions(file *File, r *report.Report) {
 					scope: service.FullName(),
 					def:   def,
 
-					field: builtins.MethodOptions,
-					raw:   &method.Raw().options,
+					field:    builtins.MethodOptions,
+					fieldFQN: ids.MethodOptions,
+					raw:      &method.Raw().options,
 				}.resolve()
 			}
 		}
@@ -337,7 +372,7 @@ func validateOptionTargetsInValue(m MessageValue, decl source.Span, target Optio
 			if path := key.AsPath(); !path.IsZero() {
 				// Pull out the last component.
 				// TODO: write a function on Path that does this cheaply.
-				last, _ := iterx.Last(path.Components)
+				last, _ := iterx.Last(path.Components())
 				span = last.Name().Span()
 			}
 
@@ -376,12 +411,55 @@ type optionRef struct {
 	field Member
 	raw   *id.ID[Value]
 
+	// fieldFQN is the interned FQN of the *Options builtin field that field
+	// resolves to. It is set even when field is zero (because the vendored
+	// descriptor.proto does not declare it), so the diagnostic emitted on the
+	// zero-field path can name the missing symbol.
+	fieldFQN intern.ID
+
 	// A member being annotated. This is used for pseudo-option resolution.
 	target Member
 }
 
 // resolve performs symbol resolution.
 func (r optionRef) resolve() {
+	// If the *Options builtin we are resolving into is unresolved, we cannot
+	// resolve the option ref. This is the case when an invalid descriptor.proto
+	// has been vendored (missing a required builtin) or when the user wrote an
+	// option targeting an optional descriptor.proto field that the vendored
+	// copy predates. In both cases we bail out before the resolver attempts to
+	// dereference the zero builtin, which would otherwise panic in
+	// [Member.toRef] and [newMessage].
+	//
+	// Note that `protoc` does not respect vendored descriptor.protos for option
+	// resolution; it always uses its own internally-bundled copy. This compiler
+	// and the legacy compiler both honor the vendored descriptor.proto so that
+	// users can depend on their own descriptor.proto files, and so downstream
+	// tooling built on the compiler can provide descriptor.proto (and the
+	// well-known types as a whole).
+	//
+	// We emit a diagnostic at the user's option site so they have a pointer
+	// from their source to the underlying descriptor.proto problem.
+	// [resolveBuiltins] also emits a "missing required symbol" diagnostic on
+	// descriptor.proto for required builtins that is complementary to this error.
+	if r.field.IsZero() {
+		fqn := r.session.intern.Value(r.fieldFQN)
+		d := r.Errorf("cannot resolve %s", taxa.Option).Apply(
+			report.Snippet(r.def),
+		)
+		if dpFile := r.imports.DescriptorProto(); dpFile != nil {
+			d.Apply(report.Snippetf(dpFile.AST().Syntax(),
+				"resolved against this descriptor.proto"))
+		}
+		if _, optional := r.session.optionalBuiltins[r.fieldFQN]; optional {
+			d.Apply(report.Helpf(
+				"`%s` is not declared by this descriptor.proto; "+
+					"use a newer descriptor.proto or remove this option",
+				fqn))
+		}
+		return
+	}
+
 	ids := &r.session.builtins
 	root := r.field.Element()
 
@@ -393,7 +471,7 @@ func (r optionRef) resolve() {
 	field := current.Field()
 	var path ast.Path
 	var raw slot
-	for pc := range r.def.Path.Components {
+	for pc := range r.def.Path.Components() {
 		// If this is the first iteration, use the *Options value as the current
 		// message.
 		message := field.Element()
@@ -479,9 +557,25 @@ func (r optionRef) resolve() {
 				if !pc.IsFirst() {
 					d.Apply(report.Snippetf(prev.AST().Type(), "`%s` specified here", message.FullName()))
 				}
+				// If the user is referencing a known-optional builtin that the
+				// descriptor.proto in use doesn't declare, explain why.
+				fqn := message.FullName().Append(ident.Text())
+				if id, known := r.session.intern.Query(string(fqn)); known {
+					if _, optional := r.session.optionalBuiltins[id]; optional {
+						if dpFile := r.imports.DescriptorProto(); dpFile != nil {
+							d.Apply(report.Snippetf(dpFile.AST().Syntax(),
+								"resolved against this descriptor.proto"))
+						}
+						d.Apply(report.Helpf(
+							"`%s` is an editions-era symbol that this descriptor.proto does not declare; "+
+								"use a newer descriptor.proto or remove this option", fqn))
+					}
+				}
 				return
 			}
 		}
+
+		checkMessageSetFieldUsage(field, pc, r.Report)
 
 		if pc.IsFirst() {
 			switch field.InternedFullName() {
@@ -624,6 +718,8 @@ func (r optionRef) resolve() {
 
 	v := evaluator.eval(args)
 	if raw.IsZero() && !v.IsZero() {
+		// Set this as a top-level option message.
+		v.Raw().isTopLevel = true
 		raw.Insert(v)
 	}
 }
