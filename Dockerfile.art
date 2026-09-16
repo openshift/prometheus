@@ -4,7 +4,7 @@ WORKDIR /workspace
 
 # RUN microdnf install -y bzip2 jq && microdnf clean all
 
-COPY prometheus/ .
+COPY . .
 
 # Use the prebuilt web UI assets fetched by cachi2 instead of building them from
 # source, then compile the assets into the Prometheus binary.
