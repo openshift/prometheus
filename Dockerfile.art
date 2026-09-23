@@ -16,7 +16,7 @@ ARG GIT_VERSION=
 ARG GIT_REVISION=unknown
 ARG GIT_BRANCH=
 
-ENV GOFLAGS='-mod=readonly -tags=builtinassets,netgo,stringlabels'
+ENV GOFLAGS='-mod=vendor -tags=builtinassets,netgo,stringlabels'
 ENV GOTOOLCHAIN=local
 ENV CGO_ENABLED=1
 ENV GOEXPERIMENT=strictfipsruntime
