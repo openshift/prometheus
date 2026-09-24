@@ -66,3 +66,7 @@ LABEL com.redhat.component="coo-prometheus-container" \
     io.k8s.description="Prometheus is a CNCF project that collects metrics, evaluates rules and triggers alerts." \
     maintainer="team-monitoring@redhat.com" \
     description="Prometheus for Cluster Observability Operator"
+
+# Make commands fail on duplicate variant labels. The comment below will help
+# circumventing the check while not adding any new label.
+# LABEL io.prometheus.image.variant="art"
