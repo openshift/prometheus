@@ -6,7 +6,6 @@ reviewers:
 - jan--f
 - marioferh
 - danielmellado
-- rexagod
 - machine424
 
 approvers:
@@ -15,7 +14,6 @@ approvers:
 - jan--f
 - marioferh
 - danielmellado
-- rexagod
 - machine424
 
 emeritus_approvers:
@@ -32,4 +30,5 @@ emeritus_approvers:
 - sthaha
 - JoaoBraveCoding
 - juanrh
+- rexagod
 - raptorsun
