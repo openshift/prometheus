@@ -1,0 +1,33 @@
+FROM registry.ci.openshift.org/ocp/builder:rhel-9-golang-1.26-openshift-4.22 AS builder
+WORKDIR /go/src/github.com/prometheus/prometheus
+COPY . .
+# NOTE(spasquie): the 'build' target regenerates the ReactJS code and the Go
+# assets on the fly.  Build environments don't have access to Yarn and external
+# package repositories so we use the 'common-build' target instead.
+# It means that every time we update to a new Prometheus version, 'make assets'
+# should be run locally and the resulting file (web/ui/embed.go) and ui assets
+# (web/ui/static/**/*.gz) should be committed to the repository.
+RUN if yum install -y prometheus-promu; then export BUILD_PROMU=false; fi && make common-build
+
+FROM registry.ci.openshift.org/ocp/4.22:base-rhel9
+LABEL io.k8s.display-name="OpenShift Prometheus" \
+      io.k8s.description="The Prometheus monitoring system and time series database." \
+      io.openshift.tags="prometheus,monitoring" \
+      summary="The Prometheus monitoring system and time series database." \
+      maintainer="OpenShift Monitoring Team <team-monitoring@redhat.com>"
+
+ARG FROM_DIRECTORY=/go/src/github.com/prometheus/prometheus
+COPY --from=builder ${FROM_DIRECTORY}/prometheus                            /bin/prometheus
+COPY --from=builder ${FROM_DIRECTORY}/promtool                              /bin/promtool
+COPY --from=builder ${FROM_DIRECTORY}/documentation/examples/prometheus.yml /etc/prometheus/prometheus.yml
+
+RUN mkdir -p /prometheus && \
+    chgrp -R 0 /etc/prometheus /prometheus && \
+    chmod -R g=u /etc/prometheus /prometheus
+
+USER       nobody
+EXPOSE     9090
+WORKDIR    /prometheus
+ENTRYPOINT [ "/bin/prometheus" ]
+CMD        [ "--config.file=/etc/prometheus/prometheus.yml", \
+             "--storage.tsdb.path=/prometheus" ]
