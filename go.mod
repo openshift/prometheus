@@ -63,8 +63,8 @@ require (
 	go.uber.org/goleak v1.3.0
 	golang.org/x/net v0.26.0
 	golang.org/x/oauth2 v0.18.0
-	golang.org/x/sync v0.7.0
-	golang.org/x/sys v0.21.0
+	golang.org/x/sync v0.11.0
+	golang.org/x/sys v0.30.0
 	golang.org/x/time v0.5.0
 	golang.org/x/tools v0.21.1-0.20240508182429-e35e4ccd0d2d
 	google.golang.org/api v0.169.0
@@ -173,11 +173,11 @@ require (
 	go.opencensus.io v0.24.0 // indirect
 	go.opentelemetry.io/otel/metric v1.24.0 // indirect
 	go.opentelemetry.io/proto/otlp v1.1.0 // indirect
-	golang.org/x/crypto v0.24.0 // indirect
+	golang.org/x/crypto v0.33.0 // indirect
 	golang.org/x/exp v0.0.0-20231006140011-7918f672742d
 	golang.org/x/mod v0.17.0 // indirect
-	golang.org/x/term v0.21.0 // indirect
-	golang.org/x/text v0.16.0 // indirect
+	golang.org/x/term v0.29.0 // indirect
+	golang.org/x/text v0.22.0 // indirect
 	google.golang.org/appengine v1.6.8 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/ini.v1 v1.66.6 // indirect
@@ -219,3 +219,5 @@ replace google.golang.org/grpc => github.com/openshift-sustaining/grpc-go v1.64.
 // Pin goleak to v1.2.0: v1.3.0 uses errors.Join and strings.CutPrefix which
 // require Go 1.20, but the release-4.13 builder uses Go 1.19.
 replace go.uber.org/goleak => go.uber.org/goleak v1.2.0
+
+replace golang.org/x/net => github.com/openshift-sustaining/net v0.35.0-sec.4

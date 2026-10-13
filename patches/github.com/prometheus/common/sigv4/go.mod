@@ -9,3 +9,5 @@ require (
 )
 
 go 1.16
+
+replace golang.org/x/net => github.com/openshift-sustaining/net v0.35.0-sec.4
