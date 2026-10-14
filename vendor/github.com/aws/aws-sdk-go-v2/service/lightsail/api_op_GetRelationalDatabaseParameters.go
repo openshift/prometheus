@@ -4,9 +4,10 @@ package lightsail
 
 import (
 	"context"
+	"github.com/aws/aws-sdk-go-v2/service/lightsail/schemas"
 	"github.com/aws/aws-sdk-go-v2/service/lightsail/types"
+	smithy "github.com/aws/smithy-go"
 	"github.com/aws/smithy-go/middleware"
-	smithyhttp "github.com/aws/smithy-go/transport/http"
 )
 
 // Returns all of the runtime parameters offered by the underlying database
@@ -48,6 +49,21 @@ type GetRelationalDatabaseParametersInput struct {
 	noSmithyDocumentSerde
 }
 
+func (v *GetRelationalDatabaseParametersInput) Serialize(s smithy.ShapeSerializer) {
+	s.WriteStruct(schemas.GetRelationalDatabaseParametersRequest)
+	v.SerializeMembers(s)
+	s.CloseStruct()
+}
+
+func (v *GetRelationalDatabaseParametersInput) SerializeMembers(s smithy.ShapeSerializer) {
+	if v.PageToken != nil {
+		s.WriteString(schemas.GetRelationalDatabaseParametersRequest_pageToken, *v.PageToken)
+	}
+	if v.RelationalDatabaseName != nil {
+		s.WriteString(schemas.GetRelationalDatabaseParametersRequest_relationalDatabaseName, *v.RelationalDatabaseName)
+	}
+}
+
 type GetRelationalDatabaseParametersOutput struct {
 
 	// The token to advance to the next page of results from your request.
@@ -68,22 +84,38 @@ type GetRelationalDatabaseParametersOutput struct {
 	noSmithyDocumentSerde
 }
 
+func (v *GetRelationalDatabaseParametersOutput) Serialize(s smithy.ShapeSerializer) {
+	s.WriteStruct(schemas.GetRelationalDatabaseParametersResult)
+	v.SerializeMembers(s)
+	s.CloseStruct()
+}
+
+func (v *GetRelationalDatabaseParametersOutput) SerializeMembers(s smithy.ShapeSerializer) {
+	if v.NextPageToken != nil {
+		s.WriteString(schemas.GetRelationalDatabaseParametersResult_nextPageToken, *v.NextPageToken)
+	}
+	serializeRelationalDatabaseParameterList(s, schemas.GetRelationalDatabaseParametersResult_parameters, v.Parameters)
+}
+func (v *GetRelationalDatabaseParametersOutput) Deserialize(d smithy.ShapeDeserializer) error {
+	return smithy.ReadStruct(d, schemas.GetRelationalDatabaseParametersResult, func(s *smithy.Schema) error {
+		switch s {
+		case schemas.GetRelationalDatabaseParametersResult_nextPageToken:
+			v.NextPageToken = new(string)
+			return d.ReadString(schemas.GetRelationalDatabaseParametersResult_nextPageToken, v.NextPageToken)
+		case schemas.GetRelationalDatabaseParametersResult_parameters:
+			return deserializeRelationalDatabaseParameterList(d, schemas.GetRelationalDatabaseParametersResult_parameters, &v.Parameters)
+		}
+		return nil
+	})
+}
 func (c *Client) addOperationGetRelationalDatabaseParametersMiddlewares(stack *middleware.Stack, options Options) (err error) {
-	err = stack.Serialize.Add(&awsAwsjson11_serializeOpGetRelationalDatabaseParameters{}, middleware.After)
-	if err != nil {
+	if err := stack.Serialize.Add(&serializeRequestMiddleware{options: &options, operationSchema: smithy.NewOperationSchema(schemas.GetRelationalDatabaseParameters, schemas.GetRelationalDatabaseParametersRequest, schemas.GetRelationalDatabaseParametersResult)}, middleware.After); err != nil {
 		return err
 	}
-	err = stack.Deserialize.Add(&awsAwsjson11_deserializeOpGetRelationalDatabaseParameters{}, middleware.After)
-	if err != nil {
+	if err := stack.Deserialize.Add(&deserializeResponseMiddleware{options: &options, operationSchema: smithy.NewOperationSchema(schemas.GetRelationalDatabaseParameters, schemas.GetRelationalDatabaseParametersRequest, schemas.GetRelationalDatabaseParametersResult), output: &GetRelationalDatabaseParametersOutput{}}, middleware.After); err != nil {
 		return err
 	}
 
-	if err = addlegacyEndpointContextSetter(stack, options); err != nil {
-		return err
-	}
-	if err = addComputeContentLength(stack); err != nil {
-		return err
-	}
 	if err = addResolveEndpointMiddleware(stack, options); err != nil {
 		return err
 	}
@@ -93,19 +125,10 @@ func (c *Client) addOperationGetRelationalDatabaseParametersMiddlewares(stack *m
 	if err = addRecordResponseTiming(stack, options); err != nil {
 		return err
 	}
-	if err = smithyhttp.AddErrorCloseResponseBodyMiddleware(stack); err != nil {
-		return err
-	}
-	if err = smithyhttp.AddCloseResponseBodyMiddleware(stack); err != nil {
-		return err
-	}
 	if err = addCredentialSource(stack, options); err != nil {
 		return err
 	}
 	if err = addOpGetRelationalDatabaseParametersValidationMiddleware(stack); err != nil {
-		return err
-	}
-	if err = stack.Initialize.Add(newServiceMetadataMiddleware(options.Region, "GetRelationalDatabaseParameters"), middleware.Before); err != nil {
 		return err
 	}
 	if err = addRequestIDRetrieverMiddleware(stack); err != nil {

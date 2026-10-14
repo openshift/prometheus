@@ -1,5 +1,26 @@
 # Change Log
 
+## [1.206.0] - 2026-08-31
+
+- #1094 - @sshirolkar - add godo support for simulations rpcs
+
+## [1.205.0] - 2026-08-25
+
+- #1089 - @ddatta-do - feat : add routes endpoints
+
+## [1.204.0] - 2026-08-10
+
+- #1080 - @nayanjd-do - Add constant to string match against volume capacity errors
+
+## [1.203.0] - 2026-08-05
+
+- #1076 - @rak16 - microdroplets: add image region, fix image URN, drop https protocol
+
+## [1.202.0] - 2026-07-29
+
+- #1069 - @varshavaradarajan - doks: add isolated workers to kubernetes create call
+- #1067 - @nveerdixit - MARSOHS-551: Session.origin on HostedAgents (stack on OHS_endpoints)
+
 ## [1.201.0] - 2026-07-24
 
 - #1060 - @DO-rrao - Add GPU partition mode support to Droplets and Sizes

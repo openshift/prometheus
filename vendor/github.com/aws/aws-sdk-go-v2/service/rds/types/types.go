@@ -155,6 +155,25 @@ type AdditionalStorageVolumeOutput struct {
 	// storage of the additional storage volume.
 	MaxAllocatedStorage *int32
 
+	// The percentage of the in-progress storage operation on the additional storage
+	// volume that has completed, from 0 to 100 . This field appears only while a
+	// storage operation is in progress. It isn't present when no storage operation is
+	// active.
+	StorageOperationPercentProgress *int32
+
+	// The status of an in-progress storage operation on the additional storage
+	// volume. This field appears only while a storage operation is in progress. It
+	// isn't present when no storage operation is active. Possible values:
+	//
+	//   - Initializing - The volume is initializing from a snapshot, such as during a
+	//   snapshot restore, point-in-time restore, read replica creation, or blue/green
+	//   deployment. Performance can be lower than provisioned until initialization
+	//   completes.
+	//
+	//   - Optimizing - The volume is optimizing following a storage scaling or
+	//   modification operation.
+	StorageOperationStatus *string
+
 	// The storage throughput value for the additional storage volume, in mebibytes
 	// per second (MiBps).
 	StorageThroughput *int32
@@ -2342,6 +2361,24 @@ type DBInstance struct {
 	//   Amazon Web Services managed KMS key.
 	StorageEncryptionType StorageEncryptionType
 
+	// The percentage of the in-progress storage operation on the DB instance that has
+	// completed, from 0 to 100 . This field appears only while a storage operation is
+	// in progress. It isn't present when no storage operation is active.
+	StorageOperationPercentProgress *int32
+
+	// The status of an in-progress storage operation on the DB instance. This field
+	// appears only while a storage operation is in progress. It isn't present when no
+	// storage operation is active. Possible values:
+	//
+	//   - Initializing - The volume is initializing from a snapshot, such as during a
+	//   snapshot restore, point-in-time restore, read replica creation, or blue/green
+	//   deployment. Performance can be lower than provisioned until initialization
+	//   completes.
+	//
+	//   - Optimizing - The volume is optimizing following a storage scaling or
+	//   modification operation.
+	StorageOperationStatus *string
+
 	// The storage throughput for the DB instance.
 	//
 	// This setting applies only to the gp3 storage type.
@@ -3222,6 +3259,13 @@ type DBSnapshot struct {
 
 	// Specifies the version of the database engine.
 	EngineVersion *string
+
+	// The full size of the DB snapshot, in bytes.
+	//
+	// This is not the incremental size of the snapshot. This is the full snapshot
+	// size and represents the size of all the blocks that were written to the source
+	// volume at the time the snapshot was created.
+	FullSnapshotSizeInBytes *int64
 
 	// Indicates whether mapping of Amazon Web Services Identity and Access Management
 	// (IAM) accounts to database accounts is enabled.

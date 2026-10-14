@@ -4,9 +4,10 @@ package lightsail
 
 import (
 	"context"
+	"github.com/aws/aws-sdk-go-v2/service/lightsail/schemas"
 	"github.com/aws/aws-sdk-go-v2/service/lightsail/types"
+	smithy "github.com/aws/smithy-go"
 	"github.com/aws/smithy-go/middleware"
-	smithyhttp "github.com/aws/smithy-go/transport/http"
 )
 
 // Creates a new access key for the specified Amazon Lightsail bucket. Access keys
@@ -50,6 +51,18 @@ type CreateBucketAccessKeyInput struct {
 	noSmithyDocumentSerde
 }
 
+func (v *CreateBucketAccessKeyInput) Serialize(s smithy.ShapeSerializer) {
+	s.WriteStruct(schemas.CreateBucketAccessKeyRequest)
+	v.SerializeMembers(s)
+	s.CloseStruct()
+}
+
+func (v *CreateBucketAccessKeyInput) SerializeMembers(s smithy.ShapeSerializer) {
+	if v.BucketName != nil {
+		s.WriteString(schemas.CreateBucketAccessKeyRequest_bucketName, *v.BucketName)
+	}
+}
+
 type CreateBucketAccessKeyOutput struct {
 
 	// An object that describes the access key that is created.
@@ -66,22 +79,40 @@ type CreateBucketAccessKeyOutput struct {
 	noSmithyDocumentSerde
 }
 
+func (v *CreateBucketAccessKeyOutput) Serialize(s smithy.ShapeSerializer) {
+	s.WriteStruct(schemas.CreateBucketAccessKeyResult)
+	v.SerializeMembers(s)
+	s.CloseStruct()
+}
+
+func (v *CreateBucketAccessKeyOutput) SerializeMembers(s smithy.ShapeSerializer) {
+	if v.AccessKey != nil {
+		s.WriteStruct(schemas.CreateBucketAccessKeyResult_accessKey)
+		v.AccessKey.SerializeMembers(s)
+		s.CloseStruct()
+	}
+	serializeOperationList(s, schemas.CreateBucketAccessKeyResult_operations, v.Operations)
+}
+func (v *CreateBucketAccessKeyOutput) Deserialize(d smithy.ShapeDeserializer) error {
+	return smithy.ReadStruct(d, schemas.CreateBucketAccessKeyResult, func(s *smithy.Schema) error {
+		switch s {
+		case schemas.CreateBucketAccessKeyResult_accessKey:
+			v.AccessKey = &types.AccessKey{}
+			return v.AccessKey.Deserialize(d)
+		case schemas.CreateBucketAccessKeyResult_operations:
+			return deserializeOperationList(d, schemas.CreateBucketAccessKeyResult_operations, &v.Operations)
+		}
+		return nil
+	})
+}
 func (c *Client) addOperationCreateBucketAccessKeyMiddlewares(stack *middleware.Stack, options Options) (err error) {
-	err = stack.Serialize.Add(&awsAwsjson11_serializeOpCreateBucketAccessKey{}, middleware.After)
-	if err != nil {
+	if err := stack.Serialize.Add(&serializeRequestMiddleware{options: &options, operationSchema: smithy.NewOperationSchema(schemas.CreateBucketAccessKey, schemas.CreateBucketAccessKeyRequest, schemas.CreateBucketAccessKeyResult)}, middleware.After); err != nil {
 		return err
 	}
-	err = stack.Deserialize.Add(&awsAwsjson11_deserializeOpCreateBucketAccessKey{}, middleware.After)
-	if err != nil {
+	if err := stack.Deserialize.Add(&deserializeResponseMiddleware{options: &options, operationSchema: smithy.NewOperationSchema(schemas.CreateBucketAccessKey, schemas.CreateBucketAccessKeyRequest, schemas.CreateBucketAccessKeyResult), output: &CreateBucketAccessKeyOutput{}}, middleware.After); err != nil {
 		return err
 	}
 
-	if err = addlegacyEndpointContextSetter(stack, options); err != nil {
-		return err
-	}
-	if err = addComputeContentLength(stack); err != nil {
-		return err
-	}
 	if err = addResolveEndpointMiddleware(stack, options); err != nil {
 		return err
 	}
@@ -91,19 +122,10 @@ func (c *Client) addOperationCreateBucketAccessKeyMiddlewares(stack *middleware.
 	if err = addRecordResponseTiming(stack, options); err != nil {
 		return err
 	}
-	if err = smithyhttp.AddErrorCloseResponseBodyMiddleware(stack); err != nil {
-		return err
-	}
-	if err = smithyhttp.AddCloseResponseBodyMiddleware(stack); err != nil {
-		return err
-	}
 	if err = addCredentialSource(stack, options); err != nil {
 		return err
 	}
 	if err = addOpCreateBucketAccessKeyValidationMiddleware(stack); err != nil {
-		return err
-	}
-	if err = stack.Initialize.Add(newServiceMetadataMiddleware(options.Region, "CreateBucketAccessKey"), middleware.Before); err != nil {
 		return err
 	}
 	if err = addRequestIDRetrieverMiddleware(stack); err != nil {

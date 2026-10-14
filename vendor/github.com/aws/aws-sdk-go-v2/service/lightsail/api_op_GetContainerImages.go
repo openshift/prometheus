@@ -4,9 +4,10 @@ package lightsail
 
 import (
 	"context"
+	"github.com/aws/aws-sdk-go-v2/service/lightsail/schemas"
 	"github.com/aws/aws-sdk-go-v2/service/lightsail/types"
+	smithy "github.com/aws/smithy-go"
 	"github.com/aws/smithy-go/middleware"
-	smithyhttp "github.com/aws/smithy-go/transport/http"
 )
 
 // Returns the container images that are registered to your Amazon Lightsail
@@ -42,6 +43,18 @@ type GetContainerImagesInput struct {
 	noSmithyDocumentSerde
 }
 
+func (v *GetContainerImagesInput) Serialize(s smithy.ShapeSerializer) {
+	s.WriteStruct(schemas.GetContainerImagesRequest)
+	v.SerializeMembers(s)
+	s.CloseStruct()
+}
+
+func (v *GetContainerImagesInput) SerializeMembers(s smithy.ShapeSerializer) {
+	if v.ServiceName != nil {
+		s.WriteString(schemas.GetContainerImagesRequest_serviceName, *v.ServiceName)
+	}
+}
+
 type GetContainerImagesOutput struct {
 
 	// An array of objects that describe container images that are registered to the
@@ -54,22 +67,32 @@ type GetContainerImagesOutput struct {
 	noSmithyDocumentSerde
 }
 
+func (v *GetContainerImagesOutput) Serialize(s smithy.ShapeSerializer) {
+	s.WriteStruct(schemas.GetContainerImagesResult)
+	v.SerializeMembers(s)
+	s.CloseStruct()
+}
+
+func (v *GetContainerImagesOutput) SerializeMembers(s smithy.ShapeSerializer) {
+	serializeContainerImageList(s, schemas.GetContainerImagesResult_containerImages, v.ContainerImages)
+}
+func (v *GetContainerImagesOutput) Deserialize(d smithy.ShapeDeserializer) error {
+	return smithy.ReadStruct(d, schemas.GetContainerImagesResult, func(s *smithy.Schema) error {
+		switch s {
+		case schemas.GetContainerImagesResult_containerImages:
+			return deserializeContainerImageList(d, schemas.GetContainerImagesResult_containerImages, &v.ContainerImages)
+		}
+		return nil
+	})
+}
 func (c *Client) addOperationGetContainerImagesMiddlewares(stack *middleware.Stack, options Options) (err error) {
-	err = stack.Serialize.Add(&awsAwsjson11_serializeOpGetContainerImages{}, middleware.After)
-	if err != nil {
+	if err := stack.Serialize.Add(&serializeRequestMiddleware{options: &options, operationSchema: smithy.NewOperationSchema(schemas.GetContainerImages, schemas.GetContainerImagesRequest, schemas.GetContainerImagesResult)}, middleware.After); err != nil {
 		return err
 	}
-	err = stack.Deserialize.Add(&awsAwsjson11_deserializeOpGetContainerImages{}, middleware.After)
-	if err != nil {
+	if err := stack.Deserialize.Add(&deserializeResponseMiddleware{options: &options, operationSchema: smithy.NewOperationSchema(schemas.GetContainerImages, schemas.GetContainerImagesRequest, schemas.GetContainerImagesResult), output: &GetContainerImagesOutput{}}, middleware.After); err != nil {
 		return err
 	}
 
-	if err = addlegacyEndpointContextSetter(stack, options); err != nil {
-		return err
-	}
-	if err = addComputeContentLength(stack); err != nil {
-		return err
-	}
 	if err = addResolveEndpointMiddleware(stack, options); err != nil {
 		return err
 	}
@@ -79,19 +102,10 @@ func (c *Client) addOperationGetContainerImagesMiddlewares(stack *middleware.Sta
 	if err = addRecordResponseTiming(stack, options); err != nil {
 		return err
 	}
-	if err = smithyhttp.AddErrorCloseResponseBodyMiddleware(stack); err != nil {
-		return err
-	}
-	if err = smithyhttp.AddCloseResponseBodyMiddleware(stack); err != nil {
-		return err
-	}
 	if err = addCredentialSource(stack, options); err != nil {
 		return err
 	}
 	if err = addOpGetContainerImagesValidationMiddleware(stack); err != nil {
-		return err
-	}
-	if err = stack.Initialize.Add(newServiceMetadataMiddleware(options.Region, "GetContainerImages"), middleware.Before); err != nil {
 		return err
 	}
 	if err = addRequestIDRetrieverMiddleware(stack); err != nil {

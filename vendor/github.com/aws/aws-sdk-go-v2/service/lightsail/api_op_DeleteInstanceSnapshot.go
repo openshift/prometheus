@@ -4,9 +4,10 @@ package lightsail
 
 import (
 	"context"
+	"github.com/aws/aws-sdk-go-v2/service/lightsail/schemas"
 	"github.com/aws/aws-sdk-go-v2/service/lightsail/types"
+	smithy "github.com/aws/smithy-go"
 	"github.com/aws/smithy-go/middleware"
-	smithyhttp "github.com/aws/smithy-go/transport/http"
 )
 
 // Deletes a specific snapshot of a virtual private server (or instance).
@@ -41,6 +42,18 @@ type DeleteInstanceSnapshotInput struct {
 	noSmithyDocumentSerde
 }
 
+func (v *DeleteInstanceSnapshotInput) Serialize(s smithy.ShapeSerializer) {
+	s.WriteStruct(schemas.DeleteInstanceSnapshotRequest)
+	v.SerializeMembers(s)
+	s.CloseStruct()
+}
+
+func (v *DeleteInstanceSnapshotInput) SerializeMembers(s smithy.ShapeSerializer) {
+	if v.InstanceSnapshotName != nil {
+		s.WriteString(schemas.DeleteInstanceSnapshotRequest_instanceSnapshotName, *v.InstanceSnapshotName)
+	}
+}
+
 type DeleteInstanceSnapshotOutput struct {
 
 	// An array of objects that describe the result of the action, such as the status
@@ -54,22 +67,32 @@ type DeleteInstanceSnapshotOutput struct {
 	noSmithyDocumentSerde
 }
 
+func (v *DeleteInstanceSnapshotOutput) Serialize(s smithy.ShapeSerializer) {
+	s.WriteStruct(schemas.DeleteInstanceSnapshotResult)
+	v.SerializeMembers(s)
+	s.CloseStruct()
+}
+
+func (v *DeleteInstanceSnapshotOutput) SerializeMembers(s smithy.ShapeSerializer) {
+	serializeOperationList(s, schemas.DeleteInstanceSnapshotResult_operations, v.Operations)
+}
+func (v *DeleteInstanceSnapshotOutput) Deserialize(d smithy.ShapeDeserializer) error {
+	return smithy.ReadStruct(d, schemas.DeleteInstanceSnapshotResult, func(s *smithy.Schema) error {
+		switch s {
+		case schemas.DeleteInstanceSnapshotResult_operations:
+			return deserializeOperationList(d, schemas.DeleteInstanceSnapshotResult_operations, &v.Operations)
+		}
+		return nil
+	})
+}
 func (c *Client) addOperationDeleteInstanceSnapshotMiddlewares(stack *middleware.Stack, options Options) (err error) {
-	err = stack.Serialize.Add(&awsAwsjson11_serializeOpDeleteInstanceSnapshot{}, middleware.After)
-	if err != nil {
+	if err := stack.Serialize.Add(&serializeRequestMiddleware{options: &options, operationSchema: smithy.NewOperationSchema(schemas.DeleteInstanceSnapshot, schemas.DeleteInstanceSnapshotRequest, schemas.DeleteInstanceSnapshotResult)}, middleware.After); err != nil {
 		return err
 	}
-	err = stack.Deserialize.Add(&awsAwsjson11_deserializeOpDeleteInstanceSnapshot{}, middleware.After)
-	if err != nil {
+	if err := stack.Deserialize.Add(&deserializeResponseMiddleware{options: &options, operationSchema: smithy.NewOperationSchema(schemas.DeleteInstanceSnapshot, schemas.DeleteInstanceSnapshotRequest, schemas.DeleteInstanceSnapshotResult), output: &DeleteInstanceSnapshotOutput{}}, middleware.After); err != nil {
 		return err
 	}
 
-	if err = addlegacyEndpointContextSetter(stack, options); err != nil {
-		return err
-	}
-	if err = addComputeContentLength(stack); err != nil {
-		return err
-	}
 	if err = addResolveEndpointMiddleware(stack, options); err != nil {
 		return err
 	}
@@ -79,19 +102,10 @@ func (c *Client) addOperationDeleteInstanceSnapshotMiddlewares(stack *middleware
 	if err = addRecordResponseTiming(stack, options); err != nil {
 		return err
 	}
-	if err = smithyhttp.AddErrorCloseResponseBodyMiddleware(stack); err != nil {
-		return err
-	}
-	if err = smithyhttp.AddCloseResponseBodyMiddleware(stack); err != nil {
-		return err
-	}
 	if err = addCredentialSource(stack, options); err != nil {
 		return err
 	}
 	if err = addOpDeleteInstanceSnapshotValidationMiddleware(stack); err != nil {
-		return err
-	}
-	if err = stack.Initialize.Add(newServiceMetadataMiddleware(options.Region, "DeleteInstanceSnapshot"), middleware.Before); err != nil {
 		return err
 	}
 	if err = addRequestIDRetrieverMiddleware(stack); err != nil {

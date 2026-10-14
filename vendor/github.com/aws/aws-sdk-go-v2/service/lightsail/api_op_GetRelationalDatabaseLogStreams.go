@@ -4,8 +4,9 @@ package lightsail
 
 import (
 	"context"
+	"github.com/aws/aws-sdk-go-v2/service/lightsail/schemas"
+	smithy "github.com/aws/smithy-go"
 	"github.com/aws/smithy-go/middleware"
-	smithyhttp "github.com/aws/smithy-go/transport/http"
 )
 
 // Returns a list of available log streams for a specific database in Amazon
@@ -35,6 +36,18 @@ type GetRelationalDatabaseLogStreamsInput struct {
 	noSmithyDocumentSerde
 }
 
+func (v *GetRelationalDatabaseLogStreamsInput) Serialize(s smithy.ShapeSerializer) {
+	s.WriteStruct(schemas.GetRelationalDatabaseLogStreamsRequest)
+	v.SerializeMembers(s)
+	s.CloseStruct()
+}
+
+func (v *GetRelationalDatabaseLogStreamsInput) SerializeMembers(s smithy.ShapeSerializer) {
+	if v.RelationalDatabaseName != nil {
+		s.WriteString(schemas.GetRelationalDatabaseLogStreamsRequest_relationalDatabaseName, *v.RelationalDatabaseName)
+	}
+}
+
 type GetRelationalDatabaseLogStreamsOutput struct {
 
 	// An object describing the result of your get relational database log streams
@@ -47,22 +60,32 @@ type GetRelationalDatabaseLogStreamsOutput struct {
 	noSmithyDocumentSerde
 }
 
+func (v *GetRelationalDatabaseLogStreamsOutput) Serialize(s smithy.ShapeSerializer) {
+	s.WriteStruct(schemas.GetRelationalDatabaseLogStreamsResult)
+	v.SerializeMembers(s)
+	s.CloseStruct()
+}
+
+func (v *GetRelationalDatabaseLogStreamsOutput) SerializeMembers(s smithy.ShapeSerializer) {
+	serializeStringList(s, schemas.GetRelationalDatabaseLogStreamsResult_logStreams, v.LogStreams)
+}
+func (v *GetRelationalDatabaseLogStreamsOutput) Deserialize(d smithy.ShapeDeserializer) error {
+	return smithy.ReadStruct(d, schemas.GetRelationalDatabaseLogStreamsResult, func(s *smithy.Schema) error {
+		switch s {
+		case schemas.GetRelationalDatabaseLogStreamsResult_logStreams:
+			return deserializeStringList(d, schemas.GetRelationalDatabaseLogStreamsResult_logStreams, &v.LogStreams)
+		}
+		return nil
+	})
+}
 func (c *Client) addOperationGetRelationalDatabaseLogStreamsMiddlewares(stack *middleware.Stack, options Options) (err error) {
-	err = stack.Serialize.Add(&awsAwsjson11_serializeOpGetRelationalDatabaseLogStreams{}, middleware.After)
-	if err != nil {
+	if err := stack.Serialize.Add(&serializeRequestMiddleware{options: &options, operationSchema: smithy.NewOperationSchema(schemas.GetRelationalDatabaseLogStreams, schemas.GetRelationalDatabaseLogStreamsRequest, schemas.GetRelationalDatabaseLogStreamsResult)}, middleware.After); err != nil {
 		return err
 	}
-	err = stack.Deserialize.Add(&awsAwsjson11_deserializeOpGetRelationalDatabaseLogStreams{}, middleware.After)
-	if err != nil {
+	if err := stack.Deserialize.Add(&deserializeResponseMiddleware{options: &options, operationSchema: smithy.NewOperationSchema(schemas.GetRelationalDatabaseLogStreams, schemas.GetRelationalDatabaseLogStreamsRequest, schemas.GetRelationalDatabaseLogStreamsResult), output: &GetRelationalDatabaseLogStreamsOutput{}}, middleware.After); err != nil {
 		return err
 	}
 
-	if err = addlegacyEndpointContextSetter(stack, options); err != nil {
-		return err
-	}
-	if err = addComputeContentLength(stack); err != nil {
-		return err
-	}
 	if err = addResolveEndpointMiddleware(stack, options); err != nil {
 		return err
 	}
@@ -72,19 +95,10 @@ func (c *Client) addOperationGetRelationalDatabaseLogStreamsMiddlewares(stack *m
 	if err = addRecordResponseTiming(stack, options); err != nil {
 		return err
 	}
-	if err = smithyhttp.AddErrorCloseResponseBodyMiddleware(stack); err != nil {
-		return err
-	}
-	if err = smithyhttp.AddCloseResponseBodyMiddleware(stack); err != nil {
-		return err
-	}
 	if err = addCredentialSource(stack, options); err != nil {
 		return err
 	}
 	if err = addOpGetRelationalDatabaseLogStreamsValidationMiddleware(stack); err != nil {
-		return err
-	}
-	if err = stack.Initialize.Add(newServiceMetadataMiddleware(options.Region, "GetRelationalDatabaseLogStreams"), middleware.Before); err != nil {
 		return err
 	}
 	if err = addRequestIDRetrieverMiddleware(stack); err != nil {

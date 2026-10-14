@@ -4,9 +4,10 @@ package lightsail
 
 import (
 	"context"
+	"github.com/aws/aws-sdk-go-v2/service/lightsail/schemas"
 	"github.com/aws/aws-sdk-go-v2/service/lightsail/types"
+	smithy "github.com/aws/smithy-go"
 	"github.com/aws/smithy-go/middleware"
-	smithyhttp "github.com/aws/smithy-go/transport/http"
 )
 
 // Returns information about all static IPs in the user's account.
@@ -37,6 +38,18 @@ type GetStaticIpsInput struct {
 	noSmithyDocumentSerde
 }
 
+func (v *GetStaticIpsInput) Serialize(s smithy.ShapeSerializer) {
+	s.WriteStruct(schemas.GetStaticIpsRequest)
+	v.SerializeMembers(s)
+	s.CloseStruct()
+}
+
+func (v *GetStaticIpsInput) SerializeMembers(s smithy.ShapeSerializer) {
+	if v.PageToken != nil {
+		s.WriteString(schemas.GetStaticIpsRequest_pageToken, *v.PageToken)
+	}
+}
+
 type GetStaticIpsOutput struct {
 
 	// The token to advance to the next page of results from your request.
@@ -57,22 +70,38 @@ type GetStaticIpsOutput struct {
 	noSmithyDocumentSerde
 }
 
+func (v *GetStaticIpsOutput) Serialize(s smithy.ShapeSerializer) {
+	s.WriteStruct(schemas.GetStaticIpsResult)
+	v.SerializeMembers(s)
+	s.CloseStruct()
+}
+
+func (v *GetStaticIpsOutput) SerializeMembers(s smithy.ShapeSerializer) {
+	if v.NextPageToken != nil {
+		s.WriteString(schemas.GetStaticIpsResult_nextPageToken, *v.NextPageToken)
+	}
+	serializeStaticIpList(s, schemas.GetStaticIpsResult_staticIps, v.StaticIps)
+}
+func (v *GetStaticIpsOutput) Deserialize(d smithy.ShapeDeserializer) error {
+	return smithy.ReadStruct(d, schemas.GetStaticIpsResult, func(s *smithy.Schema) error {
+		switch s {
+		case schemas.GetStaticIpsResult_nextPageToken:
+			v.NextPageToken = new(string)
+			return d.ReadString(schemas.GetStaticIpsResult_nextPageToken, v.NextPageToken)
+		case schemas.GetStaticIpsResult_staticIps:
+			return deserializeStaticIpList(d, schemas.GetStaticIpsResult_staticIps, &v.StaticIps)
+		}
+		return nil
+	})
+}
 func (c *Client) addOperationGetStaticIpsMiddlewares(stack *middleware.Stack, options Options) (err error) {
-	err = stack.Serialize.Add(&awsAwsjson11_serializeOpGetStaticIps{}, middleware.After)
-	if err != nil {
+	if err := stack.Serialize.Add(&serializeRequestMiddleware{options: &options, operationSchema: smithy.NewOperationSchema(schemas.GetStaticIps, schemas.GetStaticIpsRequest, schemas.GetStaticIpsResult)}, middleware.After); err != nil {
 		return err
 	}
-	err = stack.Deserialize.Add(&awsAwsjson11_deserializeOpGetStaticIps{}, middleware.After)
-	if err != nil {
+	if err := stack.Deserialize.Add(&deserializeResponseMiddleware{options: &options, operationSchema: smithy.NewOperationSchema(schemas.GetStaticIps, schemas.GetStaticIpsRequest, schemas.GetStaticIpsResult), output: &GetStaticIpsOutput{}}, middleware.After); err != nil {
 		return err
 	}
 
-	if err = addlegacyEndpointContextSetter(stack, options); err != nil {
-		return err
-	}
-	if err = addComputeContentLength(stack); err != nil {
-		return err
-	}
 	if err = addResolveEndpointMiddleware(stack, options); err != nil {
 		return err
 	}
@@ -82,16 +111,7 @@ func (c *Client) addOperationGetStaticIpsMiddlewares(stack *middleware.Stack, op
 	if err = addRecordResponseTiming(stack, options); err != nil {
 		return err
 	}
-	if err = smithyhttp.AddErrorCloseResponseBodyMiddleware(stack); err != nil {
-		return err
-	}
-	if err = smithyhttp.AddCloseResponseBodyMiddleware(stack); err != nil {
-		return err
-	}
 	if err = addCredentialSource(stack, options); err != nil {
-		return err
-	}
-	if err = stack.Initialize.Add(newServiceMetadataMiddleware(options.Region, "GetStaticIps"), middleware.Before); err != nil {
 		return err
 	}
 	if err = addRequestIDRetrieverMiddleware(stack); err != nil {

@@ -4,9 +4,10 @@ package lightsail
 
 import (
 	"context"
+	"github.com/aws/aws-sdk-go-v2/service/lightsail/schemas"
 	"github.com/aws/aws-sdk-go-v2/service/lightsail/types"
+	smithy "github.com/aws/smithy-go"
 	"github.com/aws/smithy-go/middleware"
-	smithyhttp "github.com/aws/smithy-go/transport/http"
 )
 
 // Returns a list of TLS security policies that you can apply to Lightsail load
@@ -43,6 +44,18 @@ type GetLoadBalancerTlsPoliciesInput struct {
 	noSmithyDocumentSerde
 }
 
+func (v *GetLoadBalancerTlsPoliciesInput) Serialize(s smithy.ShapeSerializer) {
+	s.WriteStruct(schemas.GetLoadBalancerTlsPoliciesRequest)
+	v.SerializeMembers(s)
+	s.CloseStruct()
+}
+
+func (v *GetLoadBalancerTlsPoliciesInput) SerializeMembers(s smithy.ShapeSerializer) {
+	if v.PageToken != nil {
+		s.WriteString(schemas.GetLoadBalancerTlsPoliciesRequest_pageToken, *v.PageToken)
+	}
+}
+
 type GetLoadBalancerTlsPoliciesOutput struct {
 
 	// The token to advance to the next page of results from your request.
@@ -62,22 +75,38 @@ type GetLoadBalancerTlsPoliciesOutput struct {
 	noSmithyDocumentSerde
 }
 
+func (v *GetLoadBalancerTlsPoliciesOutput) Serialize(s smithy.ShapeSerializer) {
+	s.WriteStruct(schemas.GetLoadBalancerTlsPoliciesResult)
+	v.SerializeMembers(s)
+	s.CloseStruct()
+}
+
+func (v *GetLoadBalancerTlsPoliciesOutput) SerializeMembers(s smithy.ShapeSerializer) {
+	if v.NextPageToken != nil {
+		s.WriteString(schemas.GetLoadBalancerTlsPoliciesResult_nextPageToken, *v.NextPageToken)
+	}
+	serializeLoadBalancerTlsPolicyList(s, schemas.GetLoadBalancerTlsPoliciesResult_tlsPolicies, v.TlsPolicies)
+}
+func (v *GetLoadBalancerTlsPoliciesOutput) Deserialize(d smithy.ShapeDeserializer) error {
+	return smithy.ReadStruct(d, schemas.GetLoadBalancerTlsPoliciesResult, func(s *smithy.Schema) error {
+		switch s {
+		case schemas.GetLoadBalancerTlsPoliciesResult_nextPageToken:
+			v.NextPageToken = new(string)
+			return d.ReadString(schemas.GetLoadBalancerTlsPoliciesResult_nextPageToken, v.NextPageToken)
+		case schemas.GetLoadBalancerTlsPoliciesResult_tlsPolicies:
+			return deserializeLoadBalancerTlsPolicyList(d, schemas.GetLoadBalancerTlsPoliciesResult_tlsPolicies, &v.TlsPolicies)
+		}
+		return nil
+	})
+}
 func (c *Client) addOperationGetLoadBalancerTlsPoliciesMiddlewares(stack *middleware.Stack, options Options) (err error) {
-	err = stack.Serialize.Add(&awsAwsjson11_serializeOpGetLoadBalancerTlsPolicies{}, middleware.After)
-	if err != nil {
+	if err := stack.Serialize.Add(&serializeRequestMiddleware{options: &options, operationSchema: smithy.NewOperationSchema(schemas.GetLoadBalancerTlsPolicies, schemas.GetLoadBalancerTlsPoliciesRequest, schemas.GetLoadBalancerTlsPoliciesResult)}, middleware.After); err != nil {
 		return err
 	}
-	err = stack.Deserialize.Add(&awsAwsjson11_deserializeOpGetLoadBalancerTlsPolicies{}, middleware.After)
-	if err != nil {
+	if err := stack.Deserialize.Add(&deserializeResponseMiddleware{options: &options, operationSchema: smithy.NewOperationSchema(schemas.GetLoadBalancerTlsPolicies, schemas.GetLoadBalancerTlsPoliciesRequest, schemas.GetLoadBalancerTlsPoliciesResult), output: &GetLoadBalancerTlsPoliciesOutput{}}, middleware.After); err != nil {
 		return err
 	}
 
-	if err = addlegacyEndpointContextSetter(stack, options); err != nil {
-		return err
-	}
-	if err = addComputeContentLength(stack); err != nil {
-		return err
-	}
 	if err = addResolveEndpointMiddleware(stack, options); err != nil {
 		return err
 	}
@@ -87,16 +116,7 @@ func (c *Client) addOperationGetLoadBalancerTlsPoliciesMiddlewares(stack *middle
 	if err = addRecordResponseTiming(stack, options); err != nil {
 		return err
 	}
-	if err = smithyhttp.AddErrorCloseResponseBodyMiddleware(stack); err != nil {
-		return err
-	}
-	if err = smithyhttp.AddCloseResponseBodyMiddleware(stack); err != nil {
-		return err
-	}
 	if err = addCredentialSource(stack, options); err != nil {
-		return err
-	}
-	if err = stack.Initialize.Add(newServiceMetadataMiddleware(options.Region, "GetLoadBalancerTlsPolicies"), middleware.Before); err != nil {
 		return err
 	}
 	if err = addRequestIDRetrieverMiddleware(stack); err != nil {

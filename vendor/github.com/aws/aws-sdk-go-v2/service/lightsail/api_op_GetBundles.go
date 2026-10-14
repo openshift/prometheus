@@ -4,9 +4,10 @@ package lightsail
 
 import (
 	"context"
+	"github.com/aws/aws-sdk-go-v2/service/lightsail/schemas"
 	"github.com/aws/aws-sdk-go-v2/service/lightsail/types"
+	smithy "github.com/aws/smithy-go"
 	"github.com/aws/smithy-go/middleware"
-	smithyhttp "github.com/aws/smithy-go/transport/http"
 )
 
 // Returns the bundles that you can apply to an Amazon Lightsail instance when you
@@ -53,6 +54,24 @@ type GetBundlesInput struct {
 	noSmithyDocumentSerde
 }
 
+func (v *GetBundlesInput) Serialize(s smithy.ShapeSerializer) {
+	s.WriteStruct(schemas.GetBundlesRequest)
+	v.SerializeMembers(s)
+	s.CloseStruct()
+}
+
+func (v *GetBundlesInput) SerializeMembers(s smithy.ShapeSerializer) {
+	if v.AppCategory != "" {
+		s.WriteString(schemas.GetBundlesRequest_appCategory, string(v.AppCategory))
+	}
+	if v.IncludeInactive != nil {
+		s.WriteBool(schemas.GetBundlesRequest_includeInactive, *v.IncludeInactive)
+	}
+	if v.PageToken != nil {
+		s.WriteString(schemas.GetBundlesRequest_pageToken, *v.PageToken)
+	}
+}
+
 type GetBundlesOutput struct {
 
 	// An array of key-value pairs that contains information about the available
@@ -73,22 +92,38 @@ type GetBundlesOutput struct {
 	noSmithyDocumentSerde
 }
 
+func (v *GetBundlesOutput) Serialize(s smithy.ShapeSerializer) {
+	s.WriteStruct(schemas.GetBundlesResult)
+	v.SerializeMembers(s)
+	s.CloseStruct()
+}
+
+func (v *GetBundlesOutput) SerializeMembers(s smithy.ShapeSerializer) {
+	serializeBundleList(s, schemas.GetBundlesResult_bundles, v.Bundles)
+	if v.NextPageToken != nil {
+		s.WriteString(schemas.GetBundlesResult_nextPageToken, *v.NextPageToken)
+	}
+}
+func (v *GetBundlesOutput) Deserialize(d smithy.ShapeDeserializer) error {
+	return smithy.ReadStruct(d, schemas.GetBundlesResult, func(s *smithy.Schema) error {
+		switch s {
+		case schemas.GetBundlesResult_bundles:
+			return deserializeBundleList(d, schemas.GetBundlesResult_bundles, &v.Bundles)
+		case schemas.GetBundlesResult_nextPageToken:
+			v.NextPageToken = new(string)
+			return d.ReadString(schemas.GetBundlesResult_nextPageToken, v.NextPageToken)
+		}
+		return nil
+	})
+}
 func (c *Client) addOperationGetBundlesMiddlewares(stack *middleware.Stack, options Options) (err error) {
-	err = stack.Serialize.Add(&awsAwsjson11_serializeOpGetBundles{}, middleware.After)
-	if err != nil {
+	if err := stack.Serialize.Add(&serializeRequestMiddleware{options: &options, operationSchema: smithy.NewOperationSchema(schemas.GetBundles, schemas.GetBundlesRequest, schemas.GetBundlesResult)}, middleware.After); err != nil {
 		return err
 	}
-	err = stack.Deserialize.Add(&awsAwsjson11_deserializeOpGetBundles{}, middleware.After)
-	if err != nil {
+	if err := stack.Deserialize.Add(&deserializeResponseMiddleware{options: &options, operationSchema: smithy.NewOperationSchema(schemas.GetBundles, schemas.GetBundlesRequest, schemas.GetBundlesResult), output: &GetBundlesOutput{}}, middleware.After); err != nil {
 		return err
 	}
 
-	if err = addlegacyEndpointContextSetter(stack, options); err != nil {
-		return err
-	}
-	if err = addComputeContentLength(stack); err != nil {
-		return err
-	}
 	if err = addResolveEndpointMiddleware(stack, options); err != nil {
 		return err
 	}
@@ -98,16 +133,7 @@ func (c *Client) addOperationGetBundlesMiddlewares(stack *middleware.Stack, opti
 	if err = addRecordResponseTiming(stack, options); err != nil {
 		return err
 	}
-	if err = smithyhttp.AddErrorCloseResponseBodyMiddleware(stack); err != nil {
-		return err
-	}
-	if err = smithyhttp.AddCloseResponseBodyMiddleware(stack); err != nil {
-		return err
-	}
 	if err = addCredentialSource(stack, options); err != nil {
-		return err
-	}
-	if err = stack.Initialize.Add(newServiceMetadataMiddleware(options.Region, "GetBundles"), middleware.Before); err != nil {
 		return err
 	}
 	if err = addRequestIDRetrieverMiddleware(stack); err != nil {

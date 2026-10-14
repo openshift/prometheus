@@ -4,9 +4,10 @@ package lightsail
 
 import (
 	"context"
+	"github.com/aws/aws-sdk-go-v2/service/lightsail/schemas"
 	"github.com/aws/aws-sdk-go-v2/service/lightsail/types"
+	smithy "github.com/aws/smithy-go"
 	"github.com/aws/smithy-go/middleware"
-	smithyhttp "github.com/aws/smithy-go/transport/http"
 	"time"
 )
 
@@ -110,6 +111,31 @@ type GetContainerServiceMetricDataInput struct {
 	noSmithyDocumentSerde
 }
 
+func (v *GetContainerServiceMetricDataInput) Serialize(s smithy.ShapeSerializer) {
+	s.WriteStruct(schemas.GetContainerServiceMetricDataRequest)
+	v.SerializeMembers(s)
+	s.CloseStruct()
+}
+
+func (v *GetContainerServiceMetricDataInput) SerializeMembers(s smithy.ShapeSerializer) {
+	if v.EndTime != nil {
+		s.WriteTime(schemas.GetContainerServiceMetricDataRequest_endTime, *v.EndTime)
+	}
+	if v.MetricName != "" {
+		s.WriteString(schemas.GetContainerServiceMetricDataRequest_metricName, string(v.MetricName))
+	}
+	if v.Period != nil {
+		s.WriteInt32(schemas.GetContainerServiceMetricDataRequest_period, *v.Period)
+	}
+	if v.ServiceName != nil {
+		s.WriteString(schemas.GetContainerServiceMetricDataRequest_serviceName, *v.ServiceName)
+	}
+	if v.StartTime != nil {
+		s.WriteTime(schemas.GetContainerServiceMetricDataRequest_startTime, *v.StartTime)
+	}
+	serializeMetricStatisticList(s, schemas.GetContainerServiceMetricDataRequest_statistics, v.Statistics)
+}
+
 type GetContainerServiceMetricDataOutput struct {
 
 	// An array of objects that describe the metric data returned.
@@ -124,22 +150,42 @@ type GetContainerServiceMetricDataOutput struct {
 	noSmithyDocumentSerde
 }
 
+func (v *GetContainerServiceMetricDataOutput) Serialize(s smithy.ShapeSerializer) {
+	s.WriteStruct(schemas.GetContainerServiceMetricDataResult)
+	v.SerializeMembers(s)
+	s.CloseStruct()
+}
+
+func (v *GetContainerServiceMetricDataOutput) SerializeMembers(s smithy.ShapeSerializer) {
+	serializeMetricDatapointList(s, schemas.GetContainerServiceMetricDataResult_metricData, v.MetricData)
+	if v.MetricName != "" {
+		s.WriteString(schemas.GetContainerServiceMetricDataResult_metricName, string(v.MetricName))
+	}
+}
+func (v *GetContainerServiceMetricDataOutput) Deserialize(d smithy.ShapeDeserializer) error {
+	return smithy.ReadStruct(d, schemas.GetContainerServiceMetricDataResult, func(s *smithy.Schema) error {
+		switch s {
+		case schemas.GetContainerServiceMetricDataResult_metricData:
+			return deserializeMetricDatapointList(d, schemas.GetContainerServiceMetricDataResult_metricData, &v.MetricData)
+		case schemas.GetContainerServiceMetricDataResult_metricName:
+			var ev string
+			if err := d.ReadString(schemas.GetContainerServiceMetricDataResult_metricName, &ev); err != nil {
+				return err
+			}
+			v.MetricName = types.ContainerServiceMetricName(ev)
+			return nil
+		}
+		return nil
+	})
+}
 func (c *Client) addOperationGetContainerServiceMetricDataMiddlewares(stack *middleware.Stack, options Options) (err error) {
-	err = stack.Serialize.Add(&awsAwsjson11_serializeOpGetContainerServiceMetricData{}, middleware.After)
-	if err != nil {
+	if err := stack.Serialize.Add(&serializeRequestMiddleware{options: &options, operationSchema: smithy.NewOperationSchema(schemas.GetContainerServiceMetricData, schemas.GetContainerServiceMetricDataRequest, schemas.GetContainerServiceMetricDataResult)}, middleware.After); err != nil {
 		return err
 	}
-	err = stack.Deserialize.Add(&awsAwsjson11_deserializeOpGetContainerServiceMetricData{}, middleware.After)
-	if err != nil {
+	if err := stack.Deserialize.Add(&deserializeResponseMiddleware{options: &options, operationSchema: smithy.NewOperationSchema(schemas.GetContainerServiceMetricData, schemas.GetContainerServiceMetricDataRequest, schemas.GetContainerServiceMetricDataResult), output: &GetContainerServiceMetricDataOutput{}}, middleware.After); err != nil {
 		return err
 	}
 
-	if err = addlegacyEndpointContextSetter(stack, options); err != nil {
-		return err
-	}
-	if err = addComputeContentLength(stack); err != nil {
-		return err
-	}
 	if err = addResolveEndpointMiddleware(stack, options); err != nil {
 		return err
 	}
@@ -149,19 +195,10 @@ func (c *Client) addOperationGetContainerServiceMetricDataMiddlewares(stack *mid
 	if err = addRecordResponseTiming(stack, options); err != nil {
 		return err
 	}
-	if err = smithyhttp.AddErrorCloseResponseBodyMiddleware(stack); err != nil {
-		return err
-	}
-	if err = smithyhttp.AddCloseResponseBodyMiddleware(stack); err != nil {
-		return err
-	}
 	if err = addCredentialSource(stack, options); err != nil {
 		return err
 	}
 	if err = addOpGetContainerServiceMetricDataValidationMiddleware(stack); err != nil {
-		return err
-	}
-	if err = stack.Initialize.Add(newServiceMetadataMiddleware(options.Region, "GetContainerServiceMetricData"), middleware.Before); err != nil {
 		return err
 	}
 	if err = addRequestIDRetrieverMiddleware(stack); err != nil {

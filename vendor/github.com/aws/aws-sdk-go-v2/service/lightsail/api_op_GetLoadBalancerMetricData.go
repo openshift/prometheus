@@ -4,9 +4,10 @@ package lightsail
 
 import (
 	"context"
+	"github.com/aws/aws-sdk-go-v2/service/lightsail/schemas"
 	"github.com/aws/aws-sdk-go-v2/service/lightsail/types"
+	smithy "github.com/aws/smithy-go"
 	"github.com/aws/smithy-go/middleware"
-	smithyhttp "github.com/aws/smithy-go/transport/http"
 	"time"
 )
 
@@ -199,6 +200,34 @@ type GetLoadBalancerMetricDataInput struct {
 	noSmithyDocumentSerde
 }
 
+func (v *GetLoadBalancerMetricDataInput) Serialize(s smithy.ShapeSerializer) {
+	s.WriteStruct(schemas.GetLoadBalancerMetricDataRequest)
+	v.SerializeMembers(s)
+	s.CloseStruct()
+}
+
+func (v *GetLoadBalancerMetricDataInput) SerializeMembers(s smithy.ShapeSerializer) {
+	if v.EndTime != nil {
+		s.WriteTime(schemas.GetLoadBalancerMetricDataRequest_endTime, *v.EndTime)
+	}
+	if v.LoadBalancerName != nil {
+		s.WriteString(schemas.GetLoadBalancerMetricDataRequest_loadBalancerName, *v.LoadBalancerName)
+	}
+	if v.MetricName != "" {
+		s.WriteString(schemas.GetLoadBalancerMetricDataRequest_metricName, string(v.MetricName))
+	}
+	if v.Period != nil {
+		s.WriteInt32(schemas.GetLoadBalancerMetricDataRequest_period, *v.Period)
+	}
+	if v.StartTime != nil {
+		s.WriteTime(schemas.GetLoadBalancerMetricDataRequest_startTime, *v.StartTime)
+	}
+	serializeMetricStatisticList(s, schemas.GetLoadBalancerMetricDataRequest_statistics, v.Statistics)
+	if v.Unit != "" {
+		s.WriteString(schemas.GetLoadBalancerMetricDataRequest_unit, string(v.Unit))
+	}
+}
+
 type GetLoadBalancerMetricDataOutput struct {
 
 	// An array of objects that describe the metric data returned.
@@ -213,22 +242,42 @@ type GetLoadBalancerMetricDataOutput struct {
 	noSmithyDocumentSerde
 }
 
+func (v *GetLoadBalancerMetricDataOutput) Serialize(s smithy.ShapeSerializer) {
+	s.WriteStruct(schemas.GetLoadBalancerMetricDataResult)
+	v.SerializeMembers(s)
+	s.CloseStruct()
+}
+
+func (v *GetLoadBalancerMetricDataOutput) SerializeMembers(s smithy.ShapeSerializer) {
+	serializeMetricDatapointList(s, schemas.GetLoadBalancerMetricDataResult_metricData, v.MetricData)
+	if v.MetricName != "" {
+		s.WriteString(schemas.GetLoadBalancerMetricDataResult_metricName, string(v.MetricName))
+	}
+}
+func (v *GetLoadBalancerMetricDataOutput) Deserialize(d smithy.ShapeDeserializer) error {
+	return smithy.ReadStruct(d, schemas.GetLoadBalancerMetricDataResult, func(s *smithy.Schema) error {
+		switch s {
+		case schemas.GetLoadBalancerMetricDataResult_metricData:
+			return deserializeMetricDatapointList(d, schemas.GetLoadBalancerMetricDataResult_metricData, &v.MetricData)
+		case schemas.GetLoadBalancerMetricDataResult_metricName:
+			var ev string
+			if err := d.ReadString(schemas.GetLoadBalancerMetricDataResult_metricName, &ev); err != nil {
+				return err
+			}
+			v.MetricName = types.LoadBalancerMetricName(ev)
+			return nil
+		}
+		return nil
+	})
+}
 func (c *Client) addOperationGetLoadBalancerMetricDataMiddlewares(stack *middleware.Stack, options Options) (err error) {
-	err = stack.Serialize.Add(&awsAwsjson11_serializeOpGetLoadBalancerMetricData{}, middleware.After)
-	if err != nil {
+	if err := stack.Serialize.Add(&serializeRequestMiddleware{options: &options, operationSchema: smithy.NewOperationSchema(schemas.GetLoadBalancerMetricData, schemas.GetLoadBalancerMetricDataRequest, schemas.GetLoadBalancerMetricDataResult)}, middleware.After); err != nil {
 		return err
 	}
-	err = stack.Deserialize.Add(&awsAwsjson11_deserializeOpGetLoadBalancerMetricData{}, middleware.After)
-	if err != nil {
+	if err := stack.Deserialize.Add(&deserializeResponseMiddleware{options: &options, operationSchema: smithy.NewOperationSchema(schemas.GetLoadBalancerMetricData, schemas.GetLoadBalancerMetricDataRequest, schemas.GetLoadBalancerMetricDataResult), output: &GetLoadBalancerMetricDataOutput{}}, middleware.After); err != nil {
 		return err
 	}
 
-	if err = addlegacyEndpointContextSetter(stack, options); err != nil {
-		return err
-	}
-	if err = addComputeContentLength(stack); err != nil {
-		return err
-	}
 	if err = addResolveEndpointMiddleware(stack, options); err != nil {
 		return err
 	}
@@ -238,19 +287,10 @@ func (c *Client) addOperationGetLoadBalancerMetricDataMiddlewares(stack *middlew
 	if err = addRecordResponseTiming(stack, options); err != nil {
 		return err
 	}
-	if err = smithyhttp.AddErrorCloseResponseBodyMiddleware(stack); err != nil {
-		return err
-	}
-	if err = smithyhttp.AddCloseResponseBodyMiddleware(stack); err != nil {
-		return err
-	}
 	if err = addCredentialSource(stack, options); err != nil {
 		return err
 	}
 	if err = addOpGetLoadBalancerMetricDataValidationMiddleware(stack); err != nil {
-		return err
-	}
-	if err = stack.Initialize.Add(newServiceMetadataMiddleware(options.Region, "GetLoadBalancerMetricData"), middleware.Before); err != nil {
 		return err
 	}
 	if err = addRequestIDRetrieverMiddleware(stack); err != nil {

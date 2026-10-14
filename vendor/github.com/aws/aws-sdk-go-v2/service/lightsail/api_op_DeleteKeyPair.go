@@ -4,9 +4,10 @@ package lightsail
 
 import (
 	"context"
+	"github.com/aws/aws-sdk-go-v2/service/lightsail/schemas"
 	"github.com/aws/aws-sdk-go-v2/service/lightsail/types"
+	smithy "github.com/aws/smithy-go"
 	"github.com/aws/smithy-go/middleware"
-	smithyhttp "github.com/aws/smithy-go/transport/http"
 )
 
 // Deletes the specified key pair by removing the public key from Amazon Lightsail.
@@ -55,6 +56,21 @@ type DeleteKeyPairInput struct {
 	noSmithyDocumentSerde
 }
 
+func (v *DeleteKeyPairInput) Serialize(s smithy.ShapeSerializer) {
+	s.WriteStruct(schemas.DeleteKeyPairRequest)
+	v.SerializeMembers(s)
+	s.CloseStruct()
+}
+
+func (v *DeleteKeyPairInput) SerializeMembers(s smithy.ShapeSerializer) {
+	if v.ExpectedFingerprint != nil {
+		s.WriteString(schemas.DeleteKeyPairRequest_expectedFingerprint, *v.ExpectedFingerprint)
+	}
+	if v.KeyPairName != nil {
+		s.WriteString(schemas.DeleteKeyPairRequest_keyPairName, *v.KeyPairName)
+	}
+}
+
 type DeleteKeyPairOutput struct {
 
 	// An array of objects that describe the result of the action, such as the status
@@ -68,22 +84,37 @@ type DeleteKeyPairOutput struct {
 	noSmithyDocumentSerde
 }
 
+func (v *DeleteKeyPairOutput) Serialize(s smithy.ShapeSerializer) {
+	s.WriteStruct(schemas.DeleteKeyPairResult)
+	v.SerializeMembers(s)
+	s.CloseStruct()
+}
+
+func (v *DeleteKeyPairOutput) SerializeMembers(s smithy.ShapeSerializer) {
+	if v.Operation != nil {
+		s.WriteStruct(schemas.DeleteKeyPairResult_operation)
+		v.Operation.SerializeMembers(s)
+		s.CloseStruct()
+	}
+}
+func (v *DeleteKeyPairOutput) Deserialize(d smithy.ShapeDeserializer) error {
+	return smithy.ReadStruct(d, schemas.DeleteKeyPairResult, func(s *smithy.Schema) error {
+		switch s {
+		case schemas.DeleteKeyPairResult_operation:
+			v.Operation = &types.Operation{}
+			return v.Operation.Deserialize(d)
+		}
+		return nil
+	})
+}
 func (c *Client) addOperationDeleteKeyPairMiddlewares(stack *middleware.Stack, options Options) (err error) {
-	err = stack.Serialize.Add(&awsAwsjson11_serializeOpDeleteKeyPair{}, middleware.After)
-	if err != nil {
+	if err := stack.Serialize.Add(&serializeRequestMiddleware{options: &options, operationSchema: smithy.NewOperationSchema(schemas.DeleteKeyPair, schemas.DeleteKeyPairRequest, schemas.DeleteKeyPairResult)}, middleware.After); err != nil {
 		return err
 	}
-	err = stack.Deserialize.Add(&awsAwsjson11_deserializeOpDeleteKeyPair{}, middleware.After)
-	if err != nil {
+	if err := stack.Deserialize.Add(&deserializeResponseMiddleware{options: &options, operationSchema: smithy.NewOperationSchema(schemas.DeleteKeyPair, schemas.DeleteKeyPairRequest, schemas.DeleteKeyPairResult), output: &DeleteKeyPairOutput{}}, middleware.After); err != nil {
 		return err
 	}
 
-	if err = addlegacyEndpointContextSetter(stack, options); err != nil {
-		return err
-	}
-	if err = addComputeContentLength(stack); err != nil {
-		return err
-	}
 	if err = addResolveEndpointMiddleware(stack, options); err != nil {
 		return err
 	}
@@ -93,19 +124,10 @@ func (c *Client) addOperationDeleteKeyPairMiddlewares(stack *middleware.Stack, o
 	if err = addRecordResponseTiming(stack, options); err != nil {
 		return err
 	}
-	if err = smithyhttp.AddErrorCloseResponseBodyMiddleware(stack); err != nil {
-		return err
-	}
-	if err = smithyhttp.AddCloseResponseBodyMiddleware(stack); err != nil {
-		return err
-	}
 	if err = addCredentialSource(stack, options); err != nil {
 		return err
 	}
 	if err = addOpDeleteKeyPairValidationMiddleware(stack); err != nil {
-		return err
-	}
-	if err = stack.Initialize.Add(newServiceMetadataMiddleware(options.Region, "DeleteKeyPair"), middleware.Before); err != nil {
 		return err
 	}
 	if err = addRequestIDRetrieverMiddleware(stack); err != nil {

@@ -4,9 +4,10 @@ package lightsail
 
 import (
 	"context"
+	"github.com/aws/aws-sdk-go-v2/service/lightsail/schemas"
 	"github.com/aws/aws-sdk-go-v2/service/lightsail/types"
+	smithy "github.com/aws/smithy-go"
 	"github.com/aws/smithy-go/middleware"
-	smithyhttp "github.com/aws/smithy-go/transport/http"
 )
 
 // Exports an Amazon Lightsail instance or block storage disk snapshot to Amazon
@@ -53,6 +54,18 @@ type ExportSnapshotInput struct {
 	noSmithyDocumentSerde
 }
 
+func (v *ExportSnapshotInput) Serialize(s smithy.ShapeSerializer) {
+	s.WriteStruct(schemas.ExportSnapshotRequest)
+	v.SerializeMembers(s)
+	s.CloseStruct()
+}
+
+func (v *ExportSnapshotInput) SerializeMembers(s smithy.ShapeSerializer) {
+	if v.SourceSnapshotName != nil {
+		s.WriteString(schemas.ExportSnapshotRequest_sourceSnapshotName, *v.SourceSnapshotName)
+	}
+}
+
 type ExportSnapshotOutput struct {
 
 	// An array of objects that describe the result of the action, such as the status
@@ -66,22 +79,32 @@ type ExportSnapshotOutput struct {
 	noSmithyDocumentSerde
 }
 
+func (v *ExportSnapshotOutput) Serialize(s smithy.ShapeSerializer) {
+	s.WriteStruct(schemas.ExportSnapshotResult)
+	v.SerializeMembers(s)
+	s.CloseStruct()
+}
+
+func (v *ExportSnapshotOutput) SerializeMembers(s smithy.ShapeSerializer) {
+	serializeOperationList(s, schemas.ExportSnapshotResult_operations, v.Operations)
+}
+func (v *ExportSnapshotOutput) Deserialize(d smithy.ShapeDeserializer) error {
+	return smithy.ReadStruct(d, schemas.ExportSnapshotResult, func(s *smithy.Schema) error {
+		switch s {
+		case schemas.ExportSnapshotResult_operations:
+			return deserializeOperationList(d, schemas.ExportSnapshotResult_operations, &v.Operations)
+		}
+		return nil
+	})
+}
 func (c *Client) addOperationExportSnapshotMiddlewares(stack *middleware.Stack, options Options) (err error) {
-	err = stack.Serialize.Add(&awsAwsjson11_serializeOpExportSnapshot{}, middleware.After)
-	if err != nil {
+	if err := stack.Serialize.Add(&serializeRequestMiddleware{options: &options, operationSchema: smithy.NewOperationSchema(schemas.ExportSnapshot, schemas.ExportSnapshotRequest, schemas.ExportSnapshotResult)}, middleware.After); err != nil {
 		return err
 	}
-	err = stack.Deserialize.Add(&awsAwsjson11_deserializeOpExportSnapshot{}, middleware.After)
-	if err != nil {
+	if err := stack.Deserialize.Add(&deserializeResponseMiddleware{options: &options, operationSchema: smithy.NewOperationSchema(schemas.ExportSnapshot, schemas.ExportSnapshotRequest, schemas.ExportSnapshotResult), output: &ExportSnapshotOutput{}}, middleware.After); err != nil {
 		return err
 	}
 
-	if err = addlegacyEndpointContextSetter(stack, options); err != nil {
-		return err
-	}
-	if err = addComputeContentLength(stack); err != nil {
-		return err
-	}
 	if err = addResolveEndpointMiddleware(stack, options); err != nil {
 		return err
 	}
@@ -91,19 +114,10 @@ func (c *Client) addOperationExportSnapshotMiddlewares(stack *middleware.Stack, 
 	if err = addRecordResponseTiming(stack, options); err != nil {
 		return err
 	}
-	if err = smithyhttp.AddErrorCloseResponseBodyMiddleware(stack); err != nil {
-		return err
-	}
-	if err = smithyhttp.AddCloseResponseBodyMiddleware(stack); err != nil {
-		return err
-	}
 	if err = addCredentialSource(stack, options); err != nil {
 		return err
 	}
 	if err = addOpExportSnapshotValidationMiddleware(stack); err != nil {
-		return err
-	}
-	if err = stack.Initialize.Add(newServiceMetadataMiddleware(options.Region, "ExportSnapshot"), middleware.Before); err != nil {
 		return err
 	}
 	if err = addRequestIDRetrieverMiddleware(stack); err != nil {

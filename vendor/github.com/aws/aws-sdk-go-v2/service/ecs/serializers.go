@@ -6123,6 +6123,13 @@ func awsAwsjson11_serializeDocumentDeploymentConfiguration(v *types.DeploymentCo
 		}
 	}
 
+	if v.EarlySuccessCriteria != nil {
+		ok := object.Key("earlySuccessCriteria")
+		if err := awsAwsjson11_serializeDocumentDeploymentEarlySuccessCriteria(v.EarlySuccessCriteria, ok); err != nil {
+			return err
+		}
+	}
+
 	if v.LifecycleHooks != nil {
 		ok := object.Key("lifecycleHooks")
 		if err := awsAwsjson11_serializeDocumentDeploymentLifecycleHookList(v.LifecycleHooks, ok); err != nil {
@@ -6162,6 +6169,28 @@ func awsAwsjson11_serializeDocumentDeploymentController(v *types.DeploymentContr
 	if len(v.Type) > 0 {
 		ok := object.Key("type")
 		ok.String(string(v.Type))
+	}
+
+	return nil
+}
+
+func awsAwsjson11_serializeDocumentDeploymentEarlySuccessCriteria(v *types.DeploymentEarlySuccessCriteria, value smithyjson.Value) error {
+	object := value.Object()
+	defer object.Close()
+
+	{
+		ok := object.Key("enable")
+		ok.Boolean(v.Enable)
+	}
+
+	if v.HealthyPercent != nil {
+		ok := object.Key("healthyPercent")
+		ok.Integer(*v.HealthyPercent)
+	}
+
+	if len(v.SourceServiceRevisionCleanup) > 0 {
+		ok := object.Key("sourceServiceRevisionCleanup")
+		ok.String(string(v.SourceServiceRevisionCleanup))
 	}
 
 	return nil
@@ -9443,6 +9472,11 @@ func awsAwsjson11_serializeOpDocumentCreateDaemonInput(v *CreateDaemonInput, val
 		ok.String(*v.ClusterArn)
 	}
 
+	if v.Critical != nil {
+		ok := object.Key("critical")
+		ok.Boolean(*v.Critical)
+	}
+
 	if v.DaemonName != nil {
 		ok := object.Key("daemonName")
 		ok.String(*v.DaemonName)
@@ -11688,6 +11722,11 @@ func awsAwsjson11_serializeOpDocumentUpdateDaemonInput(v *UpdateDaemonInput, val
 		if err := awsAwsjson11_serializeDocumentStringList(v.CapacityProviderArns, ok); err != nil {
 			return err
 		}
+	}
+
+	if v.Critical != nil {
+		ok := object.Key("critical")
+		ok.Boolean(*v.Critical)
 	}
 
 	if v.DaemonArn != nil {

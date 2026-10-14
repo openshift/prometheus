@@ -4,9 +4,10 @@ package lightsail
 
 import (
 	"context"
+	"github.com/aws/aws-sdk-go-v2/service/lightsail/schemas"
 	"github.com/aws/aws-sdk-go-v2/service/lightsail/types"
+	smithy "github.com/aws/smithy-go"
 	"github.com/aws/smithy-go/middleware"
-	smithyhttp "github.com/aws/smithy-go/transport/http"
 )
 
 // Tests an alarm by displaying a banner on the Amazon Lightsail console. If a
@@ -59,6 +60,21 @@ type TestAlarmInput struct {
 	noSmithyDocumentSerde
 }
 
+func (v *TestAlarmInput) Serialize(s smithy.ShapeSerializer) {
+	s.WriteStruct(schemas.TestAlarmRequest)
+	v.SerializeMembers(s)
+	s.CloseStruct()
+}
+
+func (v *TestAlarmInput) SerializeMembers(s smithy.ShapeSerializer) {
+	if v.AlarmName != nil {
+		s.WriteString(schemas.TestAlarmRequest_alarmName, *v.AlarmName)
+	}
+	if v.State != "" {
+		s.WriteString(schemas.TestAlarmRequest_state, string(v.State))
+	}
+}
+
 type TestAlarmOutput struct {
 
 	// An array of objects that describe the result of the action, such as the status
@@ -72,22 +88,32 @@ type TestAlarmOutput struct {
 	noSmithyDocumentSerde
 }
 
+func (v *TestAlarmOutput) Serialize(s smithy.ShapeSerializer) {
+	s.WriteStruct(schemas.TestAlarmResult)
+	v.SerializeMembers(s)
+	s.CloseStruct()
+}
+
+func (v *TestAlarmOutput) SerializeMembers(s smithy.ShapeSerializer) {
+	serializeOperationList(s, schemas.TestAlarmResult_operations, v.Operations)
+}
+func (v *TestAlarmOutput) Deserialize(d smithy.ShapeDeserializer) error {
+	return smithy.ReadStruct(d, schemas.TestAlarmResult, func(s *smithy.Schema) error {
+		switch s {
+		case schemas.TestAlarmResult_operations:
+			return deserializeOperationList(d, schemas.TestAlarmResult_operations, &v.Operations)
+		}
+		return nil
+	})
+}
 func (c *Client) addOperationTestAlarmMiddlewares(stack *middleware.Stack, options Options) (err error) {
-	err = stack.Serialize.Add(&awsAwsjson11_serializeOpTestAlarm{}, middleware.After)
-	if err != nil {
+	if err := stack.Serialize.Add(&serializeRequestMiddleware{options: &options, operationSchema: smithy.NewOperationSchema(schemas.TestAlarm, schemas.TestAlarmRequest, schemas.TestAlarmResult)}, middleware.After); err != nil {
 		return err
 	}
-	err = stack.Deserialize.Add(&awsAwsjson11_deserializeOpTestAlarm{}, middleware.After)
-	if err != nil {
+	if err := stack.Deserialize.Add(&deserializeResponseMiddleware{options: &options, operationSchema: smithy.NewOperationSchema(schemas.TestAlarm, schemas.TestAlarmRequest, schemas.TestAlarmResult), output: &TestAlarmOutput{}}, middleware.After); err != nil {
 		return err
 	}
 
-	if err = addlegacyEndpointContextSetter(stack, options); err != nil {
-		return err
-	}
-	if err = addComputeContentLength(stack); err != nil {
-		return err
-	}
 	if err = addResolveEndpointMiddleware(stack, options); err != nil {
 		return err
 	}
@@ -97,19 +123,10 @@ func (c *Client) addOperationTestAlarmMiddlewares(stack *middleware.Stack, optio
 	if err = addRecordResponseTiming(stack, options); err != nil {
 		return err
 	}
-	if err = smithyhttp.AddErrorCloseResponseBodyMiddleware(stack); err != nil {
-		return err
-	}
-	if err = smithyhttp.AddCloseResponseBodyMiddleware(stack); err != nil {
-		return err
-	}
 	if err = addCredentialSource(stack, options); err != nil {
 		return err
 	}
 	if err = addOpTestAlarmValidationMiddleware(stack); err != nil {
-		return err
-	}
-	if err = stack.Initialize.Add(newServiceMetadataMiddleware(options.Region, "TestAlarm"), middleware.Before); err != nil {
 		return err
 	}
 	if err = addRequestIDRetrieverMiddleware(stack); err != nil {

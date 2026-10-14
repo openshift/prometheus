@@ -4,9 +4,10 @@ package lightsail
 
 import (
 	"context"
+	"github.com/aws/aws-sdk-go-v2/service/lightsail/schemas"
 	"github.com/aws/aws-sdk-go-v2/service/lightsail/types"
+	smithy "github.com/aws/smithy-go"
 	"github.com/aws/smithy-go/middleware"
-	smithyhttp "github.com/aws/smithy-go/transport/http"
 )
 
 // Returns information about a specific database snapshot in Amazon Lightsail.
@@ -35,6 +36,18 @@ type GetRelationalDatabaseSnapshotInput struct {
 	noSmithyDocumentSerde
 }
 
+func (v *GetRelationalDatabaseSnapshotInput) Serialize(s smithy.ShapeSerializer) {
+	s.WriteStruct(schemas.GetRelationalDatabaseSnapshotRequest)
+	v.SerializeMembers(s)
+	s.CloseStruct()
+}
+
+func (v *GetRelationalDatabaseSnapshotInput) SerializeMembers(s smithy.ShapeSerializer) {
+	if v.RelationalDatabaseSnapshotName != nil {
+		s.WriteString(schemas.GetRelationalDatabaseSnapshotRequest_relationalDatabaseSnapshotName, *v.RelationalDatabaseSnapshotName)
+	}
+}
+
 type GetRelationalDatabaseSnapshotOutput struct {
 
 	// An object describing the specified database snapshot.
@@ -46,22 +59,37 @@ type GetRelationalDatabaseSnapshotOutput struct {
 	noSmithyDocumentSerde
 }
 
+func (v *GetRelationalDatabaseSnapshotOutput) Serialize(s smithy.ShapeSerializer) {
+	s.WriteStruct(schemas.GetRelationalDatabaseSnapshotResult)
+	v.SerializeMembers(s)
+	s.CloseStruct()
+}
+
+func (v *GetRelationalDatabaseSnapshotOutput) SerializeMembers(s smithy.ShapeSerializer) {
+	if v.RelationalDatabaseSnapshot != nil {
+		s.WriteStruct(schemas.GetRelationalDatabaseSnapshotResult_relationalDatabaseSnapshot)
+		v.RelationalDatabaseSnapshot.SerializeMembers(s)
+		s.CloseStruct()
+	}
+}
+func (v *GetRelationalDatabaseSnapshotOutput) Deserialize(d smithy.ShapeDeserializer) error {
+	return smithy.ReadStruct(d, schemas.GetRelationalDatabaseSnapshotResult, func(s *smithy.Schema) error {
+		switch s {
+		case schemas.GetRelationalDatabaseSnapshotResult_relationalDatabaseSnapshot:
+			v.RelationalDatabaseSnapshot = &types.RelationalDatabaseSnapshot{}
+			return v.RelationalDatabaseSnapshot.Deserialize(d)
+		}
+		return nil
+	})
+}
 func (c *Client) addOperationGetRelationalDatabaseSnapshotMiddlewares(stack *middleware.Stack, options Options) (err error) {
-	err = stack.Serialize.Add(&awsAwsjson11_serializeOpGetRelationalDatabaseSnapshot{}, middleware.After)
-	if err != nil {
+	if err := stack.Serialize.Add(&serializeRequestMiddleware{options: &options, operationSchema: smithy.NewOperationSchema(schemas.GetRelationalDatabaseSnapshot, schemas.GetRelationalDatabaseSnapshotRequest, schemas.GetRelationalDatabaseSnapshotResult)}, middleware.After); err != nil {
 		return err
 	}
-	err = stack.Deserialize.Add(&awsAwsjson11_deserializeOpGetRelationalDatabaseSnapshot{}, middleware.After)
-	if err != nil {
+	if err := stack.Deserialize.Add(&deserializeResponseMiddleware{options: &options, operationSchema: smithy.NewOperationSchema(schemas.GetRelationalDatabaseSnapshot, schemas.GetRelationalDatabaseSnapshotRequest, schemas.GetRelationalDatabaseSnapshotResult), output: &GetRelationalDatabaseSnapshotOutput{}}, middleware.After); err != nil {
 		return err
 	}
 
-	if err = addlegacyEndpointContextSetter(stack, options); err != nil {
-		return err
-	}
-	if err = addComputeContentLength(stack); err != nil {
-		return err
-	}
 	if err = addResolveEndpointMiddleware(stack, options); err != nil {
 		return err
 	}
@@ -71,19 +99,10 @@ func (c *Client) addOperationGetRelationalDatabaseSnapshotMiddlewares(stack *mid
 	if err = addRecordResponseTiming(stack, options); err != nil {
 		return err
 	}
-	if err = smithyhttp.AddErrorCloseResponseBodyMiddleware(stack); err != nil {
-		return err
-	}
-	if err = smithyhttp.AddCloseResponseBodyMiddleware(stack); err != nil {
-		return err
-	}
 	if err = addCredentialSource(stack, options); err != nil {
 		return err
 	}
 	if err = addOpGetRelationalDatabaseSnapshotValidationMiddleware(stack); err != nil {
-		return err
-	}
-	if err = stack.Initialize.Add(newServiceMetadataMiddleware(options.Region, "GetRelationalDatabaseSnapshot"), middleware.Before); err != nil {
 		return err
 	}
 	if err = addRequestIDRetrieverMiddleware(stack); err != nil {

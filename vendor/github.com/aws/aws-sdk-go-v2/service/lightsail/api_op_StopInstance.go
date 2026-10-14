@@ -4,9 +4,10 @@ package lightsail
 
 import (
 	"context"
+	"github.com/aws/aws-sdk-go-v2/service/lightsail/schemas"
 	"github.com/aws/aws-sdk-go-v2/service/lightsail/types"
+	smithy "github.com/aws/smithy-go"
 	"github.com/aws/smithy-go/middleware"
-	smithyhttp "github.com/aws/smithy-go/transport/http"
 )
 
 // Stops a specific Amazon Lightsail instance that is currently running.
@@ -54,6 +55,21 @@ type StopInstanceInput struct {
 	noSmithyDocumentSerde
 }
 
+func (v *StopInstanceInput) Serialize(s smithy.ShapeSerializer) {
+	s.WriteStruct(schemas.StopInstanceRequest)
+	v.SerializeMembers(s)
+	s.CloseStruct()
+}
+
+func (v *StopInstanceInput) SerializeMembers(s smithy.ShapeSerializer) {
+	if v.Force != nil {
+		s.WriteBool(schemas.StopInstanceRequest_force, *v.Force)
+	}
+	if v.InstanceName != nil {
+		s.WriteString(schemas.StopInstanceRequest_instanceName, *v.InstanceName)
+	}
+}
+
 type StopInstanceOutput struct {
 
 	// An array of objects that describe the result of the action, such as the status
@@ -67,22 +83,32 @@ type StopInstanceOutput struct {
 	noSmithyDocumentSerde
 }
 
+func (v *StopInstanceOutput) Serialize(s smithy.ShapeSerializer) {
+	s.WriteStruct(schemas.StopInstanceResult)
+	v.SerializeMembers(s)
+	s.CloseStruct()
+}
+
+func (v *StopInstanceOutput) SerializeMembers(s smithy.ShapeSerializer) {
+	serializeOperationList(s, schemas.StopInstanceResult_operations, v.Operations)
+}
+func (v *StopInstanceOutput) Deserialize(d smithy.ShapeDeserializer) error {
+	return smithy.ReadStruct(d, schemas.StopInstanceResult, func(s *smithy.Schema) error {
+		switch s {
+		case schemas.StopInstanceResult_operations:
+			return deserializeOperationList(d, schemas.StopInstanceResult_operations, &v.Operations)
+		}
+		return nil
+	})
+}
 func (c *Client) addOperationStopInstanceMiddlewares(stack *middleware.Stack, options Options) (err error) {
-	err = stack.Serialize.Add(&awsAwsjson11_serializeOpStopInstance{}, middleware.After)
-	if err != nil {
+	if err := stack.Serialize.Add(&serializeRequestMiddleware{options: &options, operationSchema: smithy.NewOperationSchema(schemas.StopInstance, schemas.StopInstanceRequest, schemas.StopInstanceResult)}, middleware.After); err != nil {
 		return err
 	}
-	err = stack.Deserialize.Add(&awsAwsjson11_deserializeOpStopInstance{}, middleware.After)
-	if err != nil {
+	if err := stack.Deserialize.Add(&deserializeResponseMiddleware{options: &options, operationSchema: smithy.NewOperationSchema(schemas.StopInstance, schemas.StopInstanceRequest, schemas.StopInstanceResult), output: &StopInstanceOutput{}}, middleware.After); err != nil {
 		return err
 	}
 
-	if err = addlegacyEndpointContextSetter(stack, options); err != nil {
-		return err
-	}
-	if err = addComputeContentLength(stack); err != nil {
-		return err
-	}
 	if err = addResolveEndpointMiddleware(stack, options); err != nil {
 		return err
 	}
@@ -92,19 +118,10 @@ func (c *Client) addOperationStopInstanceMiddlewares(stack *middleware.Stack, op
 	if err = addRecordResponseTiming(stack, options); err != nil {
 		return err
 	}
-	if err = smithyhttp.AddErrorCloseResponseBodyMiddleware(stack); err != nil {
-		return err
-	}
-	if err = smithyhttp.AddCloseResponseBodyMiddleware(stack); err != nil {
-		return err
-	}
 	if err = addCredentialSource(stack, options); err != nil {
 		return err
 	}
 	if err = addOpStopInstanceValidationMiddleware(stack); err != nil {
-		return err
-	}
-	if err = stack.Initialize.Add(newServiceMetadataMiddleware(options.Region, "StopInstance"), middleware.Before); err != nil {
 		return err
 	}
 	if err = addRequestIDRetrieverMiddleware(stack); err != nil {

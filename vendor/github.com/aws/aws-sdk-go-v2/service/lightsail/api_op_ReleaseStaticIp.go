@@ -4,9 +4,10 @@ package lightsail
 
 import (
 	"context"
+	"github.com/aws/aws-sdk-go-v2/service/lightsail/schemas"
 	"github.com/aws/aws-sdk-go-v2/service/lightsail/types"
+	smithy "github.com/aws/smithy-go"
 	"github.com/aws/smithy-go/middleware"
-	smithyhttp "github.com/aws/smithy-go/transport/http"
 )
 
 // Deletes a specific static IP from your account.
@@ -35,6 +36,18 @@ type ReleaseStaticIpInput struct {
 	noSmithyDocumentSerde
 }
 
+func (v *ReleaseStaticIpInput) Serialize(s smithy.ShapeSerializer) {
+	s.WriteStruct(schemas.ReleaseStaticIpRequest)
+	v.SerializeMembers(s)
+	s.CloseStruct()
+}
+
+func (v *ReleaseStaticIpInput) SerializeMembers(s smithy.ShapeSerializer) {
+	if v.StaticIpName != nil {
+		s.WriteString(schemas.ReleaseStaticIpRequest_staticIpName, *v.StaticIpName)
+	}
+}
+
 type ReleaseStaticIpOutput struct {
 
 	// An array of objects that describe the result of the action, such as the status
@@ -48,22 +61,32 @@ type ReleaseStaticIpOutput struct {
 	noSmithyDocumentSerde
 }
 
+func (v *ReleaseStaticIpOutput) Serialize(s smithy.ShapeSerializer) {
+	s.WriteStruct(schemas.ReleaseStaticIpResult)
+	v.SerializeMembers(s)
+	s.CloseStruct()
+}
+
+func (v *ReleaseStaticIpOutput) SerializeMembers(s smithy.ShapeSerializer) {
+	serializeOperationList(s, schemas.ReleaseStaticIpResult_operations, v.Operations)
+}
+func (v *ReleaseStaticIpOutput) Deserialize(d smithy.ShapeDeserializer) error {
+	return smithy.ReadStruct(d, schemas.ReleaseStaticIpResult, func(s *smithy.Schema) error {
+		switch s {
+		case schemas.ReleaseStaticIpResult_operations:
+			return deserializeOperationList(d, schemas.ReleaseStaticIpResult_operations, &v.Operations)
+		}
+		return nil
+	})
+}
 func (c *Client) addOperationReleaseStaticIpMiddlewares(stack *middleware.Stack, options Options) (err error) {
-	err = stack.Serialize.Add(&awsAwsjson11_serializeOpReleaseStaticIp{}, middleware.After)
-	if err != nil {
+	if err := stack.Serialize.Add(&serializeRequestMiddleware{options: &options, operationSchema: smithy.NewOperationSchema(schemas.ReleaseStaticIp, schemas.ReleaseStaticIpRequest, schemas.ReleaseStaticIpResult)}, middleware.After); err != nil {
 		return err
 	}
-	err = stack.Deserialize.Add(&awsAwsjson11_deserializeOpReleaseStaticIp{}, middleware.After)
-	if err != nil {
+	if err := stack.Deserialize.Add(&deserializeResponseMiddleware{options: &options, operationSchema: smithy.NewOperationSchema(schemas.ReleaseStaticIp, schemas.ReleaseStaticIpRequest, schemas.ReleaseStaticIpResult), output: &ReleaseStaticIpOutput{}}, middleware.After); err != nil {
 		return err
 	}
 
-	if err = addlegacyEndpointContextSetter(stack, options); err != nil {
-		return err
-	}
-	if err = addComputeContentLength(stack); err != nil {
-		return err
-	}
 	if err = addResolveEndpointMiddleware(stack, options); err != nil {
 		return err
 	}
@@ -73,19 +96,10 @@ func (c *Client) addOperationReleaseStaticIpMiddlewares(stack *middleware.Stack,
 	if err = addRecordResponseTiming(stack, options); err != nil {
 		return err
 	}
-	if err = smithyhttp.AddErrorCloseResponseBodyMiddleware(stack); err != nil {
-		return err
-	}
-	if err = smithyhttp.AddCloseResponseBodyMiddleware(stack); err != nil {
-		return err
-	}
 	if err = addCredentialSource(stack, options); err != nil {
 		return err
 	}
 	if err = addOpReleaseStaticIpValidationMiddleware(stack); err != nil {
-		return err
-	}
-	if err = stack.Initialize.Add(newServiceMetadataMiddleware(options.Region, "ReleaseStaticIp"), middleware.Before); err != nil {
 		return err
 	}
 	if err = addRequestIDRetrieverMiddleware(stack); err != nil {

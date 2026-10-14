@@ -4,9 +4,10 @@ package lightsail
 
 import (
 	"context"
+	"github.com/aws/aws-sdk-go-v2/service/lightsail/schemas"
 	"github.com/aws/aws-sdk-go-v2/service/lightsail/types"
+	smithy "github.com/aws/smithy-go"
 	"github.com/aws/smithy-go/middleware"
-	smithyhttp "github.com/aws/smithy-go/transport/http"
 )
 
 // Returns information about a specific block storage disk.
@@ -35,6 +36,18 @@ type GetDiskInput struct {
 	noSmithyDocumentSerde
 }
 
+func (v *GetDiskInput) Serialize(s smithy.ShapeSerializer) {
+	s.WriteStruct(schemas.GetDiskRequest)
+	v.SerializeMembers(s)
+	s.CloseStruct()
+}
+
+func (v *GetDiskInput) SerializeMembers(s smithy.ShapeSerializer) {
+	if v.DiskName != nil {
+		s.WriteString(schemas.GetDiskRequest_diskName, *v.DiskName)
+	}
+}
+
 type GetDiskOutput struct {
 
 	// An object containing information about the disk.
@@ -46,22 +59,37 @@ type GetDiskOutput struct {
 	noSmithyDocumentSerde
 }
 
+func (v *GetDiskOutput) Serialize(s smithy.ShapeSerializer) {
+	s.WriteStruct(schemas.GetDiskResult)
+	v.SerializeMembers(s)
+	s.CloseStruct()
+}
+
+func (v *GetDiskOutput) SerializeMembers(s smithy.ShapeSerializer) {
+	if v.Disk != nil {
+		s.WriteStruct(schemas.GetDiskResult_disk)
+		v.Disk.SerializeMembers(s)
+		s.CloseStruct()
+	}
+}
+func (v *GetDiskOutput) Deserialize(d smithy.ShapeDeserializer) error {
+	return smithy.ReadStruct(d, schemas.GetDiskResult, func(s *smithy.Schema) error {
+		switch s {
+		case schemas.GetDiskResult_disk:
+			v.Disk = &types.Disk{}
+			return v.Disk.Deserialize(d)
+		}
+		return nil
+	})
+}
 func (c *Client) addOperationGetDiskMiddlewares(stack *middleware.Stack, options Options) (err error) {
-	err = stack.Serialize.Add(&awsAwsjson11_serializeOpGetDisk{}, middleware.After)
-	if err != nil {
+	if err := stack.Serialize.Add(&serializeRequestMiddleware{options: &options, operationSchema: smithy.NewOperationSchema(schemas.GetDisk, schemas.GetDiskRequest, schemas.GetDiskResult)}, middleware.After); err != nil {
 		return err
 	}
-	err = stack.Deserialize.Add(&awsAwsjson11_deserializeOpGetDisk{}, middleware.After)
-	if err != nil {
+	if err := stack.Deserialize.Add(&deserializeResponseMiddleware{options: &options, operationSchema: smithy.NewOperationSchema(schemas.GetDisk, schemas.GetDiskRequest, schemas.GetDiskResult), output: &GetDiskOutput{}}, middleware.After); err != nil {
 		return err
 	}
 
-	if err = addlegacyEndpointContextSetter(stack, options); err != nil {
-		return err
-	}
-	if err = addComputeContentLength(stack); err != nil {
-		return err
-	}
 	if err = addResolveEndpointMiddleware(stack, options); err != nil {
 		return err
 	}
@@ -71,19 +99,10 @@ func (c *Client) addOperationGetDiskMiddlewares(stack *middleware.Stack, options
 	if err = addRecordResponseTiming(stack, options); err != nil {
 		return err
 	}
-	if err = smithyhttp.AddErrorCloseResponseBodyMiddleware(stack); err != nil {
-		return err
-	}
-	if err = smithyhttp.AddCloseResponseBodyMiddleware(stack); err != nil {
-		return err
-	}
 	if err = addCredentialSource(stack, options); err != nil {
 		return err
 	}
 	if err = addOpGetDiskValidationMiddleware(stack); err != nil {
-		return err
-	}
-	if err = stack.Initialize.Add(newServiceMetadataMiddleware(options.Region, "GetDisk"), middleware.Before); err != nil {
 		return err
 	}
 	if err = addRequestIDRetrieverMiddleware(stack); err != nil {

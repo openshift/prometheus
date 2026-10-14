@@ -4,9 +4,10 @@ package lightsail
 
 import (
 	"context"
+	"github.com/aws/aws-sdk-go-v2/service/lightsail/schemas"
 	"github.com/aws/aws-sdk-go-v2/service/lightsail/types"
+	smithy "github.com/aws/smithy-go"
 	"github.com/aws/smithy-go/middleware"
-	smithyhttp "github.com/aws/smithy-go/transport/http"
 )
 
 // Returns all export snapshot records created as a result of the export snapshot
@@ -43,6 +44,18 @@ type GetExportSnapshotRecordsInput struct {
 	noSmithyDocumentSerde
 }
 
+func (v *GetExportSnapshotRecordsInput) Serialize(s smithy.ShapeSerializer) {
+	s.WriteStruct(schemas.GetExportSnapshotRecordsRequest)
+	v.SerializeMembers(s)
+	s.CloseStruct()
+}
+
+func (v *GetExportSnapshotRecordsInput) SerializeMembers(s smithy.ShapeSerializer) {
+	if v.PageToken != nil {
+		s.WriteString(schemas.GetExportSnapshotRecordsRequest_pageToken, *v.PageToken)
+	}
+}
+
 type GetExportSnapshotRecordsOutput struct {
 
 	// A list of objects describing the export snapshot records.
@@ -62,22 +75,38 @@ type GetExportSnapshotRecordsOutput struct {
 	noSmithyDocumentSerde
 }
 
+func (v *GetExportSnapshotRecordsOutput) Serialize(s smithy.ShapeSerializer) {
+	s.WriteStruct(schemas.GetExportSnapshotRecordsResult)
+	v.SerializeMembers(s)
+	s.CloseStruct()
+}
+
+func (v *GetExportSnapshotRecordsOutput) SerializeMembers(s smithy.ShapeSerializer) {
+	serializeExportSnapshotRecordList(s, schemas.GetExportSnapshotRecordsResult_exportSnapshotRecords, v.ExportSnapshotRecords)
+	if v.NextPageToken != nil {
+		s.WriteString(schemas.GetExportSnapshotRecordsResult_nextPageToken, *v.NextPageToken)
+	}
+}
+func (v *GetExportSnapshotRecordsOutput) Deserialize(d smithy.ShapeDeserializer) error {
+	return smithy.ReadStruct(d, schemas.GetExportSnapshotRecordsResult, func(s *smithy.Schema) error {
+		switch s {
+		case schemas.GetExportSnapshotRecordsResult_exportSnapshotRecords:
+			return deserializeExportSnapshotRecordList(d, schemas.GetExportSnapshotRecordsResult_exportSnapshotRecords, &v.ExportSnapshotRecords)
+		case schemas.GetExportSnapshotRecordsResult_nextPageToken:
+			v.NextPageToken = new(string)
+			return d.ReadString(schemas.GetExportSnapshotRecordsResult_nextPageToken, v.NextPageToken)
+		}
+		return nil
+	})
+}
 func (c *Client) addOperationGetExportSnapshotRecordsMiddlewares(stack *middleware.Stack, options Options) (err error) {
-	err = stack.Serialize.Add(&awsAwsjson11_serializeOpGetExportSnapshotRecords{}, middleware.After)
-	if err != nil {
+	if err := stack.Serialize.Add(&serializeRequestMiddleware{options: &options, operationSchema: smithy.NewOperationSchema(schemas.GetExportSnapshotRecords, schemas.GetExportSnapshotRecordsRequest, schemas.GetExportSnapshotRecordsResult)}, middleware.After); err != nil {
 		return err
 	}
-	err = stack.Deserialize.Add(&awsAwsjson11_deserializeOpGetExportSnapshotRecords{}, middleware.After)
-	if err != nil {
+	if err := stack.Deserialize.Add(&deserializeResponseMiddleware{options: &options, operationSchema: smithy.NewOperationSchema(schemas.GetExportSnapshotRecords, schemas.GetExportSnapshotRecordsRequest, schemas.GetExportSnapshotRecordsResult), output: &GetExportSnapshotRecordsOutput{}}, middleware.After); err != nil {
 		return err
 	}
 
-	if err = addlegacyEndpointContextSetter(stack, options); err != nil {
-		return err
-	}
-	if err = addComputeContentLength(stack); err != nil {
-		return err
-	}
 	if err = addResolveEndpointMiddleware(stack, options); err != nil {
 		return err
 	}
@@ -87,16 +116,7 @@ func (c *Client) addOperationGetExportSnapshotRecordsMiddlewares(stack *middlewa
 	if err = addRecordResponseTiming(stack, options); err != nil {
 		return err
 	}
-	if err = smithyhttp.AddErrorCloseResponseBodyMiddleware(stack); err != nil {
-		return err
-	}
-	if err = smithyhttp.AddCloseResponseBodyMiddleware(stack); err != nil {
-		return err
-	}
 	if err = addCredentialSource(stack, options); err != nil {
-		return err
-	}
-	if err = stack.Initialize.Add(newServiceMetadataMiddleware(options.Region, "GetExportSnapshotRecords"), middleware.Before); err != nil {
 		return err
 	}
 	if err = addRequestIDRetrieverMiddleware(stack); err != nil {

@@ -4,9 +4,10 @@ package lightsail
 
 import (
 	"context"
+	"github.com/aws/aws-sdk-go-v2/service/lightsail/schemas"
 	"github.com/aws/aws-sdk-go-v2/service/lightsail/types"
+	smithy "github.com/aws/smithy-go"
 	"github.com/aws/smithy-go/middleware"
-	smithyhttp "github.com/aws/smithy-go/transport/http"
 )
 
 // Returns information about the specified Lightsail load balancer.
@@ -35,6 +36,18 @@ type GetLoadBalancerInput struct {
 	noSmithyDocumentSerde
 }
 
+func (v *GetLoadBalancerInput) Serialize(s smithy.ShapeSerializer) {
+	s.WriteStruct(schemas.GetLoadBalancerRequest)
+	v.SerializeMembers(s)
+	s.CloseStruct()
+}
+
+func (v *GetLoadBalancerInput) SerializeMembers(s smithy.ShapeSerializer) {
+	if v.LoadBalancerName != nil {
+		s.WriteString(schemas.GetLoadBalancerRequest_loadBalancerName, *v.LoadBalancerName)
+	}
+}
+
 type GetLoadBalancerOutput struct {
 
 	// An object containing information about your load balancer.
@@ -46,22 +59,37 @@ type GetLoadBalancerOutput struct {
 	noSmithyDocumentSerde
 }
 
+func (v *GetLoadBalancerOutput) Serialize(s smithy.ShapeSerializer) {
+	s.WriteStruct(schemas.GetLoadBalancerResult)
+	v.SerializeMembers(s)
+	s.CloseStruct()
+}
+
+func (v *GetLoadBalancerOutput) SerializeMembers(s smithy.ShapeSerializer) {
+	if v.LoadBalancer != nil {
+		s.WriteStruct(schemas.GetLoadBalancerResult_loadBalancer)
+		v.LoadBalancer.SerializeMembers(s)
+		s.CloseStruct()
+	}
+}
+func (v *GetLoadBalancerOutput) Deserialize(d smithy.ShapeDeserializer) error {
+	return smithy.ReadStruct(d, schemas.GetLoadBalancerResult, func(s *smithy.Schema) error {
+		switch s {
+		case schemas.GetLoadBalancerResult_loadBalancer:
+			v.LoadBalancer = &types.LoadBalancer{}
+			return v.LoadBalancer.Deserialize(d)
+		}
+		return nil
+	})
+}
 func (c *Client) addOperationGetLoadBalancerMiddlewares(stack *middleware.Stack, options Options) (err error) {
-	err = stack.Serialize.Add(&awsAwsjson11_serializeOpGetLoadBalancer{}, middleware.After)
-	if err != nil {
+	if err := stack.Serialize.Add(&serializeRequestMiddleware{options: &options, operationSchema: smithy.NewOperationSchema(schemas.GetLoadBalancer, schemas.GetLoadBalancerRequest, schemas.GetLoadBalancerResult)}, middleware.After); err != nil {
 		return err
 	}
-	err = stack.Deserialize.Add(&awsAwsjson11_deserializeOpGetLoadBalancer{}, middleware.After)
-	if err != nil {
+	if err := stack.Deserialize.Add(&deserializeResponseMiddleware{options: &options, operationSchema: smithy.NewOperationSchema(schemas.GetLoadBalancer, schemas.GetLoadBalancerRequest, schemas.GetLoadBalancerResult), output: &GetLoadBalancerOutput{}}, middleware.After); err != nil {
 		return err
 	}
 
-	if err = addlegacyEndpointContextSetter(stack, options); err != nil {
-		return err
-	}
-	if err = addComputeContentLength(stack); err != nil {
-		return err
-	}
 	if err = addResolveEndpointMiddleware(stack, options); err != nil {
 		return err
 	}
@@ -71,19 +99,10 @@ func (c *Client) addOperationGetLoadBalancerMiddlewares(stack *middleware.Stack,
 	if err = addRecordResponseTiming(stack, options); err != nil {
 		return err
 	}
-	if err = smithyhttp.AddErrorCloseResponseBodyMiddleware(stack); err != nil {
-		return err
-	}
-	if err = smithyhttp.AddCloseResponseBodyMiddleware(stack); err != nil {
-		return err
-	}
 	if err = addCredentialSource(stack, options); err != nil {
 		return err
 	}
 	if err = addOpGetLoadBalancerValidationMiddleware(stack); err != nil {
-		return err
-	}
-	if err = stack.Initialize.Add(newServiceMetadataMiddleware(options.Region, "GetLoadBalancer"), middleware.Before); err != nil {
 		return err
 	}
 	if err = addRequestIDRetrieverMiddleware(stack); err != nil {

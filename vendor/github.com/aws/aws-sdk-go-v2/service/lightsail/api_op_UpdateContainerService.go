@@ -4,9 +4,10 @@ package lightsail
 
 import (
 	"context"
+	"github.com/aws/aws-sdk-go-v2/service/lightsail/schemas"
 	"github.com/aws/aws-sdk-go-v2/service/lightsail/types"
+	smithy "github.com/aws/smithy-go"
 	"github.com/aws/smithy-go/middleware"
-	smithyhttp "github.com/aws/smithy-go/transport/http"
 )
 
 // Updates the configuration of your Amazon Lightsail container service, such as
@@ -87,6 +88,33 @@ type UpdateContainerServiceInput struct {
 	noSmithyDocumentSerde
 }
 
+func (v *UpdateContainerServiceInput) Serialize(s smithy.ShapeSerializer) {
+	s.WriteStruct(schemas.UpdateContainerServiceRequest)
+	v.SerializeMembers(s)
+	s.CloseStruct()
+}
+
+func (v *UpdateContainerServiceInput) SerializeMembers(s smithy.ShapeSerializer) {
+	if v.IsDisabled != nil {
+		s.WriteBool(schemas.UpdateContainerServiceRequest_isDisabled, *v.IsDisabled)
+	}
+	if v.Power != "" {
+		s.WriteString(schemas.UpdateContainerServiceRequest_power, string(v.Power))
+	}
+	if v.PrivateRegistryAccess != nil {
+		s.WriteStruct(schemas.UpdateContainerServiceRequest_privateRegistryAccess)
+		v.PrivateRegistryAccess.SerializeMembers(s)
+		s.CloseStruct()
+	}
+	serializeContainerServicePublicDomains(s, schemas.UpdateContainerServiceRequest_publicDomainNames, v.PublicDomainNames)
+	if v.Scale != nil {
+		s.WriteInt32(schemas.UpdateContainerServiceRequest_scale, *v.Scale)
+	}
+	if v.ServiceName != nil {
+		s.WriteString(schemas.UpdateContainerServiceRequest_serviceName, *v.ServiceName)
+	}
+}
+
 type UpdateContainerServiceOutput struct {
 
 	// An object that describes a container service.
@@ -98,22 +126,37 @@ type UpdateContainerServiceOutput struct {
 	noSmithyDocumentSerde
 }
 
+func (v *UpdateContainerServiceOutput) Serialize(s smithy.ShapeSerializer) {
+	s.WriteStruct(schemas.UpdateContainerServiceResult)
+	v.SerializeMembers(s)
+	s.CloseStruct()
+}
+
+func (v *UpdateContainerServiceOutput) SerializeMembers(s smithy.ShapeSerializer) {
+	if v.ContainerService != nil {
+		s.WriteStruct(schemas.UpdateContainerServiceResult_containerService)
+		v.ContainerService.SerializeMembers(s)
+		s.CloseStruct()
+	}
+}
+func (v *UpdateContainerServiceOutput) Deserialize(d smithy.ShapeDeserializer) error {
+	return smithy.ReadStruct(d, schemas.UpdateContainerServiceResult, func(s *smithy.Schema) error {
+		switch s {
+		case schemas.UpdateContainerServiceResult_containerService:
+			v.ContainerService = &types.ContainerService{}
+			return v.ContainerService.Deserialize(d)
+		}
+		return nil
+	})
+}
 func (c *Client) addOperationUpdateContainerServiceMiddlewares(stack *middleware.Stack, options Options) (err error) {
-	err = stack.Serialize.Add(&awsAwsjson11_serializeOpUpdateContainerService{}, middleware.After)
-	if err != nil {
+	if err := stack.Serialize.Add(&serializeRequestMiddleware{options: &options, operationSchema: smithy.NewOperationSchema(schemas.UpdateContainerService, schemas.UpdateContainerServiceRequest, schemas.UpdateContainerServiceResult)}, middleware.After); err != nil {
 		return err
 	}
-	err = stack.Deserialize.Add(&awsAwsjson11_deserializeOpUpdateContainerService{}, middleware.After)
-	if err != nil {
+	if err := stack.Deserialize.Add(&deserializeResponseMiddleware{options: &options, operationSchema: smithy.NewOperationSchema(schemas.UpdateContainerService, schemas.UpdateContainerServiceRequest, schemas.UpdateContainerServiceResult), output: &UpdateContainerServiceOutput{}}, middleware.After); err != nil {
 		return err
 	}
 
-	if err = addlegacyEndpointContextSetter(stack, options); err != nil {
-		return err
-	}
-	if err = addComputeContentLength(stack); err != nil {
-		return err
-	}
 	if err = addResolveEndpointMiddleware(stack, options); err != nil {
 		return err
 	}
@@ -123,19 +166,10 @@ func (c *Client) addOperationUpdateContainerServiceMiddlewares(stack *middleware
 	if err = addRecordResponseTiming(stack, options); err != nil {
 		return err
 	}
-	if err = smithyhttp.AddErrorCloseResponseBodyMiddleware(stack); err != nil {
-		return err
-	}
-	if err = smithyhttp.AddCloseResponseBodyMiddleware(stack); err != nil {
-		return err
-	}
 	if err = addCredentialSource(stack, options); err != nil {
 		return err
 	}
 	if err = addOpUpdateContainerServiceValidationMiddleware(stack); err != nil {
-		return err
-	}
-	if err = stack.Initialize.Add(newServiceMetadataMiddleware(options.Region, "UpdateContainerService"), middleware.Before); err != nil {
 		return err
 	}
 	if err = addRequestIDRetrieverMiddleware(stack); err != nil {
