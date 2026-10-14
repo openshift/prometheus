@@ -4,9 +4,10 @@ package lightsail
 
 import (
 	"context"
+	"github.com/aws/aws-sdk-go-v2/service/lightsail/schemas"
 	"github.com/aws/aws-sdk-go-v2/service/lightsail/types"
+	smithy "github.com/aws/smithy-go"
 	"github.com/aws/smithy-go/middleware"
-	smithyhttp "github.com/aws/smithy-go/transport/http"
 )
 
 // Returns the bundles that you can apply to a Amazon Lightsail bucket.
@@ -41,6 +42,18 @@ type GetBucketBundlesInput struct {
 	noSmithyDocumentSerde
 }
 
+func (v *GetBucketBundlesInput) Serialize(s smithy.ShapeSerializer) {
+	s.WriteStruct(schemas.GetBucketBundlesRequest)
+	v.SerializeMembers(s)
+	s.CloseStruct()
+}
+
+func (v *GetBucketBundlesInput) SerializeMembers(s smithy.ShapeSerializer) {
+	if v.IncludeInactive != nil {
+		s.WriteBool(schemas.GetBucketBundlesRequest_includeInactive, *v.IncludeInactive)
+	}
+}
+
 type GetBucketBundlesOutput struct {
 
 	// An object that describes bucket bundles.
@@ -52,22 +65,32 @@ type GetBucketBundlesOutput struct {
 	noSmithyDocumentSerde
 }
 
+func (v *GetBucketBundlesOutput) Serialize(s smithy.ShapeSerializer) {
+	s.WriteStruct(schemas.GetBucketBundlesResult)
+	v.SerializeMembers(s)
+	s.CloseStruct()
+}
+
+func (v *GetBucketBundlesOutput) SerializeMembers(s smithy.ShapeSerializer) {
+	serializeBucketBundleList(s, schemas.GetBucketBundlesResult_bundles, v.Bundles)
+}
+func (v *GetBucketBundlesOutput) Deserialize(d smithy.ShapeDeserializer) error {
+	return smithy.ReadStruct(d, schemas.GetBucketBundlesResult, func(s *smithy.Schema) error {
+		switch s {
+		case schemas.GetBucketBundlesResult_bundles:
+			return deserializeBucketBundleList(d, schemas.GetBucketBundlesResult_bundles, &v.Bundles)
+		}
+		return nil
+	})
+}
 func (c *Client) addOperationGetBucketBundlesMiddlewares(stack *middleware.Stack, options Options) (err error) {
-	err = stack.Serialize.Add(&awsAwsjson11_serializeOpGetBucketBundles{}, middleware.After)
-	if err != nil {
+	if err := stack.Serialize.Add(&serializeRequestMiddleware{options: &options, operationSchema: smithy.NewOperationSchema(schemas.GetBucketBundles, schemas.GetBucketBundlesRequest, schemas.GetBucketBundlesResult)}, middleware.After); err != nil {
 		return err
 	}
-	err = stack.Deserialize.Add(&awsAwsjson11_deserializeOpGetBucketBundles{}, middleware.After)
-	if err != nil {
+	if err := stack.Deserialize.Add(&deserializeResponseMiddleware{options: &options, operationSchema: smithy.NewOperationSchema(schemas.GetBucketBundles, schemas.GetBucketBundlesRequest, schemas.GetBucketBundlesResult), output: &GetBucketBundlesOutput{}}, middleware.After); err != nil {
 		return err
 	}
 
-	if err = addlegacyEndpointContextSetter(stack, options); err != nil {
-		return err
-	}
-	if err = addComputeContentLength(stack); err != nil {
-		return err
-	}
 	if err = addResolveEndpointMiddleware(stack, options); err != nil {
 		return err
 	}
@@ -77,16 +100,7 @@ func (c *Client) addOperationGetBucketBundlesMiddlewares(stack *middleware.Stack
 	if err = addRecordResponseTiming(stack, options); err != nil {
 		return err
 	}
-	if err = smithyhttp.AddErrorCloseResponseBodyMiddleware(stack); err != nil {
-		return err
-	}
-	if err = smithyhttp.AddCloseResponseBodyMiddleware(stack); err != nil {
-		return err
-	}
 	if err = addCredentialSource(stack, options); err != nil {
-		return err
-	}
-	if err = stack.Initialize.Add(newServiceMetadataMiddleware(options.Region, "GetBucketBundles"), middleware.Before); err != nil {
 		return err
 	}
 	if err = addRequestIDRetrieverMiddleware(stack); err != nil {

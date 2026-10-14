@@ -4,9 +4,10 @@ package lightsail
 
 import (
 	"context"
+	"github.com/aws/aws-sdk-go-v2/service/lightsail/schemas"
 	"github.com/aws/aws-sdk-go-v2/service/lightsail/types"
+	smithy "github.com/aws/smithy-go"
 	"github.com/aws/smithy-go/middleware"
-	smithyhttp "github.com/aws/smithy-go/transport/http"
 )
 
 // Deletes your Amazon Lightsail content delivery network (CDN) distribution.
@@ -36,6 +37,18 @@ type DeleteDistributionInput struct {
 	noSmithyDocumentSerde
 }
 
+func (v *DeleteDistributionInput) Serialize(s smithy.ShapeSerializer) {
+	s.WriteStruct(schemas.DeleteDistributionRequest)
+	v.SerializeMembers(s)
+	s.CloseStruct()
+}
+
+func (v *DeleteDistributionInput) SerializeMembers(s smithy.ShapeSerializer) {
+	if v.DistributionName != nil {
+		s.WriteString(schemas.DeleteDistributionRequest_distributionName, *v.DistributionName)
+	}
+}
+
 type DeleteDistributionOutput struct {
 
 	// An object that describes the result of the action, such as the status of the
@@ -49,22 +62,37 @@ type DeleteDistributionOutput struct {
 	noSmithyDocumentSerde
 }
 
+func (v *DeleteDistributionOutput) Serialize(s smithy.ShapeSerializer) {
+	s.WriteStruct(schemas.DeleteDistributionResult)
+	v.SerializeMembers(s)
+	s.CloseStruct()
+}
+
+func (v *DeleteDistributionOutput) SerializeMembers(s smithy.ShapeSerializer) {
+	if v.Operation != nil {
+		s.WriteStruct(schemas.DeleteDistributionResult_operation)
+		v.Operation.SerializeMembers(s)
+		s.CloseStruct()
+	}
+}
+func (v *DeleteDistributionOutput) Deserialize(d smithy.ShapeDeserializer) error {
+	return smithy.ReadStruct(d, schemas.DeleteDistributionResult, func(s *smithy.Schema) error {
+		switch s {
+		case schemas.DeleteDistributionResult_operation:
+			v.Operation = &types.Operation{}
+			return v.Operation.Deserialize(d)
+		}
+		return nil
+	})
+}
 func (c *Client) addOperationDeleteDistributionMiddlewares(stack *middleware.Stack, options Options) (err error) {
-	err = stack.Serialize.Add(&awsAwsjson11_serializeOpDeleteDistribution{}, middleware.After)
-	if err != nil {
+	if err := stack.Serialize.Add(&serializeRequestMiddleware{options: &options, operationSchema: smithy.NewOperationSchema(schemas.DeleteDistribution, schemas.DeleteDistributionRequest, schemas.DeleteDistributionResult)}, middleware.After); err != nil {
 		return err
 	}
-	err = stack.Deserialize.Add(&awsAwsjson11_deserializeOpDeleteDistribution{}, middleware.After)
-	if err != nil {
+	if err := stack.Deserialize.Add(&deserializeResponseMiddleware{options: &options, operationSchema: smithy.NewOperationSchema(schemas.DeleteDistribution, schemas.DeleteDistributionRequest, schemas.DeleteDistributionResult), output: &DeleteDistributionOutput{}}, middleware.After); err != nil {
 		return err
 	}
 
-	if err = addlegacyEndpointContextSetter(stack, options); err != nil {
-		return err
-	}
-	if err = addComputeContentLength(stack); err != nil {
-		return err
-	}
 	if err = addResolveEndpointMiddleware(stack, options); err != nil {
 		return err
 	}
@@ -74,16 +102,7 @@ func (c *Client) addOperationDeleteDistributionMiddlewares(stack *middleware.Sta
 	if err = addRecordResponseTiming(stack, options); err != nil {
 		return err
 	}
-	if err = smithyhttp.AddErrorCloseResponseBodyMiddleware(stack); err != nil {
-		return err
-	}
-	if err = smithyhttp.AddCloseResponseBodyMiddleware(stack); err != nil {
-		return err
-	}
 	if err = addCredentialSource(stack, options); err != nil {
-		return err
-	}
-	if err = stack.Initialize.Add(newServiceMetadataMiddleware(options.Region, "DeleteDistribution"), middleware.Before); err != nil {
 		return err
 	}
 	if err = addRequestIDRetrieverMiddleware(stack); err != nil {

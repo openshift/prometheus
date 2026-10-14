@@ -4,9 +4,10 @@ package lightsail
 
 import (
 	"context"
+	"github.com/aws/aws-sdk-go-v2/service/lightsail/schemas"
 	"github.com/aws/aws-sdk-go-v2/service/lightsail/types"
+	smithy "github.com/aws/smithy-go"
 	"github.com/aws/smithy-go/middleware"
-	smithyhttp "github.com/aws/smithy-go/transport/http"
 )
 
 // Returns the CloudFormation stack record created as a result of the create cloud
@@ -41,6 +42,18 @@ type GetCloudFormationStackRecordsInput struct {
 	noSmithyDocumentSerde
 }
 
+func (v *GetCloudFormationStackRecordsInput) Serialize(s smithy.ShapeSerializer) {
+	s.WriteStruct(schemas.GetCloudFormationStackRecordsRequest)
+	v.SerializeMembers(s)
+	s.CloseStruct()
+}
+
+func (v *GetCloudFormationStackRecordsInput) SerializeMembers(s smithy.ShapeSerializer) {
+	if v.PageToken != nil {
+		s.WriteString(schemas.GetCloudFormationStackRecordsRequest_pageToken, *v.PageToken)
+	}
+}
+
 type GetCloudFormationStackRecordsOutput struct {
 
 	// A list of objects describing the CloudFormation stack records.
@@ -60,22 +73,38 @@ type GetCloudFormationStackRecordsOutput struct {
 	noSmithyDocumentSerde
 }
 
+func (v *GetCloudFormationStackRecordsOutput) Serialize(s smithy.ShapeSerializer) {
+	s.WriteStruct(schemas.GetCloudFormationStackRecordsResult)
+	v.SerializeMembers(s)
+	s.CloseStruct()
+}
+
+func (v *GetCloudFormationStackRecordsOutput) SerializeMembers(s smithy.ShapeSerializer) {
+	serializeCloudFormationStackRecordList(s, schemas.GetCloudFormationStackRecordsResult_cloudFormationStackRecords, v.CloudFormationStackRecords)
+	if v.NextPageToken != nil {
+		s.WriteString(schemas.GetCloudFormationStackRecordsResult_nextPageToken, *v.NextPageToken)
+	}
+}
+func (v *GetCloudFormationStackRecordsOutput) Deserialize(d smithy.ShapeDeserializer) error {
+	return smithy.ReadStruct(d, schemas.GetCloudFormationStackRecordsResult, func(s *smithy.Schema) error {
+		switch s {
+		case schemas.GetCloudFormationStackRecordsResult_cloudFormationStackRecords:
+			return deserializeCloudFormationStackRecordList(d, schemas.GetCloudFormationStackRecordsResult_cloudFormationStackRecords, &v.CloudFormationStackRecords)
+		case schemas.GetCloudFormationStackRecordsResult_nextPageToken:
+			v.NextPageToken = new(string)
+			return d.ReadString(schemas.GetCloudFormationStackRecordsResult_nextPageToken, v.NextPageToken)
+		}
+		return nil
+	})
+}
 func (c *Client) addOperationGetCloudFormationStackRecordsMiddlewares(stack *middleware.Stack, options Options) (err error) {
-	err = stack.Serialize.Add(&awsAwsjson11_serializeOpGetCloudFormationStackRecords{}, middleware.After)
-	if err != nil {
+	if err := stack.Serialize.Add(&serializeRequestMiddleware{options: &options, operationSchema: smithy.NewOperationSchema(schemas.GetCloudFormationStackRecords, schemas.GetCloudFormationStackRecordsRequest, schemas.GetCloudFormationStackRecordsResult)}, middleware.After); err != nil {
 		return err
 	}
-	err = stack.Deserialize.Add(&awsAwsjson11_deserializeOpGetCloudFormationStackRecords{}, middleware.After)
-	if err != nil {
+	if err := stack.Deserialize.Add(&deserializeResponseMiddleware{options: &options, operationSchema: smithy.NewOperationSchema(schemas.GetCloudFormationStackRecords, schemas.GetCloudFormationStackRecordsRequest, schemas.GetCloudFormationStackRecordsResult), output: &GetCloudFormationStackRecordsOutput{}}, middleware.After); err != nil {
 		return err
 	}
 
-	if err = addlegacyEndpointContextSetter(stack, options); err != nil {
-		return err
-	}
-	if err = addComputeContentLength(stack); err != nil {
-		return err
-	}
 	if err = addResolveEndpointMiddleware(stack, options); err != nil {
 		return err
 	}
@@ -85,16 +114,7 @@ func (c *Client) addOperationGetCloudFormationStackRecordsMiddlewares(stack *mid
 	if err = addRecordResponseTiming(stack, options); err != nil {
 		return err
 	}
-	if err = smithyhttp.AddErrorCloseResponseBodyMiddleware(stack); err != nil {
-		return err
-	}
-	if err = smithyhttp.AddCloseResponseBodyMiddleware(stack); err != nil {
-		return err
-	}
 	if err = addCredentialSource(stack, options); err != nil {
-		return err
-	}
-	if err = stack.Initialize.Add(newServiceMetadataMiddleware(options.Region, "GetCloudFormationStackRecords"), middleware.Before); err != nil {
 		return err
 	}
 	if err = addRequestIDRetrieverMiddleware(stack); err != nil {

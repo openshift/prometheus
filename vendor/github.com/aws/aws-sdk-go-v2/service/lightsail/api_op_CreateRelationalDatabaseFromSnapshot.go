@@ -4,9 +4,10 @@ package lightsail
 
 import (
 	"context"
+	"github.com/aws/aws-sdk-go-v2/service/lightsail/schemas"
 	"github.com/aws/aws-sdk-go-v2/service/lightsail/types"
+	smithy "github.com/aws/smithy-go"
 	"github.com/aws/smithy-go/middleware"
-	smithyhttp "github.com/aws/smithy-go/transport/http"
 	"time"
 )
 
@@ -111,6 +112,40 @@ type CreateRelationalDatabaseFromSnapshotInput struct {
 	noSmithyDocumentSerde
 }
 
+func (v *CreateRelationalDatabaseFromSnapshotInput) Serialize(s smithy.ShapeSerializer) {
+	s.WriteStruct(schemas.CreateRelationalDatabaseFromSnapshotRequest)
+	v.SerializeMembers(s)
+	s.CloseStruct()
+}
+
+func (v *CreateRelationalDatabaseFromSnapshotInput) SerializeMembers(s smithy.ShapeSerializer) {
+	if v.AvailabilityZone != nil {
+		s.WriteString(schemas.CreateRelationalDatabaseFromSnapshotRequest_availabilityZone, *v.AvailabilityZone)
+	}
+	if v.PubliclyAccessible != nil {
+		s.WriteBool(schemas.CreateRelationalDatabaseFromSnapshotRequest_publiclyAccessible, *v.PubliclyAccessible)
+	}
+	if v.RelationalDatabaseBundleId != nil {
+		s.WriteString(schemas.CreateRelationalDatabaseFromSnapshotRequest_relationalDatabaseBundleId, *v.RelationalDatabaseBundleId)
+	}
+	if v.RelationalDatabaseName != nil {
+		s.WriteString(schemas.CreateRelationalDatabaseFromSnapshotRequest_relationalDatabaseName, *v.RelationalDatabaseName)
+	}
+	if v.RelationalDatabaseSnapshotName != nil {
+		s.WriteString(schemas.CreateRelationalDatabaseFromSnapshotRequest_relationalDatabaseSnapshotName, *v.RelationalDatabaseSnapshotName)
+	}
+	if v.RestoreTime != nil {
+		s.WriteTime(schemas.CreateRelationalDatabaseFromSnapshotRequest_restoreTime, *v.RestoreTime)
+	}
+	if v.SourceRelationalDatabaseName != nil {
+		s.WriteString(schemas.CreateRelationalDatabaseFromSnapshotRequest_sourceRelationalDatabaseName, *v.SourceRelationalDatabaseName)
+	}
+	serializeTagList(s, schemas.CreateRelationalDatabaseFromSnapshotRequest_tags, v.Tags)
+	if v.UseLatestRestorableTime != nil {
+		s.WriteBool(schemas.CreateRelationalDatabaseFromSnapshotRequest_useLatestRestorableTime, *v.UseLatestRestorableTime)
+	}
+}
+
 type CreateRelationalDatabaseFromSnapshotOutput struct {
 
 	// An array of objects that describe the result of the action, such as the status
@@ -124,22 +159,32 @@ type CreateRelationalDatabaseFromSnapshotOutput struct {
 	noSmithyDocumentSerde
 }
 
+func (v *CreateRelationalDatabaseFromSnapshotOutput) Serialize(s smithy.ShapeSerializer) {
+	s.WriteStruct(schemas.CreateRelationalDatabaseFromSnapshotResult)
+	v.SerializeMembers(s)
+	s.CloseStruct()
+}
+
+func (v *CreateRelationalDatabaseFromSnapshotOutput) SerializeMembers(s smithy.ShapeSerializer) {
+	serializeOperationList(s, schemas.CreateRelationalDatabaseFromSnapshotResult_operations, v.Operations)
+}
+func (v *CreateRelationalDatabaseFromSnapshotOutput) Deserialize(d smithy.ShapeDeserializer) error {
+	return smithy.ReadStruct(d, schemas.CreateRelationalDatabaseFromSnapshotResult, func(s *smithy.Schema) error {
+		switch s {
+		case schemas.CreateRelationalDatabaseFromSnapshotResult_operations:
+			return deserializeOperationList(d, schemas.CreateRelationalDatabaseFromSnapshotResult_operations, &v.Operations)
+		}
+		return nil
+	})
+}
 func (c *Client) addOperationCreateRelationalDatabaseFromSnapshotMiddlewares(stack *middleware.Stack, options Options) (err error) {
-	err = stack.Serialize.Add(&awsAwsjson11_serializeOpCreateRelationalDatabaseFromSnapshot{}, middleware.After)
-	if err != nil {
+	if err := stack.Serialize.Add(&serializeRequestMiddleware{options: &options, operationSchema: smithy.NewOperationSchema(schemas.CreateRelationalDatabaseFromSnapshot, schemas.CreateRelationalDatabaseFromSnapshotRequest, schemas.CreateRelationalDatabaseFromSnapshotResult)}, middleware.After); err != nil {
 		return err
 	}
-	err = stack.Deserialize.Add(&awsAwsjson11_deserializeOpCreateRelationalDatabaseFromSnapshot{}, middleware.After)
-	if err != nil {
+	if err := stack.Deserialize.Add(&deserializeResponseMiddleware{options: &options, operationSchema: smithy.NewOperationSchema(schemas.CreateRelationalDatabaseFromSnapshot, schemas.CreateRelationalDatabaseFromSnapshotRequest, schemas.CreateRelationalDatabaseFromSnapshotResult), output: &CreateRelationalDatabaseFromSnapshotOutput{}}, middleware.After); err != nil {
 		return err
 	}
 
-	if err = addlegacyEndpointContextSetter(stack, options); err != nil {
-		return err
-	}
-	if err = addComputeContentLength(stack); err != nil {
-		return err
-	}
 	if err = addResolveEndpointMiddleware(stack, options); err != nil {
 		return err
 	}
@@ -149,19 +194,10 @@ func (c *Client) addOperationCreateRelationalDatabaseFromSnapshotMiddlewares(sta
 	if err = addRecordResponseTiming(stack, options); err != nil {
 		return err
 	}
-	if err = smithyhttp.AddErrorCloseResponseBodyMiddleware(stack); err != nil {
-		return err
-	}
-	if err = smithyhttp.AddCloseResponseBodyMiddleware(stack); err != nil {
-		return err
-	}
 	if err = addCredentialSource(stack, options); err != nil {
 		return err
 	}
 	if err = addOpCreateRelationalDatabaseFromSnapshotValidationMiddleware(stack); err != nil {
-		return err
-	}
-	if err = stack.Initialize.Add(newServiceMetadataMiddleware(options.Region, "CreateRelationalDatabaseFromSnapshot"), middleware.Before); err != nil {
 		return err
 	}
 	if err = addRequestIDRetrieverMiddleware(stack); err != nil {

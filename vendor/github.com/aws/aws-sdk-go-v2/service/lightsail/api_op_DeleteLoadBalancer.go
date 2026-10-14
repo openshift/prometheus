@@ -4,9 +4,10 @@ package lightsail
 
 import (
 	"context"
+	"github.com/aws/aws-sdk-go-v2/service/lightsail/schemas"
 	"github.com/aws/aws-sdk-go-v2/service/lightsail/types"
+	smithy "github.com/aws/smithy-go"
 	"github.com/aws/smithy-go/middleware"
-	smithyhttp "github.com/aws/smithy-go/transport/http"
 )
 
 // Deletes a Lightsail load balancer and all its associated SSL/TLS certificates.
@@ -43,6 +44,18 @@ type DeleteLoadBalancerInput struct {
 	noSmithyDocumentSerde
 }
 
+func (v *DeleteLoadBalancerInput) Serialize(s smithy.ShapeSerializer) {
+	s.WriteStruct(schemas.DeleteLoadBalancerRequest)
+	v.SerializeMembers(s)
+	s.CloseStruct()
+}
+
+func (v *DeleteLoadBalancerInput) SerializeMembers(s smithy.ShapeSerializer) {
+	if v.LoadBalancerName != nil {
+		s.WriteString(schemas.DeleteLoadBalancerRequest_loadBalancerName, *v.LoadBalancerName)
+	}
+}
+
 type DeleteLoadBalancerOutput struct {
 
 	// An array of objects that describe the result of the action, such as the status
@@ -56,22 +69,32 @@ type DeleteLoadBalancerOutput struct {
 	noSmithyDocumentSerde
 }
 
+func (v *DeleteLoadBalancerOutput) Serialize(s smithy.ShapeSerializer) {
+	s.WriteStruct(schemas.DeleteLoadBalancerResult)
+	v.SerializeMembers(s)
+	s.CloseStruct()
+}
+
+func (v *DeleteLoadBalancerOutput) SerializeMembers(s smithy.ShapeSerializer) {
+	serializeOperationList(s, schemas.DeleteLoadBalancerResult_operations, v.Operations)
+}
+func (v *DeleteLoadBalancerOutput) Deserialize(d smithy.ShapeDeserializer) error {
+	return smithy.ReadStruct(d, schemas.DeleteLoadBalancerResult, func(s *smithy.Schema) error {
+		switch s {
+		case schemas.DeleteLoadBalancerResult_operations:
+			return deserializeOperationList(d, schemas.DeleteLoadBalancerResult_operations, &v.Operations)
+		}
+		return nil
+	})
+}
 func (c *Client) addOperationDeleteLoadBalancerMiddlewares(stack *middleware.Stack, options Options) (err error) {
-	err = stack.Serialize.Add(&awsAwsjson11_serializeOpDeleteLoadBalancer{}, middleware.After)
-	if err != nil {
+	if err := stack.Serialize.Add(&serializeRequestMiddleware{options: &options, operationSchema: smithy.NewOperationSchema(schemas.DeleteLoadBalancer, schemas.DeleteLoadBalancerRequest, schemas.DeleteLoadBalancerResult)}, middleware.After); err != nil {
 		return err
 	}
-	err = stack.Deserialize.Add(&awsAwsjson11_deserializeOpDeleteLoadBalancer{}, middleware.After)
-	if err != nil {
+	if err := stack.Deserialize.Add(&deserializeResponseMiddleware{options: &options, operationSchema: smithy.NewOperationSchema(schemas.DeleteLoadBalancer, schemas.DeleteLoadBalancerRequest, schemas.DeleteLoadBalancerResult), output: &DeleteLoadBalancerOutput{}}, middleware.After); err != nil {
 		return err
 	}
 
-	if err = addlegacyEndpointContextSetter(stack, options); err != nil {
-		return err
-	}
-	if err = addComputeContentLength(stack); err != nil {
-		return err
-	}
 	if err = addResolveEndpointMiddleware(stack, options); err != nil {
 		return err
 	}
@@ -81,19 +104,10 @@ func (c *Client) addOperationDeleteLoadBalancerMiddlewares(stack *middleware.Sta
 	if err = addRecordResponseTiming(stack, options); err != nil {
 		return err
 	}
-	if err = smithyhttp.AddErrorCloseResponseBodyMiddleware(stack); err != nil {
-		return err
-	}
-	if err = smithyhttp.AddCloseResponseBodyMiddleware(stack); err != nil {
-		return err
-	}
 	if err = addCredentialSource(stack, options); err != nil {
 		return err
 	}
 	if err = addOpDeleteLoadBalancerValidationMiddleware(stack); err != nil {
-		return err
-	}
-	if err = stack.Initialize.Add(newServiceMetadataMiddleware(options.Region, "DeleteLoadBalancer"), middleware.Before); err != nil {
 		return err
 	}
 	if err = addRequestIDRetrieverMiddleware(stack); err != nil {

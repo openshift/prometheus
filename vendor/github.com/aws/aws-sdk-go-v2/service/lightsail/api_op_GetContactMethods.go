@@ -4,9 +4,10 @@ package lightsail
 
 import (
 	"context"
+	"github.com/aws/aws-sdk-go-v2/service/lightsail/schemas"
 	"github.com/aws/aws-sdk-go-v2/service/lightsail/types"
+	smithy "github.com/aws/smithy-go"
 	"github.com/aws/smithy-go/middleware"
-	smithyhttp "github.com/aws/smithy-go/transport/http"
 )
 
 // Returns information about the configured contact methods. Specify a protocol in
@@ -46,6 +47,16 @@ type GetContactMethodsInput struct {
 	noSmithyDocumentSerde
 }
 
+func (v *GetContactMethodsInput) Serialize(s smithy.ShapeSerializer) {
+	s.WriteStruct(schemas.GetContactMethodsRequest)
+	v.SerializeMembers(s)
+	s.CloseStruct()
+}
+
+func (v *GetContactMethodsInput) SerializeMembers(s smithy.ShapeSerializer) {
+	serializeContactProtocolsList(s, schemas.GetContactMethodsRequest_protocols, v.Protocols)
+}
+
 type GetContactMethodsOutput struct {
 
 	// An array of objects that describe the contact methods.
@@ -57,22 +68,32 @@ type GetContactMethodsOutput struct {
 	noSmithyDocumentSerde
 }
 
+func (v *GetContactMethodsOutput) Serialize(s smithy.ShapeSerializer) {
+	s.WriteStruct(schemas.GetContactMethodsResult)
+	v.SerializeMembers(s)
+	s.CloseStruct()
+}
+
+func (v *GetContactMethodsOutput) SerializeMembers(s smithy.ShapeSerializer) {
+	serializeContactMethodsList(s, schemas.GetContactMethodsResult_contactMethods, v.ContactMethods)
+}
+func (v *GetContactMethodsOutput) Deserialize(d smithy.ShapeDeserializer) error {
+	return smithy.ReadStruct(d, schemas.GetContactMethodsResult, func(s *smithy.Schema) error {
+		switch s {
+		case schemas.GetContactMethodsResult_contactMethods:
+			return deserializeContactMethodsList(d, schemas.GetContactMethodsResult_contactMethods, &v.ContactMethods)
+		}
+		return nil
+	})
+}
 func (c *Client) addOperationGetContactMethodsMiddlewares(stack *middleware.Stack, options Options) (err error) {
-	err = stack.Serialize.Add(&awsAwsjson11_serializeOpGetContactMethods{}, middleware.After)
-	if err != nil {
+	if err := stack.Serialize.Add(&serializeRequestMiddleware{options: &options, operationSchema: smithy.NewOperationSchema(schemas.GetContactMethods, schemas.GetContactMethodsRequest, schemas.GetContactMethodsResult)}, middleware.After); err != nil {
 		return err
 	}
-	err = stack.Deserialize.Add(&awsAwsjson11_deserializeOpGetContactMethods{}, middleware.After)
-	if err != nil {
+	if err := stack.Deserialize.Add(&deserializeResponseMiddleware{options: &options, operationSchema: smithy.NewOperationSchema(schemas.GetContactMethods, schemas.GetContactMethodsRequest, schemas.GetContactMethodsResult), output: &GetContactMethodsOutput{}}, middleware.After); err != nil {
 		return err
 	}
 
-	if err = addlegacyEndpointContextSetter(stack, options); err != nil {
-		return err
-	}
-	if err = addComputeContentLength(stack); err != nil {
-		return err
-	}
 	if err = addResolveEndpointMiddleware(stack, options); err != nil {
 		return err
 	}
@@ -82,16 +103,7 @@ func (c *Client) addOperationGetContactMethodsMiddlewares(stack *middleware.Stac
 	if err = addRecordResponseTiming(stack, options); err != nil {
 		return err
 	}
-	if err = smithyhttp.AddErrorCloseResponseBodyMiddleware(stack); err != nil {
-		return err
-	}
-	if err = smithyhttp.AddCloseResponseBodyMiddleware(stack); err != nil {
-		return err
-	}
 	if err = addCredentialSource(stack, options); err != nil {
-		return err
-	}
-	if err = stack.Initialize.Add(newServiceMetadataMiddleware(options.Region, "GetContactMethods"), middleware.Before); err != nil {
 		return err
 	}
 	if err = addRequestIDRetrieverMiddleware(stack); err != nil {

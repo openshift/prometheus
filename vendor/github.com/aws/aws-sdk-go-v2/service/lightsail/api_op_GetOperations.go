@@ -4,9 +4,10 @@ package lightsail
 
 import (
 	"context"
+	"github.com/aws/aws-sdk-go-v2/service/lightsail/schemas"
 	"github.com/aws/aws-sdk-go-v2/service/lightsail/types"
+	smithy "github.com/aws/smithy-go"
 	"github.com/aws/smithy-go/middleware"
-	smithyhttp "github.com/aws/smithy-go/transport/http"
 )
 
 // Returns information about all operations.
@@ -41,6 +42,18 @@ type GetOperationsInput struct {
 	noSmithyDocumentSerde
 }
 
+func (v *GetOperationsInput) Serialize(s smithy.ShapeSerializer) {
+	s.WriteStruct(schemas.GetOperationsRequest)
+	v.SerializeMembers(s)
+	s.CloseStruct()
+}
+
+func (v *GetOperationsInput) SerializeMembers(s smithy.ShapeSerializer) {
+	if v.PageToken != nil {
+		s.WriteString(schemas.GetOperationsRequest_pageToken, *v.PageToken)
+	}
+}
+
 type GetOperationsOutput struct {
 
 	// The token to advance to the next page of results from your request.
@@ -62,22 +75,38 @@ type GetOperationsOutput struct {
 	noSmithyDocumentSerde
 }
 
+func (v *GetOperationsOutput) Serialize(s smithy.ShapeSerializer) {
+	s.WriteStruct(schemas.GetOperationsResult)
+	v.SerializeMembers(s)
+	s.CloseStruct()
+}
+
+func (v *GetOperationsOutput) SerializeMembers(s smithy.ShapeSerializer) {
+	if v.NextPageToken != nil {
+		s.WriteString(schemas.GetOperationsResult_nextPageToken, *v.NextPageToken)
+	}
+	serializeOperationList(s, schemas.GetOperationsResult_operations, v.Operations)
+}
+func (v *GetOperationsOutput) Deserialize(d smithy.ShapeDeserializer) error {
+	return smithy.ReadStruct(d, schemas.GetOperationsResult, func(s *smithy.Schema) error {
+		switch s {
+		case schemas.GetOperationsResult_nextPageToken:
+			v.NextPageToken = new(string)
+			return d.ReadString(schemas.GetOperationsResult_nextPageToken, v.NextPageToken)
+		case schemas.GetOperationsResult_operations:
+			return deserializeOperationList(d, schemas.GetOperationsResult_operations, &v.Operations)
+		}
+		return nil
+	})
+}
 func (c *Client) addOperationGetOperationsMiddlewares(stack *middleware.Stack, options Options) (err error) {
-	err = stack.Serialize.Add(&awsAwsjson11_serializeOpGetOperations{}, middleware.After)
-	if err != nil {
+	if err := stack.Serialize.Add(&serializeRequestMiddleware{options: &options, operationSchema: smithy.NewOperationSchema(schemas.GetOperations, schemas.GetOperationsRequest, schemas.GetOperationsResult)}, middleware.After); err != nil {
 		return err
 	}
-	err = stack.Deserialize.Add(&awsAwsjson11_deserializeOpGetOperations{}, middleware.After)
-	if err != nil {
+	if err := stack.Deserialize.Add(&deserializeResponseMiddleware{options: &options, operationSchema: smithy.NewOperationSchema(schemas.GetOperations, schemas.GetOperationsRequest, schemas.GetOperationsResult), output: &GetOperationsOutput{}}, middleware.After); err != nil {
 		return err
 	}
 
-	if err = addlegacyEndpointContextSetter(stack, options); err != nil {
-		return err
-	}
-	if err = addComputeContentLength(stack); err != nil {
-		return err
-	}
 	if err = addResolveEndpointMiddleware(stack, options); err != nil {
 		return err
 	}
@@ -87,16 +116,7 @@ func (c *Client) addOperationGetOperationsMiddlewares(stack *middleware.Stack, o
 	if err = addRecordResponseTiming(stack, options); err != nil {
 		return err
 	}
-	if err = smithyhttp.AddErrorCloseResponseBodyMiddleware(stack); err != nil {
-		return err
-	}
-	if err = smithyhttp.AddCloseResponseBodyMiddleware(stack); err != nil {
-		return err
-	}
 	if err = addCredentialSource(stack, options); err != nil {
-		return err
-	}
-	if err = stack.Initialize.Add(newServiceMetadataMiddleware(options.Region, "GetOperations"), middleware.Before); err != nil {
 		return err
 	}
 	if err = addRequestIDRetrieverMiddleware(stack); err != nil {

@@ -4,9 +4,10 @@ package lightsail
 
 import (
 	"context"
+	"github.com/aws/aws-sdk-go-v2/service/lightsail/schemas"
 	"github.com/aws/aws-sdk-go-v2/service/lightsail/types"
+	smithy "github.com/aws/smithy-go"
 	"github.com/aws/smithy-go/middleware"
-	smithyhttp "github.com/aws/smithy-go/transport/http"
 )
 
 // Disables an add-on for an Amazon Lightsail resource. For more information, see
@@ -43,6 +44,21 @@ type DisableAddOnInput struct {
 	noSmithyDocumentSerde
 }
 
+func (v *DisableAddOnInput) Serialize(s smithy.ShapeSerializer) {
+	s.WriteStruct(schemas.DisableAddOnRequest)
+	v.SerializeMembers(s)
+	s.CloseStruct()
+}
+
+func (v *DisableAddOnInput) SerializeMembers(s smithy.ShapeSerializer) {
+	if v.AddOnType != "" {
+		s.WriteString(schemas.DisableAddOnRequest_addOnType, string(v.AddOnType))
+	}
+	if v.ResourceName != nil {
+		s.WriteString(schemas.DisableAddOnRequest_resourceName, *v.ResourceName)
+	}
+}
+
 type DisableAddOnOutput struct {
 
 	// An array of objects that describe the result of the action, such as the status
@@ -56,22 +72,32 @@ type DisableAddOnOutput struct {
 	noSmithyDocumentSerde
 }
 
+func (v *DisableAddOnOutput) Serialize(s smithy.ShapeSerializer) {
+	s.WriteStruct(schemas.DisableAddOnResult)
+	v.SerializeMembers(s)
+	s.CloseStruct()
+}
+
+func (v *DisableAddOnOutput) SerializeMembers(s smithy.ShapeSerializer) {
+	serializeOperationList(s, schemas.DisableAddOnResult_operations, v.Operations)
+}
+func (v *DisableAddOnOutput) Deserialize(d smithy.ShapeDeserializer) error {
+	return smithy.ReadStruct(d, schemas.DisableAddOnResult, func(s *smithy.Schema) error {
+		switch s {
+		case schemas.DisableAddOnResult_operations:
+			return deserializeOperationList(d, schemas.DisableAddOnResult_operations, &v.Operations)
+		}
+		return nil
+	})
+}
 func (c *Client) addOperationDisableAddOnMiddlewares(stack *middleware.Stack, options Options) (err error) {
-	err = stack.Serialize.Add(&awsAwsjson11_serializeOpDisableAddOn{}, middleware.After)
-	if err != nil {
+	if err := stack.Serialize.Add(&serializeRequestMiddleware{options: &options, operationSchema: smithy.NewOperationSchema(schemas.DisableAddOn, schemas.DisableAddOnRequest, schemas.DisableAddOnResult)}, middleware.After); err != nil {
 		return err
 	}
-	err = stack.Deserialize.Add(&awsAwsjson11_deserializeOpDisableAddOn{}, middleware.After)
-	if err != nil {
+	if err := stack.Deserialize.Add(&deserializeResponseMiddleware{options: &options, operationSchema: smithy.NewOperationSchema(schemas.DisableAddOn, schemas.DisableAddOnRequest, schemas.DisableAddOnResult), output: &DisableAddOnOutput{}}, middleware.After); err != nil {
 		return err
 	}
 
-	if err = addlegacyEndpointContextSetter(stack, options); err != nil {
-		return err
-	}
-	if err = addComputeContentLength(stack); err != nil {
-		return err
-	}
 	if err = addResolveEndpointMiddleware(stack, options); err != nil {
 		return err
 	}
@@ -81,19 +107,10 @@ func (c *Client) addOperationDisableAddOnMiddlewares(stack *middleware.Stack, op
 	if err = addRecordResponseTiming(stack, options); err != nil {
 		return err
 	}
-	if err = smithyhttp.AddErrorCloseResponseBodyMiddleware(stack); err != nil {
-		return err
-	}
-	if err = smithyhttp.AddCloseResponseBodyMiddleware(stack); err != nil {
-		return err
-	}
 	if err = addCredentialSource(stack, options); err != nil {
 		return err
 	}
 	if err = addOpDisableAddOnValidationMiddleware(stack); err != nil {
-		return err
-	}
-	if err = stack.Initialize.Add(newServiceMetadataMiddleware(options.Region, "DisableAddOn"), middleware.Before); err != nil {
 		return err
 	}
 	if err = addRequestIDRetrieverMiddleware(stack); err != nil {

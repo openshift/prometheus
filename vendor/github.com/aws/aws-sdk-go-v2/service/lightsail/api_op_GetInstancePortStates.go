@@ -4,9 +4,10 @@ package lightsail
 
 import (
 	"context"
+	"github.com/aws/aws-sdk-go-v2/service/lightsail/schemas"
 	"github.com/aws/aws-sdk-go-v2/service/lightsail/types"
+	smithy "github.com/aws/smithy-go"
 	"github.com/aws/smithy-go/middleware"
-	smithyhttp "github.com/aws/smithy-go/transport/http"
 )
 
 // Returns the firewall port states for a specific Amazon Lightsail instance, the
@@ -37,6 +38,18 @@ type GetInstancePortStatesInput struct {
 	noSmithyDocumentSerde
 }
 
+func (v *GetInstancePortStatesInput) Serialize(s smithy.ShapeSerializer) {
+	s.WriteStruct(schemas.GetInstancePortStatesRequest)
+	v.SerializeMembers(s)
+	s.CloseStruct()
+}
+
+func (v *GetInstancePortStatesInput) SerializeMembers(s smithy.ShapeSerializer) {
+	if v.InstanceName != nil {
+		s.WriteString(schemas.GetInstancePortStatesRequest_instanceName, *v.InstanceName)
+	}
+}
+
 type GetInstancePortStatesOutput struct {
 
 	// An array of objects that describe the firewall port states for the specified
@@ -49,22 +62,32 @@ type GetInstancePortStatesOutput struct {
 	noSmithyDocumentSerde
 }
 
+func (v *GetInstancePortStatesOutput) Serialize(s smithy.ShapeSerializer) {
+	s.WriteStruct(schemas.GetInstancePortStatesResult)
+	v.SerializeMembers(s)
+	s.CloseStruct()
+}
+
+func (v *GetInstancePortStatesOutput) SerializeMembers(s smithy.ShapeSerializer) {
+	serializeInstancePortStateList(s, schemas.GetInstancePortStatesResult_portStates, v.PortStates)
+}
+func (v *GetInstancePortStatesOutput) Deserialize(d smithy.ShapeDeserializer) error {
+	return smithy.ReadStruct(d, schemas.GetInstancePortStatesResult, func(s *smithy.Schema) error {
+		switch s {
+		case schemas.GetInstancePortStatesResult_portStates:
+			return deserializeInstancePortStateList(d, schemas.GetInstancePortStatesResult_portStates, &v.PortStates)
+		}
+		return nil
+	})
+}
 func (c *Client) addOperationGetInstancePortStatesMiddlewares(stack *middleware.Stack, options Options) (err error) {
-	err = stack.Serialize.Add(&awsAwsjson11_serializeOpGetInstancePortStates{}, middleware.After)
-	if err != nil {
+	if err := stack.Serialize.Add(&serializeRequestMiddleware{options: &options, operationSchema: smithy.NewOperationSchema(schemas.GetInstancePortStates, schemas.GetInstancePortStatesRequest, schemas.GetInstancePortStatesResult)}, middleware.After); err != nil {
 		return err
 	}
-	err = stack.Deserialize.Add(&awsAwsjson11_deserializeOpGetInstancePortStates{}, middleware.After)
-	if err != nil {
+	if err := stack.Deserialize.Add(&deserializeResponseMiddleware{options: &options, operationSchema: smithy.NewOperationSchema(schemas.GetInstancePortStates, schemas.GetInstancePortStatesRequest, schemas.GetInstancePortStatesResult), output: &GetInstancePortStatesOutput{}}, middleware.After); err != nil {
 		return err
 	}
 
-	if err = addlegacyEndpointContextSetter(stack, options); err != nil {
-		return err
-	}
-	if err = addComputeContentLength(stack); err != nil {
-		return err
-	}
 	if err = addResolveEndpointMiddleware(stack, options); err != nil {
 		return err
 	}
@@ -74,19 +97,10 @@ func (c *Client) addOperationGetInstancePortStatesMiddlewares(stack *middleware.
 	if err = addRecordResponseTiming(stack, options); err != nil {
 		return err
 	}
-	if err = smithyhttp.AddErrorCloseResponseBodyMiddleware(stack); err != nil {
-		return err
-	}
-	if err = smithyhttp.AddCloseResponseBodyMiddleware(stack); err != nil {
-		return err
-	}
 	if err = addCredentialSource(stack, options); err != nil {
 		return err
 	}
 	if err = addOpGetInstancePortStatesValidationMiddleware(stack); err != nil {
-		return err
-	}
-	if err = stack.Initialize.Add(newServiceMetadataMiddleware(options.Region, "GetInstancePortStates"), middleware.Before); err != nil {
 		return err
 	}
 	if err = addRequestIDRetrieverMiddleware(stack); err != nil {

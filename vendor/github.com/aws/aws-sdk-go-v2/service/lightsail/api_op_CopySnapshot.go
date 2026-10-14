@@ -4,9 +4,10 @@ package lightsail
 
 import (
 	"context"
+	"github.com/aws/aws-sdk-go-v2/service/lightsail/schemas"
 	"github.com/aws/aws-sdk-go-v2/service/lightsail/types"
+	smithy "github.com/aws/smithy-go"
 	"github.com/aws/smithy-go/middleware"
-	smithyhttp "github.com/aws/smithy-go/transport/http"
 )
 
 // Copies a manual snapshot of an instance or disk as another manual snapshot, or
@@ -102,6 +103,33 @@ type CopySnapshotInput struct {
 	noSmithyDocumentSerde
 }
 
+func (v *CopySnapshotInput) Serialize(s smithy.ShapeSerializer) {
+	s.WriteStruct(schemas.CopySnapshotRequest)
+	v.SerializeMembers(s)
+	s.CloseStruct()
+}
+
+func (v *CopySnapshotInput) SerializeMembers(s smithy.ShapeSerializer) {
+	if v.RestoreDate != nil {
+		s.WriteString(schemas.CopySnapshotRequest_restoreDate, *v.RestoreDate)
+	}
+	if v.SourceRegion != "" {
+		s.WriteString(schemas.CopySnapshotRequest_sourceRegion, string(v.SourceRegion))
+	}
+	if v.SourceResourceName != nil {
+		s.WriteString(schemas.CopySnapshotRequest_sourceResourceName, *v.SourceResourceName)
+	}
+	if v.SourceSnapshotName != nil {
+		s.WriteString(schemas.CopySnapshotRequest_sourceSnapshotName, *v.SourceSnapshotName)
+	}
+	if v.TargetSnapshotName != nil {
+		s.WriteString(schemas.CopySnapshotRequest_targetSnapshotName, *v.TargetSnapshotName)
+	}
+	if v.UseLatestRestorableAutoSnapshot != nil {
+		s.WriteBool(schemas.CopySnapshotRequest_useLatestRestorableAutoSnapshot, *v.UseLatestRestorableAutoSnapshot)
+	}
+}
+
 type CopySnapshotOutput struct {
 
 	// An array of objects that describe the result of the action, such as the status
@@ -115,22 +143,32 @@ type CopySnapshotOutput struct {
 	noSmithyDocumentSerde
 }
 
+func (v *CopySnapshotOutput) Serialize(s smithy.ShapeSerializer) {
+	s.WriteStruct(schemas.CopySnapshotResult)
+	v.SerializeMembers(s)
+	s.CloseStruct()
+}
+
+func (v *CopySnapshotOutput) SerializeMembers(s smithy.ShapeSerializer) {
+	serializeOperationList(s, schemas.CopySnapshotResult_operations, v.Operations)
+}
+func (v *CopySnapshotOutput) Deserialize(d smithy.ShapeDeserializer) error {
+	return smithy.ReadStruct(d, schemas.CopySnapshotResult, func(s *smithy.Schema) error {
+		switch s {
+		case schemas.CopySnapshotResult_operations:
+			return deserializeOperationList(d, schemas.CopySnapshotResult_operations, &v.Operations)
+		}
+		return nil
+	})
+}
 func (c *Client) addOperationCopySnapshotMiddlewares(stack *middleware.Stack, options Options) (err error) {
-	err = stack.Serialize.Add(&awsAwsjson11_serializeOpCopySnapshot{}, middleware.After)
-	if err != nil {
+	if err := stack.Serialize.Add(&serializeRequestMiddleware{options: &options, operationSchema: smithy.NewOperationSchema(schemas.CopySnapshot, schemas.CopySnapshotRequest, schemas.CopySnapshotResult)}, middleware.After); err != nil {
 		return err
 	}
-	err = stack.Deserialize.Add(&awsAwsjson11_deserializeOpCopySnapshot{}, middleware.After)
-	if err != nil {
+	if err := stack.Deserialize.Add(&deserializeResponseMiddleware{options: &options, operationSchema: smithy.NewOperationSchema(schemas.CopySnapshot, schemas.CopySnapshotRequest, schemas.CopySnapshotResult), output: &CopySnapshotOutput{}}, middleware.After); err != nil {
 		return err
 	}
 
-	if err = addlegacyEndpointContextSetter(stack, options); err != nil {
-		return err
-	}
-	if err = addComputeContentLength(stack); err != nil {
-		return err
-	}
 	if err = addResolveEndpointMiddleware(stack, options); err != nil {
 		return err
 	}
@@ -140,19 +178,10 @@ func (c *Client) addOperationCopySnapshotMiddlewares(stack *middleware.Stack, op
 	if err = addRecordResponseTiming(stack, options); err != nil {
 		return err
 	}
-	if err = smithyhttp.AddErrorCloseResponseBodyMiddleware(stack); err != nil {
-		return err
-	}
-	if err = smithyhttp.AddCloseResponseBodyMiddleware(stack); err != nil {
-		return err
-	}
 	if err = addCredentialSource(stack, options); err != nil {
 		return err
 	}
 	if err = addOpCopySnapshotValidationMiddleware(stack); err != nil {
-		return err
-	}
-	if err = stack.Initialize.Add(newServiceMetadataMiddleware(options.Region, "CopySnapshot"), middleware.Before); err != nil {
 		return err
 	}
 	if err = addRequestIDRetrieverMiddleware(stack); err != nil {

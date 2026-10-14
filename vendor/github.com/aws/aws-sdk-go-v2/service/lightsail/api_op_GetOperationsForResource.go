@@ -4,9 +4,10 @@ package lightsail
 
 import (
 	"context"
+	"github.com/aws/aws-sdk-go-v2/service/lightsail/schemas"
 	"github.com/aws/aws-sdk-go-v2/service/lightsail/types"
+	smithy "github.com/aws/smithy-go"
 	"github.com/aws/smithy-go/middleware"
-	smithyhttp "github.com/aws/smithy-go/transport/http"
 )
 
 // Gets operations for a specific resource (an instance or a static IP).
@@ -42,6 +43,21 @@ type GetOperationsForResourceInput struct {
 	noSmithyDocumentSerde
 }
 
+func (v *GetOperationsForResourceInput) Serialize(s smithy.ShapeSerializer) {
+	s.WriteStruct(schemas.GetOperationsForResourceRequest)
+	v.SerializeMembers(s)
+	s.CloseStruct()
+}
+
+func (v *GetOperationsForResourceInput) SerializeMembers(s smithy.ShapeSerializer) {
+	if v.PageToken != nil {
+		s.WriteString(schemas.GetOperationsForResourceRequest_pageToken, *v.PageToken)
+	}
+	if v.ResourceName != nil {
+		s.WriteString(schemas.GetOperationsForResourceRequest_resourceName, *v.ResourceName)
+	}
+}
+
 type GetOperationsForResourceOutput struct {
 
 	// (Discontinued) Returns the number of pages of results that remain.
@@ -71,22 +87,44 @@ type GetOperationsForResourceOutput struct {
 	noSmithyDocumentSerde
 }
 
+func (v *GetOperationsForResourceOutput) Serialize(s smithy.ShapeSerializer) {
+	s.WriteStruct(schemas.GetOperationsForResourceResult)
+	v.SerializeMembers(s)
+	s.CloseStruct()
+}
+
+func (v *GetOperationsForResourceOutput) SerializeMembers(s smithy.ShapeSerializer) {
+	if v.NextPageCount != nil {
+		s.WriteString(schemas.GetOperationsForResourceResult_nextPageCount, *v.NextPageCount)
+	}
+	if v.NextPageToken != nil {
+		s.WriteString(schemas.GetOperationsForResourceResult_nextPageToken, *v.NextPageToken)
+	}
+	serializeOperationList(s, schemas.GetOperationsForResourceResult_operations, v.Operations)
+}
+func (v *GetOperationsForResourceOutput) Deserialize(d smithy.ShapeDeserializer) error {
+	return smithy.ReadStruct(d, schemas.GetOperationsForResourceResult, func(s *smithy.Schema) error {
+		switch s {
+		case schemas.GetOperationsForResourceResult_nextPageCount:
+			v.NextPageCount = new(string)
+			return d.ReadString(schemas.GetOperationsForResourceResult_nextPageCount, v.NextPageCount)
+		case schemas.GetOperationsForResourceResult_nextPageToken:
+			v.NextPageToken = new(string)
+			return d.ReadString(schemas.GetOperationsForResourceResult_nextPageToken, v.NextPageToken)
+		case schemas.GetOperationsForResourceResult_operations:
+			return deserializeOperationList(d, schemas.GetOperationsForResourceResult_operations, &v.Operations)
+		}
+		return nil
+	})
+}
 func (c *Client) addOperationGetOperationsForResourceMiddlewares(stack *middleware.Stack, options Options) (err error) {
-	err = stack.Serialize.Add(&awsAwsjson11_serializeOpGetOperationsForResource{}, middleware.After)
-	if err != nil {
+	if err := stack.Serialize.Add(&serializeRequestMiddleware{options: &options, operationSchema: smithy.NewOperationSchema(schemas.GetOperationsForResource, schemas.GetOperationsForResourceRequest, schemas.GetOperationsForResourceResult)}, middleware.After); err != nil {
 		return err
 	}
-	err = stack.Deserialize.Add(&awsAwsjson11_deserializeOpGetOperationsForResource{}, middleware.After)
-	if err != nil {
+	if err := stack.Deserialize.Add(&deserializeResponseMiddleware{options: &options, operationSchema: smithy.NewOperationSchema(schemas.GetOperationsForResource, schemas.GetOperationsForResourceRequest, schemas.GetOperationsForResourceResult), output: &GetOperationsForResourceOutput{}}, middleware.After); err != nil {
 		return err
 	}
 
-	if err = addlegacyEndpointContextSetter(stack, options); err != nil {
-		return err
-	}
-	if err = addComputeContentLength(stack); err != nil {
-		return err
-	}
 	if err = addResolveEndpointMiddleware(stack, options); err != nil {
 		return err
 	}
@@ -96,19 +134,10 @@ func (c *Client) addOperationGetOperationsForResourceMiddlewares(stack *middlewa
 	if err = addRecordResponseTiming(stack, options); err != nil {
 		return err
 	}
-	if err = smithyhttp.AddErrorCloseResponseBodyMiddleware(stack); err != nil {
-		return err
-	}
-	if err = smithyhttp.AddCloseResponseBodyMiddleware(stack); err != nil {
-		return err
-	}
 	if err = addCredentialSource(stack, options); err != nil {
 		return err
 	}
 	if err = addOpGetOperationsForResourceValidationMiddleware(stack); err != nil {
-		return err
-	}
-	if err = stack.Initialize.Add(newServiceMetadataMiddleware(options.Region, "GetOperationsForResource"), middleware.Before); err != nil {
 		return err
 	}
 	if err = addRequestIDRetrieverMiddleware(stack); err != nil {

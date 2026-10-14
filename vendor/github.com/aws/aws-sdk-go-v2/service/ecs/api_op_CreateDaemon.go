@@ -6,7 +6,6 @@ import (
 	"context"
 	"github.com/aws/aws-sdk-go-v2/service/ecs/types"
 	"github.com/aws/smithy-go/middleware"
-	smithyhttp "github.com/aws/smithy-go/transport/http"
 	"time"
 )
 
@@ -67,6 +66,24 @@ type CreateDaemonInput struct {
 
 	// The Amazon Resource Name (ARN) of the cluster to create the daemon in.
 	ClusterArn *string
+
+	// If the critical parameter of a daemon is true , and the daemon task fails,
+	// stops, or becomes unhealthy, Amazon ECS drains the container instance and stops
+	// the other tasks running on it. If the critical parameter is false , the daemon
+	// task failure doesn't affect the other tasks on the instance. The default value
+	// is true .
+	//
+	// A non-critical daemon doesn't block instance registration. The container
+	// instance becomes active and continues to run your other tasks, whether the
+	// daemon task fails during scale-out or during a deployment.
+	//
+	// Amazon ECS emits an EventBridge event when a daemon task fails to start, for
+	// both critical and non-critical daemons.
+	//
+	// Daemon task launch failures during a deployment are still counted by the
+	// deployment circuit breaker. The circuit breaker can roll back an unstable target
+	// revision.
+	Critical *bool
 
 	// Optional deployment parameters that control how the daemon rolls out updates,
 	// including the drain percentage, alarm-based rollback, and bake time.
@@ -154,12 +171,6 @@ func (c *Client) addOperationCreateDaemonMiddlewares(stack *middleware.Stack, op
 		return err
 	}
 
-	if err = addlegacyEndpointContextSetter(stack, options); err != nil {
-		return err
-	}
-	if err = addComputeContentLength(stack); err != nil {
-		return err
-	}
 	if err = addResolveEndpointMiddleware(stack, options); err != nil {
 		return err
 	}
@@ -169,19 +180,10 @@ func (c *Client) addOperationCreateDaemonMiddlewares(stack *middleware.Stack, op
 	if err = addRecordResponseTiming(stack, options); err != nil {
 		return err
 	}
-	if err = smithyhttp.AddErrorCloseResponseBodyMiddleware(stack); err != nil {
-		return err
-	}
-	if err = smithyhttp.AddCloseResponseBodyMiddleware(stack); err != nil {
-		return err
-	}
 	if err = addCredentialSource(stack, options); err != nil {
 		return err
 	}
 	if err = addOpCreateDaemonValidationMiddleware(stack); err != nil {
-		return err
-	}
-	if err = stack.Initialize.Add(newServiceMetadataMiddleware(options.Region, "CreateDaemon"), middleware.Before); err != nil {
 		return err
 	}
 	if err = addRequestIDRetrieverMiddleware(stack); err != nil {
