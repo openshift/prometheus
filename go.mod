@@ -43,7 +43,7 @@ require (
 	github.com/hetznercloud/hcloud-go/v2 v2.32.0
 	github.com/ionos-cloud/sdk-go/v6 v6.3.5
 	github.com/json-iterator/go v1.1.12
-	github.com/klauspost/compress v1.18.2
+	github.com/klauspost/compress v1.20.2
 	github.com/kolo/xmlrpc v0.0.0-20220921171641-a4b6fa1dd06b
 	github.com/linode/linodego v1.63.0
 	github.com/miekg/dns v1.1.69
