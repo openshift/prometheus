@@ -1,5 +1,4 @@
-//go:build !appengine && !noasm && gc
-// +build !appengine,!noasm,gc
+//go:build (amd64 || arm64) && !appengine && !noasm && gc
 
 package s2
 
@@ -9,7 +8,7 @@ import (
 	"github.com/klauspost/compress/internal/race"
 )
 
-const hasAmd64Asm = true
+const hasAsm = true
 
 var encPools [4]sync.Pool
 
